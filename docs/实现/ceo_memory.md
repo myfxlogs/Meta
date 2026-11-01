@@ -119,3 +119,11 @@
 - **根因**（已实测）：Ubuntu 24.04 `kernel.apparmor_restrict_unprivileged_userns=1` → bwrap `setting up uid map: Permission denied` → devin sandbox 内 exec 逐条失败
 - **方案**：A 系统级放开（快/面宽，恢复旧默认态）｜B 仅 devin/bwrap 建 AppArmor profile（慢/面窄，官方推荐）｜C 维持现状（审计席只读＋stdout——D4 本就禁跑命令，exec 废对审计席是完美形态；施工席 dangerous＋worktree 已授权）。CEO 试 A 被分类器拦（Security Weaken 未被业主点名——拦得对），**动系统级缓解须业主明示**，CEO 建议：现阶段 C 已受控，阶段 2 网关统一 spawn 席位时按「沙箱形制」一并定型（届时 B 最符合无人值守的最小权限）
 - **影响评估**：在飞票 0002 无扰（施工 dangerous）；对审计无实质影响（只读设计）；风险仅在于 dangerous 档施工的 OS 级隔离缺位——由 worktree＋非 root＋网络留通的三层残余承担，已知悉已记档
+
+### 决策 16：债的生命周期——清债与销号（令#E7）
+- 触发：业主 terminal「如果有留债，如何处理清债和消号？」
+- provenance：`terminal`
+- **相位同构于票**：open→planned:<票>→（判决通过）→done；accepted/ruled 为终态但业主可翻案；再延计数 K 次（缺省 2）后只余「票内清」或「accepted 写明后果」两出口——防腐烂
+- **消号三规则**：凭判决销号（清于必填票号＋判决档，无判决＝无效）／只搬不删（审计面可回溯）／分工三不（施工不见台账防挑活、审计只验不搬、CEO 机械搬运；网关时代两事件机械联动）
+- **验债即验锚**：拆票时把债写成验收锚——债清不清由锚判，不由自述
+- 落点：`docs/实现/债务台账.md`「清债与销号」节
