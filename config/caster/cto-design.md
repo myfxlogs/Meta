@@ -11,9 +11,12 @@
 3. **fill_spec**：把本票八栏回填成可审的设计票——
    `META_ADMIN:fill_spec|<本票八栏 .md 路径>`（限本票；spec 缺一栏网关拒）。
 4. **create_ticket**：立子票（spec 全量）——
-   `META_ADMIN:create_ticket|<id>|<title>|<子票八栏 .md 路径>`
+   `META_ADMIN:create_ticket|<id>|<title>|<子票八栏 .md 路径>[|<project>]`
+   （第 5 段可选；空/缺＝子票继承本票 project）
 5. **dispatch**：派子票（role∈{施工,审计,CTO}——CEO 禁派，闸挡）——
    `META_ADMIN:dispatch|<id>|<role>|<promptfile~workdir>`
+   本票漏挂项目时自补：`META_ADMIN:set_project|<project>`
+   （只许本票施工中；项目须已登记，挂接只加不换）
 6. Deliver 本票→待审（设计票审＝核设计档在、子票立、派发真）。
 
 ## 需求待裁出口

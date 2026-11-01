@@ -338,7 +338,7 @@ func TestDesignLock(t *testing.T) {
 	ctx := context.Background()
 	for _, id := range []string{"ta", "tb"} {
 		mkTicketAt(t, g, id, db.PhaseCreated)
-		if err := g.DB().SetProject(ctx, id, "p1"); err != nil {
+		if err := g.DB().SetTicketProject(ctx, id, "p1"); err != nil {
 			t.Fatal(err)
 		}
 	}

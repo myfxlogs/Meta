@@ -131,6 +131,41 @@ func TestScanSentinel_Admin(t *testing.T) {
 	}
 }
 
+// TestScanSentinel_AdminProject 票0015：create_ticket 可选第 5 段 project
+// →NewTicket.project；缺段→空（网关继承）；set_project 哨兵→SetProject 帧
+// TicketId 取本票。
+func TestScanSentinel_AdminProject(t *testing.T) {
+	s := newTestSession("t1")
+	dir := t.TempDir()
+	specFile := filepath.Join(dir, "spec.md")
+	_ = os.WriteFile(specFile, []byte("# spec"), 0o600)
+	scan := func(l string) bool { return s.scanSentinel([]byte(l)) }
+
+	if !scan("META_ADMIN:create_ticket|c1|子票|" + specFile + "|meta") {
+		t.Fatal("create_ticket 五段哨兵未吞")
+	}
+	m := <-s.sendq
+	nt := m.GetAdmin().GetCreateTicket()
+	if nt.GetId() != "c1" || nt.GetProject() != "meta" {
+		t.Fatalf("create_ticket project 段未落: %+v", nt)
+	}
+	if !scan("META_ADMIN:create_ticket|c2|子票|" + specFile) {
+		t.Fatal("create_ticket 四段哨兵未吞")
+	}
+	m = <-s.sendq
+	if nt = m.GetAdmin().GetCreateTicket(); nt.GetProject() != "" {
+		t.Fatalf("缺第 5 段 project 应空（网关继承本票）: %+v", nt)
+	}
+	if !scan("META_ADMIN:set_project|meta") {
+		t.Fatal("set_project 哨兵未吞")
+	}
+	m = <-s.sendq
+	sp := m.GetAdmin().GetSetProject()
+	if sp == nil || sp.TicketId != "t1" || sp.Project != "meta" {
+		t.Fatalf("set_project 帧不符（TicketId 须取本票）: %+v", m)
+	}
+}
+
 // ---------- D-32：净退无哨兵→ExitSeatErr 真跑（伪适配器+桩网关） ----------
 
 type fakeAdapter struct{ argv []string }

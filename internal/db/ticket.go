@@ -39,16 +39,17 @@ type Event struct {
 
 // CreateTicket 立票（初始相位 已立）。
 func (d *DB) CreateTicket(ctx context.Context, id, title string, spec []byte) error {
-	return d.CreateTicketProv(ctx, id, title, spec, "")
+	return d.CreateTicketProv(ctx, id, title, spec, "", "")
 }
 
 // CreateTicketProv 立票＋created 事件盖 provenance（D9：CEO/admin 帧链
-// 立票必须带戳——「业主指示」自此机检可查）。
-func (d *DB) CreateTicketProv(ctx context.Context, id, title string, spec []byte, provenance string) error {
+// 立票必须带戳——「业主指示」自此机检可查）。project 与票行同 INSERT 原子
+// 落入（票0015：登记校验由调用方先行——挂接只加不换见 attachProject）。
+func (d *DB) CreateTicketProv(ctx context.Context, id, title string, spec []byte, provenance, project string) error {
 	now := d.now().UnixNano()
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO ticket (id, title, phase, spec, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
-		id, title, string(PhaseCreated), spec, now, now)
+		`INSERT INTO ticket (id, title, phase, spec, project, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+		id, title, string(PhaseCreated), spec, project, now, now)
 	if err != nil {
 		return fmt.Errorf("create ticket: %w", err)
 	}
@@ -227,15 +228,6 @@ func (d *DB) UpdateSpec(ctx context.Context, ticketID string, spec []byte) error
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE ticket SET spec=?, updated_at=? WHERE id=?`,
 		spec, d.now().UnixNano(), ticketID)
-	return err
-}
-
-// SetProject 票归项目（B1 三把项目锁的锁族键；NewTicket.project 面
-// 落成前的写径）。
-func (d *DB) SetProject(ctx context.Context, ticketID, project string) error {
-	_, err := d.db.ExecContext(ctx,
-		`UPDATE ticket SET project=?, updated_at=? WHERE id=?`,
-		project, d.now().UnixNano(), ticketID)
 	return err
 }
 

@@ -362,6 +362,17 @@ func (g *Gateway) CeoSubmitRequirement(ctx context.Context, r *pbv1.Requirement)
 	if title == "" {
 		title = preview80(r.Goal)
 	}
+	// 需求票挂项目（票0015）：落票时校验登记——未登记需求不立。
+	if r.Project != "" {
+		p, err := g.database.GetProject(ctx, r.Project)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if p == nil {
+			return nil, status.Error(codes.FailedPrecondition,
+				"项目 "+r.Project+" 无配方登记")
+		}
+	}
 	spec, err := proto.Marshal(&pbv1.TicketSpec{
 		Goal: r.Goal,
 		Why:  "定向: " + r.Direction + "\nprovenance: " + prov,
@@ -370,8 +381,11 @@ func (g *Gateway) CeoSubmitRequirement(ctx context.Context, r *pbv1.Requirement)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	id := "req-" + randHex(6)
-	if err := g.database.CreateTicketProv(ctx, id, title, spec, prov); err != nil {
+	if err := g.database.CreateTicketProv(ctx, id, title, spec, prov, r.Project); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if r.Project != "" {
+		g.emitProjectSet(ctx, id, r.Project, run.RunID, prov)
 	}
 	note := r.Goal
 	if r.Direction != "" {
@@ -529,8 +543,9 @@ func (g *Gateway) renderRedirectPrompt(ticketID, note string) (string, error) {
 		"   取 created/requirement/req_pending/ruling 行——goal=需求原文、定向与新定向在行内。\n" +
 		"2. 产出设计文档并 commit 到仓。\n" +
 		"3. 回填本票八栏：`META_ADMIN:fill_spec|<本票八栏 .md 路径>`（只许本票）。\n" +
-		"4. 立子票：`META_ADMIN:create_ticket|<id>|<title>|<子票八栏 .md 路径>`\n" +
+		"4. 立子票：`META_ADMIN:create_ticket|<id>|<title>|<子票八栏 .md 路径>[|<project>]`（第 5 段可选；空＝继承本票 project）。\n" +
 		"5. 派子票（role∈{施工,审计,CTO}，CEO 禁派闸挡）：`META_ADMIN:dispatch|<id>|<role>|[promptfile~workdir]`\n" +
+		"   本票漏挂项目时自补：`META_ADMIN:set_project|<project>`（只许本票施工中；项目须已登记）。\n" +
 		"6. 完工交付：末行单独输出 `META_DELIVER:<交付 ref>`。\n\n" +
 		"## 出口\n\n仍属「需求待裁」（动钱/范围外/票面歧义）→ `Yield` 再泊车等 CEO；\n" +
 		"**不要选一种解释硬做**。\n"
@@ -643,17 +658,47 @@ func (g *Gateway) handleAdmin(ctx context.Context, st *runState, stream pbv1.Sea
 		if nt.Id == "" {
 			return resp(false, "create_ticket id 空")
 		}
+		// 子票挂项目（票0015）：空则继承本票 project（派发票已挂的子票天然
+		// 同项目，登记在挂接时已验不重复查）；非空→校验登记，未登记票不立。
+		project := nt.Project
+		if project == "" {
+			if pt, err := g.database.GetTicket(ctx, st.run.TicketID); err == nil && pt != nil {
+				project = pt.Project
+			}
+		} else if p, err := g.database.GetProject(ctx, project); err != nil {
+			return resp(false, err.Error())
+		} else if p == nil {
+			return resp(false, "项目 "+project+" 无配方登记——票不立")
+		}
 		// 子票 created 行同戳（§1.3：戳沿链不沿自报）。
-		if err := g.database.CreateTicketProv(ctx, nt.Id, nt.Title, nt.Spec, st.run.Provenance); err != nil {
+		if err := g.database.CreateTicketProv(ctx, nt.Id, nt.Title, nt.Spec, st.run.Provenance, project); err != nil {
 			return resp(false, err.Error())
 		}
+		if project != "" {
+			g.emitProjectSet(ctx, nt.Id, project, st.run.RunID, st.run.Provenance)
+		}
 		return resp(true, "ticket "+nt.Id+" created")
+	case *pbv1.SeatAdmin_SetProject:
+		sp := act.SetProject
+		// 对抗性锚提名行（锚 d）：越票判——删则席位改写他票 project。
+		if sp.TicketId != st.run.TicketID {
+			return resp(false, "set_project 越票拒：只允许挂接本票 "+st.run.TicketID)
+		}
+		phase, err := g.database.PhaseOf(ctx, st.run.TicketID)
+		if err != nil || phase != db.PhaseWorking {
+			return resp(false, "set_project 限本票施工中（相位 "+string(phase)+"）")
+		}
+		if err := g.attachProject(ctx, st.run.TicketID, sp.Project, st.run.RunID, st.run.Provenance); err != nil {
+			return resp(false, err.Error())
+		}
+		return resp(true, "project "+sp.Project+" set")
 	case *pbv1.SeatAdmin_Dispatch:
 		d := act.Dispatch
 		err := g.DispatchSeat(ctx, d.TicketId, d.Role, SeatSpec{
 			PromptFile: d.PromptFile, WorkDir: d.WorkDir,
 			PreferShell: d.PreferShell, Adjunct: d.Adjunct,
 			Provenance: st.run.Provenance, // spawn 沿用本 run 戳
+			Project:    d.Project,         // 派发径挂接（哨兵不出此段，留口）
 		})
 		if err != nil {
 			return resp(false, err.Error())

@@ -509,6 +509,45 @@ func TestProdConfig(t *testing.T) {
 	}
 }
 
+// TestDispatchAction_Project 票0015 锚10：DispatchAction.project→
+// DispatchReq.Project 字段映射通（路由表行未配本批——映射口先立）。
+func TestDispatchAction_Project(t *testing.T) {
+	dir := t.TempDir()
+	table := `routes { kind: "spawn_needed" actions { dispatch { role: "CTO" project: "meta" work_dir: "/w" } } }
+routes { kind: "project_set" actions { notify { template: "PS {{ticket_id}} {{note}}" } } }
+`
+	rp := writeRoutes(t, dir, table)
+	f := &fakeAdmin{}
+	var notifies []string
+	e, err := New(Config{
+		RoutesPath: rp, StateDir: filepath.Join(dir, "state"),
+		RunDir: "/run", SocketPath: "/sock", ReplayHistory: true,
+		Dial: func(ctx context.Context) (AdminClient, error) { return f, nil },
+		Notify: func(_ context.Context, s string) error {
+			notifies = append(notifies, s)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.add(&pbv1.EventItem{Id: 1, Kind: "spawn_needed", TicketId: "t1", Note: "补发: CTO"})
+	f.add(&pbv1.EventItem{Id: 2, Kind: "project_set", TicketId: "t1", Note: "project=meta"})
+	if err := e.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if f.nDispatch() != 1 || f.dispatches[0].Project != "meta" {
+		t.Fatalf("DispatchAction.project 未映射进 DispatchReq: %+v", f.dispatches)
+	}
+	var sawPS bool
+	for _, n := range notifies {
+		sawPS = sawPS || strings.Contains(n, "project=meta")
+	}
+	if !sawPS {
+		t.Fatalf("project_set 通知行未匹配: %v", notifies)
+	}
+}
+
 // TestDeployRoutes 票0010 锚9：真路由表 config/caster.textproto——
 // audit_pass→Dispatch{role:"CTO"}（部署支派发径）；deploy_failed→notify。
 func TestDeployRoutes(t *testing.T) {

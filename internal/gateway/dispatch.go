@@ -24,6 +24,7 @@ type SeatSpec struct {
 	PreferShell string // 非空＝该壳尝试提首（smoke 指定径；不换优先序语义）
 	Adjunct     bool   // 辅助席（裁决/诊断，§1.3）：不占相位、必给 prompt_file
 	Provenance  string // D9 盖戳源：派发方透传触发事件行/父 run 的戳
+	Project     string // 派发径挂接（票0015）：非空→取锁闸之前 attachProject
 }
 
 // specKey specs 表键（§15.1）：(票,角色) 共键——审计派发不覆写施工派发参数，
@@ -61,6 +62,15 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 	}
 	if t.BudgetFrozen {
 		return fmt.Errorf("dispatch: 票 %s 已 budget_frozen", ticketID)
+	}
+	// 派发径挂接（票0015）：取锁闸之前——对抗性锚提名行（锚 b），挪到
+	// acquireProjectLocks/designLocks 之后则锁按旧键（""）取，
+	// projectLocks[P] 桶空、设计锁落空票。
+	if spec.Project != "" {
+		if err := g.attachProject(ctx, ticketID, spec.Project, "gateway", spec.Provenance); err != nil {
+			return fmt.Errorf("dispatch: %w", err)
+		}
+		t.Project = spec.Project
 	}
 	if spec.Adjunct {
 		if spec.PromptFile == "" {

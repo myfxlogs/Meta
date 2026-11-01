@@ -250,6 +250,7 @@ func (e *Engine) execDispatch(ctx context.Context, cli AdminClient, row *pbv1.Ev
 		PreferShell: d.PreferShell,
 		Adjunct:     d.Adjunct,
 		Provenance:  row.Provenance, // D9：触发事件行的戳透传进 spawn（§1.3）
+		Project:     d.Project,      // 派发径挂接字段口（票0015；路由表行未配）
 	}
 	if d.PromptTemplate != "" {
 		body, err := os.ReadFile(filepath.Join(e.configRoot, d.PromptTemplate))

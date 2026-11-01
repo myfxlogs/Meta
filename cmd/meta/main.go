@@ -116,8 +116,9 @@ func usage() {
   meta serve  --db run/meta.db --socket run/meta.sock --rundir run
               [--inject-root <repo> --inject-recipe <f[,f2]>]   (注入机：无 --prompt-file 时机械组装席位前缀)
   meta secret put --db run/meta.db --key run/vault.key [--acl 角色1,角色2] <name>   (值读 stdin)
-  meta ticket new --socket <sock> --id <id> --title <t> [--spec-file <票面.md>] [--attempt-cap N] [--hard-cap N]
-  meta dispatch --socket <sock> --ticket <id> --role <角色> [--prompt-file <f> 覆盖径] --workdir <d> [--prefer <壳>]
+  meta ticket new --socket <sock> --id <id> --title <t> [--spec-file <票面.md>] [--attempt-cap N] [--hard-cap N] [--project <p>]
+  meta ticket set-project --socket <sock> --ticket <id> --project <p>    (存量回填/显式挂接：只加不换)
+  meta dispatch --socket <sock> --ticket <id> --role <角色> [--prompt-file <f> 覆盖径] --workdir <d> [--prefer <壳>] [--project <p>]
   meta phase --socket <sock> --ticket <id>
   meta events --socket <sock> --ticket <id>
   meta runs --socket <sock> --ticket <id>
@@ -132,7 +133,7 @@ func usage() {
   meta ceo [--socket <sock>]                          （交互面：IssueCeoToken→事件侧流→行命令 REPL）
   meta ceo-events [--once]                            （订 CEO 事件流；--once＝只排 pending 即退）
   meta rule --action void|budget_raise|redirect --ticket <id> [--confirm] [--hard-cap N] [--note <s>]
-  meta require --goal <需求原文> [--title <t>] [--direction <s>]
+  meta require --goal <需求原文> [--title <t>] [--direction <s>] [--project <p>]
   meta inquire --ticket <id> --question <s>
   meta memory [--kind <k>] [--put --kind <k> --title <t> --content-file <f>]
   meta say <text>
@@ -423,9 +424,20 @@ func admin(sock string) (pbv1.AdminGatewayClient, *grpc.ClientConn, error) {
 }
 
 func ticketCmd(args []string) error {
-	if len(args) < 1 || args[0] != "new" {
-		return fmt.Errorf("ticket 子命令只实现 new")
+	if len(args) < 1 {
+		return fmt.Errorf("ticket 子命令：new|set-project")
 	}
+	switch args[0] {
+	case "new":
+		return ticketNewCmd(args[1:])
+	case "set-project":
+		return ticketSetProjectCmd(args[1:])
+	default:
+		return fmt.Errorf("ticket 子命令只实现 new|set-project")
+	}
+}
+
+func ticketNewCmd(args []string) error {
 	fs := flag.NewFlagSet("ticket new", flag.ContinueOnError)
 	sock := fs.String("socket", "run/meta.sock", "")
 	id := fs.String("id", "", "")
@@ -433,7 +445,8 @@ func ticketCmd(args []string) error {
 	specFile := fs.String("spec-file", "", "票面 markdown（八栏全量入库；缺一不立）")
 	acap := fs.Int64("attempt-cap", 0, "每次尝试内 token 上限")
 	hcap := fs.Int64("hard-cap", 0, "票级累计硬顶")
-	if err := fs.Parse(args[1:]); err != nil {
+	project := fs.String("project", "", "票挂项目（须已登记；空＝未挂）")
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *id == "" {
@@ -460,11 +473,45 @@ func ticketCmd(args []string) error {
 	}
 	defer conn.Close()
 	ack, err := c.CreateTicket(context.Background(), &pbv1.NewTicket{
-		Id: *id, Title: *title, Spec: spec, AttemptCap: *acap, HardCap: *hcap})
+		Id: *id, Title: *title, Spec: spec, AttemptCap: *acap, HardCap: *hcap,
+		Project: *project})
 	if err != nil {
 		return err
 	}
+	if !ack.Ok {
+		return fmt.Errorf("ticket new: %s", ack.Note)
+	}
 	fmt.Println("ticket", *id, "ok=", ack.Ok, ack.Note)
+	return nil
+}
+
+// ticketSetProjectCmd 存量回填/显式挂接径（票0015）：AdminGateway.
+// SetTicketProject——attachProject 五判闸，挂接只加不换，幂等可重跑。
+func ticketSetProjectCmd(args []string) error {
+	fs := flag.NewFlagSet("ticket set-project", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	tid := fs.String("ticket", "", "")
+	project := fs.String("project", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *tid == "" || *project == "" {
+		return fmt.Errorf("--ticket/--project 必填")
+	}
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ack, err := c.SetTicketProject(context.Background(), &pbv1.TicketProjectReq{
+		TicketId: *tid, Project: *project})
+	if err != nil {
+		return err
+	}
+	if !ack.Ok {
+		return fmt.Errorf("set-project: %s", ack.Note)
+	}
+	fmt.Println("ticket", *tid, "project=", *project)
 	return nil
 }
 
@@ -476,6 +523,7 @@ func dispatchCmd(args []string) error {
 	pf := fs.String("prompt-file", "", "")
 	wd := fs.String("workdir", "", "")
 	prefer := fs.String("prefer", "", "该壳尝试提首")
+	project := fs.String("project", "", "派发径挂接（取锁闸前 attachProject）")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -485,7 +533,8 @@ func dispatchCmd(args []string) error {
 	}
 	defer conn.Close()
 	ack, err := c.Dispatch(context.Background(), &pbv1.DispatchReq{
-		TicketId: *tid, Role: *role, PromptFile: *pf, WorkDir: *wd, PreferShell: *prefer})
+		TicketId: *tid, Role: *role, PromptFile: *pf, WorkDir: *wd,
+		PreferShell: *prefer, Project: *project})
 	if err != nil {
 		return err
 	}
@@ -1039,6 +1088,7 @@ func requireCmd(args []string) error {
 	goal := fs.String("goal", "", "需求原文")
 	title := fs.String("title", "", "")
 	dir := fs.String("direction", "", "CEO 定向")
+	project := fs.String("project", "", "需求票挂项目（须已登记；空＝未挂）")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -1048,7 +1098,8 @@ func requireCmd(args []string) error {
 	}
 	defer conn.Close()
 	ref, err := c.SubmitRequirement(context.Background(), &pbv1.Requirement{
-		RunToken: ceoToken(), Goal: *goal, Title: *title, Direction: *dir})
+		RunToken: ceoToken(), Goal: *goal, Title: *title, Direction: *dir,
+		Project: *project})
 	if err != nil {
 		return err
 	}

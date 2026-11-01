@@ -40,6 +40,7 @@ service AdminGateway {
   rpc RetroVerdict(RetroReq) returns (Ack);  // 回翻件：滞留待审票一次性机械补录
   rpc Ping(Empty) returns (Ack);             // 健康核验径（meta ping / meta-probe.sh）
   rpc IssueCeoToken(CeoTokenReq) returns (CeoTokenResp); // `meta ceo` 交互面开 run：provenance=terminal
+  rpc SetTicketProject(TicketProjectReq) returns (Ack);  // 票→项目挂接/存量回填径（attachProject 五判闸，meta ticket set-project）
 }
 
 // CEO 面（总设计 §12 钦定五 RPC）。一切请求带 run_token——首验 role=CEO 活 run；
@@ -189,6 +190,7 @@ message SeatAdmin {
     FillSpec fill_spec = 1;       // 回填本票八栏（限派发票自身施工中）
     NewTicket create_ticket = 2;  // 立子票（spec 全量；created 事件沿用本 run 戳）
     DispatchReq dispatch = 3;     // 派子票（role=CEO 由 DispatchSeat 永拒）
+    SetProject set_project = 4;   // 本票挂项目（限本票施工中；attachProject 五判闸）
   }
 }
 
@@ -197,6 +199,13 @@ message SeatAdmin {
 message FillSpec {
   string ticket_id = 1;
   bytes spec_md = 2;
+}
+
+// SetProject 席内挂项目帧（META_ADMIN:set_project|<project>——TicketId 席侧
+// 取本票；网关越票判兜底，需求票漏挂时设计席自补径）。
+message SetProject {
+  string ticket_id = 1;
+  string project = 2;
 }
 
 message AdoptAuth {
@@ -216,6 +225,7 @@ message NewTicket {
   bytes spec = 3; // 序列化 TicketSpec（可空——无 spec 票仅可 --prompt-file 覆盖径派发）
   int64 attempt_cap = 4; // 每次尝试内 token 上限（§5.5）；0=不设
   int64 hard_cap = 5;    // 票级累计硬顶；0=不设
+  string project = 6;    // 票挂项目（空＝未挂；立票时校验登记，未登记票不立）
 }
 
 message DispatchReq {
@@ -226,6 +236,7 @@ message DispatchReq {
   string prefer_shell = 5; // 非空＝该壳尝试提首（smoke 指定径）
   bool adjunct = 6;        // 辅助席（裁决/诊断）：不占相位，必给 prompt_file
   string provenance = 7;   // 触发事件行的 provenance 透传（caster 自动带；spawn 盖进 seat_run）
+  string project = 8;      // 派发径挂接（DispatchSeat 内、取锁闸之前 attachProject——锁键取新值）
 }
 
 message BudgetReq {
@@ -277,6 +288,13 @@ message RetroReq {
   string ticket_id = 1;
   string verdict = 2; // pass|reject
   string ref = 3;     // 判决档/决策号指证（必填——无指证的回翻＝无 provenance）
+}
+
+// TicketProjectReq 存量回填/显式挂接径载荷（AdminGateway.SetTicketProject；
+// `meta ticket set-project --ticket --project`——挂接只加不换，attachProject 五判闸）。
+message TicketProjectReq {
+  string ticket_id = 1;
+  string project = 2;
 }
 
 message EventList {
@@ -383,6 +401,7 @@ message Requirement {
   string goal = 3;       // 需求原文
   string direction = 4;  // CEO 定向（方向/优先序/约束/边界）
   string provenance = 5; // 客户端可自报——网关盖 run 行戳，自报不认（D9）
+  string project = 6;    // 需求票挂项目（落票时校验登记——漏挂经席内 set_project/回填径补）
 }
 
 // Ruling CEO 裁决：void（破坏性，须 confirm 重述确认 §3.4）/budget_raise（追加
@@ -475,6 +494,7 @@ message DispatchAction {
   string work_dir = 3;
   string prefer_shell = 4;
   bool adjunct = 5;
+  string project = 6;         // 派发径挂接口（字段留口；隐式挂接行为显式化前不进路由表行）
 }
 
 // ---------- 网关配置（D-9 出码外；帽值毛口径 D-27） ----------
