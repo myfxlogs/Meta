@@ -25,41 +25,58 @@ type Run struct {
 	ExitCode     int
 	StreamClosed bool
 	Dead         bool
+	Adjunct      bool // 辅助席（裁决/诊断）：不占相位、不收养（票0004 §1.3）
 }
 
 // CreateRun 登记一次 spawn。
 func (d *DB) CreateRun(ctx context.Context, r *Run) error {
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO seat_run (run_id, ticket_id, role, shell, pid, run_token, socket_path, log_path, started_at)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO seat_run (run_id, ticket_id, role, shell, pid, run_token, socket_path, log_path, started_at, adjunct)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		r.RunID, r.TicketID, r.Role, r.Shell, r.PID, r.RunToken, r.SocketPath, r.LogPath,
-		d.now().UnixNano())
+		d.now().UnixNano(), boolInt(r.Adjunct))
 	return err
 }
+
+// runCols seat_run 查询列序（scanRun/RunsForTicket 共用， adjunct 恒在末位）。
+const runCols = `run_id, seat_id, ticket_id, role, shell, pid, run_token, socket_path, log_path,
+       started_at, attached_at, adopted_at, exited_at, exit_code, stream_closed, dead, adjunct`
 
 // RunByToken run_token 查 run——Attach 首帧验证径。
 func (d *DB) RunByToken(ctx context.Context, token string) (*Run, error) {
 	return d.scanRun(d.db.QueryRowContext(ctx,
-		`SELECT run_id, seat_id, ticket_id, role, shell, pid, run_token, socket_path, log_path,
-		        started_at, attached_at, adopted_at, exited_at, exit_code, stream_closed, dead
-		 FROM seat_run WHERE run_token=?`, token))
+		`SELECT `+runCols+` FROM seat_run WHERE run_token=?`, token))
 }
 
-// ActiveRunForTicket 票上未判死的最新 run（启动对账用）。
+// ActiveRunForTicket 票上未判死的最新 non-adjunct run（启动对账/杀谁 用——
+// §1.3：adjunct 不被收养，也不在 stall 裁决的猎杀集里）。
 func (d *DB) ActiveRunForTicket(ctx context.Context, ticketID string) (*Run, error) {
 	return d.scanRun(d.db.QueryRowContext(ctx,
-		`SELECT run_id, seat_id, ticket_id, role, shell, pid, run_token, socket_path, log_path,
-		        started_at, attached_at, adopted_at, exited_at, exit_code, stream_closed, dead
-		 FROM seat_run WHERE ticket_id=? AND dead=0 ORDER BY started_at DESC LIMIT 1`, ticketID))
+		`SELECT `+runCols+` FROM seat_run
+		 WHERE ticket_id=? AND dead=0 AND adjunct=0 ORDER BY started_at DESC LIMIT 1`, ticketID))
+}
+
+// ActiveRunForTicketRole 票上同角色的活 non-adjunct run（§15.1 同角色活席去重闸）。
+func (d *DB) ActiveRunForTicketRole(ctx context.Context, ticketID, role string) (*Run, error) {
+	return d.scanRun(d.db.QueryRowContext(ctx,
+		`SELECT `+runCols+` FROM seat_run
+		 WHERE ticket_id=? AND dead=0 AND adjunct=0 AND role=? ORDER BY started_at DESC LIMIT 1`, ticketID, role))
+}
+
+// ActiveAdjunctForTicketRole 票上同角色的活 adjunct run（§1.3 adjunct 去重闸——防裁决席堆叠）。
+func (d *DB) ActiveAdjunctForTicketRole(ctx context.Context, ticketID, role string) (*Run, error) {
+	return d.scanRun(d.db.QueryRowContext(ctx,
+		`SELECT `+runCols+` FROM seat_run
+		 WHERE ticket_id=? AND dead=0 AND adjunct=1 AND role=? ORDER BY started_at DESC LIMIT 1`, ticketID, role))
 }
 
 func (d *DB) scanRun(row *sql.Row) (*Run, error) {
 	var r Run
 	var started, attached, adopted, exited int64
-	var closed, dead int
+	var closed, dead, adjunct int
 	err := row.Scan(&r.RunID, &r.SeatID, &r.TicketID, &r.Role, &r.Shell, &r.PID,
 		&r.RunToken, &r.SocketPath, &r.LogPath, &started, &attached, &adopted,
-		&exited, &r.ExitCode, &closed, &dead)
+		&exited, &r.ExitCode, &closed, &dead, &adjunct)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -78,6 +95,7 @@ func (d *DB) scanRun(row *sql.Row) (*Run, error) {
 	}
 	r.StreamClosed = closed != 0
 	r.Dead = dead != 0
+	r.Adjunct = adjunct != 0
 	return &r, nil
 }
 

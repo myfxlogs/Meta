@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS seat_run (
   exited_at     INTEGER NOT NULL DEFAULT 0,
   exit_code     INTEGER NOT NULL DEFAULT -1,
   stream_closed INTEGER NOT NULL DEFAULT 0,
-  dead          INTEGER NOT NULL DEFAULT 0
+  dead          INTEGER NOT NULL DEFAULT 0,
+  adjunct       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_seat_run_ticket ON seat_run(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_seat_run_token ON seat_run(run_token);

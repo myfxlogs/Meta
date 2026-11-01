@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -43,6 +44,10 @@ func runHelperSeat() {
 		select {} // 只监听收养口，守到被杀
 	case "worker":
 		workerSeat()
+	case "rule":
+		ruleSeat() // 裁决席：Attach+Claim→发 Rule 帧→守
+	case "verdict":
+		verdictSeat() // 审计席：Attach+Claim→Deliver{verdict,ref}→退
 	default:
 		fmt.Fprintln(os.Stderr, "helper: 未知 SEAT_MODE")
 		os.Exit(1)
@@ -198,7 +203,80 @@ func attachAndHold(quit <-chan struct{}) bool {
 	}
 }
 
+// ruleSeat 裁决席（adjunct）生命周期：Attach+Claim（adjunct_claim 不转相位）
+// →发 SEAT_RULE="action:note" 帧 SEAT_RULE_COUNT 次（缺省 1）→守流。
+func ruleSeat() {
+	serveAdopt(make(chan struct{}, 1))
+	conn, err := grpc.NewClient("unix://"+os.Getenv("META_GATEWAY_SOCK"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		os.Exit(1)
+	}
+	defer conn.Close()
+	stream, err := pbv1.NewSeatGatewayClient(conn).Attach(context.Background())
+	if err != nil {
+		os.Exit(1)
+	}
+	send := func(m *pbv1.SeatMsg) {
+		if err := stream.Send(m); err != nil {
+			os.Exit(1)
+		}
+	}
+	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: os.Getenv("META_RUN_TOKEN")}}})
+	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: os.Getenv("META_TICKET_ID")}}})
+	n := 1
+	if c, err := strconv.Atoi(os.Getenv("SEAT_RULE_COUNT")); err == nil && c > 0 {
+		n = c
+	}
+	action, note, _ := strings.Cut(os.Getenv("SEAT_RULE"), ":")
+	for i := 0; i < n; i++ {
+		send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Rule{Rule: &pbv1.Rule{Action: action, Note: note}}})
+		<-time.After(50 * time.Millisecond) // 帧间间隔（有界，非周期）
+	}
+	select {} // 守到被杀
+}
+
+// verdictSeat 审计席生命周期：Attach+Claim（audit_start→审计中）→
+// Deliver{SEAT_VERDICT, SEAT_REF}→等 Ack/EOF→退。
+func verdictSeat() {
+	serveAdopt(make(chan struct{}, 1))
+	conn, err := grpc.NewClient("unix://"+os.Getenv("META_GATEWAY_SOCK"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		os.Exit(1)
+	}
+	defer conn.Close()
+	stream, err := pbv1.NewSeatGatewayClient(conn).Attach(context.Background())
+	if err != nil {
+		os.Exit(1)
+	}
+	send := func(m *pbv1.SeatMsg) {
+		if err := stream.Send(m); err != nil {
+			os.Exit(1)
+		}
+	}
+	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: os.Getenv("META_RUN_TOKEN")}}})
+	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: os.Getenv("META_TICKET_ID")}}})
+	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{
+		Verdict: os.Getenv("SEAT_VERDICT"), Ref: os.Getenv("SEAT_REF")}}})
+	_, _ = stream.Recv() // 等 Ack 或断流
+}
+
 // ---------- 测试工具 ----------
+
+// testShellRows 壳登记种子 fixture（配置化后码内 defaultRegistry 已废——
+// 测试显式喂配置行，与 config/gateway.textproto 同形）。
+func testShellRows() []ShellSeed {
+	return []ShellSeed{
+		{Name: "devin", Model: "swe-2-high", Role: "施工", Priority: 10},
+		{Name: "claude", Role: "施工", Priority: 20},
+		{Name: "opencode", Role: "施工", Priority: 30, AttemptCap: 8_000_000},
+		{Name: "claude", Role: "审计", Priority: 10},
+		{Name: "devin", Model: "swe-2-max", Role: "审计", Priority: 20},
+		{Name: "devin", Model: "swe-2-max", Role: "CTO", Priority: 10},
+		{Name: "claude", Role: "CTO", Priority: 20},
+	}
+}
 
 func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 	t.Helper()
@@ -210,6 +288,7 @@ func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 		ProgressTimeout:  30 * time.Minute,
 		AuthTimeout:      2 * time.Second,
 		AdoptDialTimeout: 2 * time.Second,
+		ShellRows:        testShellRows(),
 	}
 	if tweak != nil {
 		tweak(&cfg)
@@ -268,7 +347,7 @@ func mkTicketAt(t *testing.T, g *Gateway, id string, target db.Phase) {
 		if p == target {
 			return
 		}
-		if err := d.Transition(ctx, id, s.to, s.kind, "test", ""); err != nil {
+		if _, err := d.Transition(ctx, id, s.to, s.kind, "test", ""); err != nil {
 			t.Fatalf("mkTicketAt→%s: %v", s.to, err)
 		}
 	}

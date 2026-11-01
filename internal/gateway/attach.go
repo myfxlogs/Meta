@@ -117,6 +117,8 @@ func (g *Gateway) handleSeatMsg(ctx context.Context, st *runState, stream pbv1.S
 		})
 	case *pbv1.SeatMsg_SecretReq:
 		return g.handleSecret(ctx, st, stream, b.SecretReq)
+	case *pbv1.SeatMsg_Rule:
+		return g.handleRule(ctx, st, b.Rule)
 	case *pbv1.SeatMsg_Auth:
 		return status.Error(codes.InvalidArgument, "重复 RunAuth")
 	default:
@@ -125,18 +127,36 @@ func (g *Gateway) handleSeatMsg(ctx context.Context, st *runState, stream pbv1.S
 }
 
 // handleClaim 先连后领（§5.1）：已派→施工中 只发生在连接内。
+// 三分支（§15.5 码位表）：adjunct 席仅记 adjunct_claim 行不转相位（早退——
+// 对抗性锚 b：删本支裁决席把票推离施工中）但重挂票闹钟；审计席走
+// audit_start→审计中（幂等相位＝审计中，收养重领放行）；其余照旧 claim→施工中。
 func (g *Gateway) handleClaim(ctx context.Context, st *runState, c *pbv1.Claim) error {
 	if c.TicketId != st.run.TicketID {
 		return status.Errorf(codes.PermissionDenied, "票 %s 非本 run 所派", c.TicketId)
+	}
+	if st.run.Adjunct {
+		// 对抗性锚提名行：adjunct claim 的「不转相位」早退分支。
+		_ = g.database.AppendEvent(ctx, st.run.TicketID, "adjunct_claim", db.Event{
+			Actor: st.run.RunID, Note: "role=" + st.run.Role})
+		g.armAlarm(st.run.TicketID, time.Now().Add(g.cfg.ProgressTimeout))
+		g.emit(Event{Kind: "adjunct_claim", TicketID: st.run.TicketID, RunID: st.run.RunID,
+			Role: st.run.Role})
+		return nil
 	}
 	phase, err := g.database.PhaseOf(ctx, st.run.TicketID)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
-	if phase == db.PhaseWorking {
+	// 对抗性锚提名行：按 run.Role 选边——审计→audit_start（翻成统一
+	// EdgeClaim 则审计领票撞 待审→施工中 非法边）。
+	to, kind, idem := db.PhaseWorking, db.EdgeClaim, db.PhaseWorking
+	if st.run.Role == "审计" {
+		to, kind, idem = db.PhaseAuditing, db.EdgeAuditStart, db.PhaseAuditing
+	}
+	if phase == idem {
 		return nil // 收养后重领：幂等
 	}
-	if err := g.database.Transition(ctx, st.run.TicketID, db.PhaseWorking, db.EdgeClaim, st.run.RunID, ""); err != nil {
+	if err := g.transition(ctx, st.run.TicketID, to, kind, st.run.RunID, ""); err != nil {
 		var ille *db.ErrIllegalEdge
 		if errors.As(err, &ille) {
 			return status.Error(codes.FailedPrecondition, err.Error())
@@ -144,7 +164,6 @@ func (g *Gateway) handleClaim(ctx context.Context, st *runState, c *pbv1.Claim) 
 		return status.Error(codes.Internal, err.Error())
 	}
 	g.armAlarm(st.run.TicketID, time.Now().Add(g.cfg.ProgressTimeout))
-	g.emit(Event{Kind: "phase:claim", TicketID: st.run.TicketID, RunID: st.run.RunID})
 	return nil
 }
 
@@ -162,7 +181,9 @@ func (g *Gateway) handleProgress(ctx context.Context, st *runState, p *pbv1.Prog
 // （80% 警→CEO / 100% 硬停 / 票级硬顶→先杀后冻，§5.5）。
 func (g *Gateway) handleUsage(ctx context.Context, st *runState, u *pbv1.Usage) error {
 	tid := st.run.TicketID
-	if err := g.database.AddUsage(ctx, tid, u.TokensUsed); err != nil {
+	// adjunct 席只计票级 used_total 不进尝试内 used（§1.3：不占尝试帽）；
+	// 审计席是相位步行席——used/used_total 双计（§15.5，真尝试吃审计帽）。
+	if err := g.database.AddUsage(ctx, tid, u.TokensUsed, !st.run.Adjunct); err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
 	_ = g.database.AppendEvent(ctx, tid, "usage", db.Event{
@@ -232,8 +253,59 @@ func (g *Gateway) freezeTicket(ctx context.Context, ticketID string, st *runStat
 		Actor: "gateway", Note: "票级累计硬顶到达：先杀后冻"})
 }
 
+// handleDeliver 交付/判决（§15.5 码位表）：
+//   - adjunct 席：仅记 adjunct_deliver 行不转相位，Ack 照回；
+//   - 审计席：verdict 必填——pass→audit_pass→待部署；reject→EdgeReject→已派
+//     （reject_count 由 Transition 既有行累加；随后网关内 enqueueSpawn 重派
+//     施工，spec 键含 role 原 prefer 保）；
+//   - 其余角色：verdict 必须空（语义混装即拒）→deliver→待审。
 func (g *Gateway) handleDeliver(ctx context.Context, st *runState, stream pbv1.SeatGateway_AttachServer, d *pbv1.Deliver) error {
-	if err := g.database.Transition(ctx, st.run.TicketID, db.PhaseReview, db.EdgeDeliver,
+	ack := func(note string) error {
+		return stream.Send(&pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_Ack{
+			Ack: &pbv1.Ack{Ok: true, Note: note}}})
+	}
+	if st.run.Role != "审计" && d.Verdict != "" {
+		return status.Error(codes.InvalidArgument, "verdict 仅审计席可携——语义混装")
+	}
+	if st.run.Adjunct {
+		_ = g.database.AppendEvent(ctx, st.run.TicketID, "adjunct_deliver", db.Event{
+			Actor: st.run.RunID, Note: d.Ref + " " + d.Note})
+		g.emit(Event{Kind: "adjunct_deliver", TicketID: st.run.TicketID, RunID: st.run.RunID,
+			Role: st.run.Role})
+		return ack("adjunct_delivered")
+	}
+	if st.run.Role == "审计" {
+		// 对抗性锚提名行：reject→EdgeReject 映射（翻成 audit_pass 则驳回票
+		// 落待部署放行）。
+		var to db.Phase
+		var kind db.EdgeKind
+		switch d.Verdict {
+		case "pass":
+			to, kind = db.PhaseToDeploy, db.EdgeAuditPass
+		case "reject":
+			to, kind = db.PhaseAssigned, db.EdgeReject
+		default:
+			// 判不出判决的审计席＝死席（§15.2）：不落相位不回 Ack——
+			// 席死后走 audit_dead 自纠正径重起审计。
+			return status.Error(codes.InvalidArgument, "审计 verdict 必填 pass|reject")
+		}
+		note := d.Verdict + " " + d.Ref + " " + d.Note
+		if err := g.transition(ctx, st.run.TicketID, to, kind, st.run.RunID, note); err != nil {
+			var ille *db.ErrIllegalEdge
+			if errors.As(err, &ille) {
+				return status.Error(codes.FailedPrecondition, err.Error())
+			}
+			return status.Error(codes.Internal, err.Error())
+		}
+		g.cancelAlarm(st.run.TicketID)
+		if d.Verdict == "reject" {
+			// 驳回重派施工径①（§15.2）：spec 仍在（键含 role）原 prefer 保；
+			// 径②路由表 reject→dispatch 施工在对账/重启失 spec 后补位。
+			g.enqueueSpawn(st.run.TicketID, "施工")
+		}
+		return ack("verdict " + d.Verdict)
+	}
+	if err := g.transition(ctx, st.run.TicketID, db.PhaseReview, db.EdgeDeliver,
 		st.run.RunID, d.Ref+" "+d.Note); err != nil {
 		var ille *db.ErrIllegalEdge
 		if errors.As(err, &ille) {
@@ -242,16 +314,22 @@ func (g *Gateway) handleDeliver(ctx context.Context, st *runState, stream pbv1.S
 		return status.Error(codes.Internal, err.Error())
 	}
 	g.cancelAlarm(st.run.TicketID)
-	g.emit(Event{Kind: "phase:deliver", TicketID: st.run.TicketID, RunID: st.run.RunID})
 	// Deliver 回执：席位等此帧再退——否则尾帧可能丢在 gRPC 传输缓冲里。
-	return stream.Send(&pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_Ack{
-		Ack: &pbv1.Ack{Ok: true, Note: "delivered"}}})
+	return ack("delivered")
 }
 
 // handleYield 补边：施工中→已派，理由入判决史并触发 CTO 裁决事件（§6.2）。
+// adjunct 席仅记 adjunct_yield 行不转相位（§1.3）。
 func (g *Gateway) handleYield(ctx context.Context, st *runState, y *pbv1.Yield) error {
 	note := y.Kind + ": " + y.Reason
-	if err := g.database.Transition(ctx, st.run.TicketID, db.PhaseAssigned, db.EdgeYield,
+	if st.run.Adjunct {
+		_ = g.database.AppendEvent(ctx, st.run.TicketID, "adjunct_yield", db.Event{
+			Actor: st.run.RunID, Note: note})
+		g.emit(Event{Kind: "adjunct_yield", TicketID: st.run.TicketID, RunID: st.run.RunID,
+			Role: st.run.Role})
+		return nil
+	}
+	if err := g.transition(ctx, st.run.TicketID, db.PhaseAssigned, db.EdgeYield,
 		st.run.RunID, note); err != nil {
 		var ille *db.ErrIllegalEdge
 		if errors.As(err, &ille) {
@@ -314,12 +392,14 @@ func (g *Gateway) maybeDeclareDead(st *runState) {
 	}
 }
 
-// onRunDead 判死落库＋票回队（施工中→已派）＋壳路由分级落账＋自动重派。
-// 其他相位只出 seat_dead 事件交启动对账/上层处置——网关不做语义裁决。
+// onRunDead 判死落库＋分相位处置（§15.5 码位表）：
+//   - adjunct 席：仅发 adjunct_dead——不回队、不罚壳健康、不占 failSet；
+//   - 施工中死：票回队（→已派）＋failSet 分级＋自动重派（换壳 redo）；
+//   - 审计中死：audit_dead→待审不计驳回＋failSet 分级照旧＋重派审计；
+//   - 其他相位只出 seat_dead 事件交启动对账/上层处置——网关不做语义裁决。
 func (g *Gateway) onRunDead(st *runState) {
 	ctx := context.Background()
 	_ = g.database.MarkDead(ctx, st.run.RunID)
-	g.emit(Event{Kind: "seat_dead", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
 
 	if st.attempt.Shell != "" {
 		g.mu.Lock()
@@ -327,28 +407,48 @@ func (g *Gateway) onRunDead(st *runState) {
 			g.active[st.attempt.Shell]--
 		}
 		g.mu.Unlock()
-		if !st.killByGW {
-			// 中途死＝①机器级（含外部 SIGKILL）：不标健康，进本票 failSet 换下一壳。
-			g.reportShell(ctx, st.run.TicketID, st.run.Role, st.attempt, seat.ClassOfExit(st.exitCode))
-		}
+	}
+	if st.run.Adjunct {
+		_ = g.database.AppendEvent(ctx, st.run.TicketID, "adjunct_dead", db.Event{
+			Actor: "gateway", Note: "role=" + st.run.Role})
+		g.emit(Event{Kind: "adjunct_dead", TicketID: st.run.TicketID, RunID: st.run.RunID,
+			Role: st.run.Role})
+		return
+	}
+	g.emit(Event{Kind: "seat_dead", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
+
+	if st.attempt.Shell != "" && !st.killByGW {
+		// 中途死＝①机器级（含外部 SIGKILL）：不标健康，进本票 failSet 换下一壳。
+		g.reportShell(ctx, st.run.TicketID, st.run.Role, st.attempt, seat.ClassOfExit(st.exitCode))
 	}
 
 	phase, err := g.database.PhaseOf(ctx, st.run.TicketID)
 	if err != nil {
 		return
 	}
-	if phase == db.PhaseWorking {
-		if err := g.database.Transition(ctx, st.run.TicketID, db.PhaseAssigned, db.EdgeRequeue,
-			"gateway", "席位死亡：SIGCHLD+EOF 双源互证"); err == nil {
-			g.cancelAlarm(st.run.TicketID)
-			g.emit(Event{Kind: "requeue", TicketID: st.run.TicketID, RunID: st.run.RunID})
-			// 回队即重派（换壳 redo）；预算硬停摆位与冻票不重派（③级归 CTO）。
-			g.mu.Lock()
-			frozen := g.frozen[st.run.TicketID]
-			g.mu.Unlock()
-			if !st.noRespawn && !frozen {
-				g.enqueueSpawn(st.run.TicketID, st.run.Role)
-			}
-		}
+	var to db.Phase
+	var kind db.EdgeKind
+	switch phase {
+	case db.PhaseWorking:
+		to, kind = db.PhaseAssigned, db.EdgeRequeue
+	case db.PhaseAuditing:
+		to, kind = db.PhaseReview, db.EdgeAuditDead
+	default:
+		return
+	}
+	if err := g.transition(ctx, st.run.TicketID, to, kind,
+		"gateway", "席位死亡：SIGCHLD+EOF 双源互证"); err != nil {
+		return
+	}
+	g.cancelAlarm(st.run.TicketID)
+	g.emit(Event{Kind: "requeue", TicketID: st.run.TicketID, RunID: st.run.RunID,
+		Role: st.run.Role})
+	// 回队即重派（换壳 redo；审计席死→重起审计——spec 在则秒接，失则
+	// 路由表 audit_dead→dispatch 审计补位）；预算硬停摆位与冻票不重派。
+	g.mu.Lock()
+	frozen := g.frozen[st.run.TicketID]
+	g.mu.Unlock()
+	if !st.noRespawn && !frozen {
+		g.enqueueSpawn(st.run.TicketID, st.run.Role)
 	}
 }
