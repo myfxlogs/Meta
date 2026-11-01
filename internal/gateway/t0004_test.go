@@ -181,7 +181,8 @@ func TestAdjunct_DeliverNoPhase(t *testing.T) {
 }
 
 // TestRule_NonAdjunctRejected 锚 5：非 adjunct 席发 rule→拒（断流）。
-func TestRule_NonAdjunctRejected(t *testing.T) {	g, dir := newTestGateway(t, nil)
+func TestRule_NonAdjunctRejected(t *testing.T) {
+	g, dir := newTestGateway(t, nil)
 	mkTicketAt(t, g, "ta3", db.PhaseAssigned)
 	run := spawnSeat(t, g, "ta3", "施工", "idle")
 	_, c := dialSeatGateway(t, filepath.Join(dir, "run", "meta.sock"))

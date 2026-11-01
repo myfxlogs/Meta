@@ -37,7 +37,8 @@ func Open(path string) (*DB, error) {
 		sq.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	// 幂等补列迁移：旧库 seat_run 可能缺 adjunct（票0004 增列）。
+	// 幂等补列迁移：旧库 seat_run 可能缺 adjunct（票0004 增列）与
+	// provenance（票0011 增列——D9 来源标盖戳位）。
 	if err := ensureColumn(sq, "seat_run", "adjunct", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		sq.Close()
 		return nil, fmt.Errorf("migrate adjunct: %w", err)
@@ -46,6 +47,10 @@ func Open(path string) (*DB, error) {
 	if err := ensureColumn(sq, "project", "integrate_cmd", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		sq.Close()
 		return nil, fmt.Errorf("migrate integrate_cmd: %w", err)
+	}
+	if err := ensureColumn(sq, "seat_run", "provenance", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		sq.Close()
+		return nil, fmt.Errorf("migrate provenance: %w", err)
 	}
 	for _, f := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Chmod(f, 0o600) // 库含密文与票真源，仅属主可读写

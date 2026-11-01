@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"meta/internal/config"
+	"meta/internal/db"
 	"meta/internal/gateway"
 	pbv1 "meta/internal/pb/metav1"
 )
@@ -82,5 +83,91 @@ func TestAdmin_相对socket(t *testing.T) {
 	// serve 侧路径也已绝对化：库文件在 cwd/run 下。
 	if _, err := os.Stat(filepath.Join(d, "run", "meta.db")); err != nil {
 		t.Fatal("serve 相对路径未落 cwd")
+	}
+}
+
+// TestCLI_GlueE2E 债 D-38 缺口二（CLI 胶水端到端）：真网关 socket 上跑
+// ticket new → dispatch → phase → events 全链——胶水函数非单测即集成。
+func TestCLI_GlueE2E(t *testing.T) {
+	d := t.TempDir()
+	sock := filepath.Join(d, "run", "meta.sock")
+	g, err := gateway.New(gateway.Config{
+		DBPath: filepath.Join(d, "meta.db"), RunDir: filepath.Join(d, "run"),
+		SocketPath: sock, SeatArgv: []string{"/bin/true"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go g.Serve()
+	defer g.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket 未起")
+		}
+		<-time.After(20 * time.Millisecond)
+	}
+	if err := ticketCmd([]string{"new", "--socket", sock, "--id", "tcli", "--title", "cli 票"}); err != nil {
+		t.Fatal("ticket new:", err)
+	}
+	if err := dispatchCmd([]string{"--socket", sock, "--ticket", "tcli", "--role", "施工", "--workdir", "/tmp"}); err != nil {
+		t.Fatal("dispatch:", err)
+	}
+	if err := phaseCmd([]string{"--socket", sock, "--ticket", "tcli"}); err != nil {
+		t.Fatal("phase:", err)
+	}
+	c, conn, err := admin(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	p, err := c.Phase(context.Background(), &pbv1.TicketRef{Id: "tcli"})
+	if err != nil || p.Phase != "已派" {
+		t.Fatalf("相位应 已派: %v %v", p, err)
+	}
+	if err := eventsCmd([]string{"--socket", sock, "--ticket", "tcli"}); err != nil {
+		t.Fatal("events:", err)
+	}
+}
+
+// TestImportLegacy_Parser 锚8 补强：importLegacy 解析器本体直测——fixture md
+// 两个决策块→两行（provenance 抽取）；二跑零增（kind+title 幂等）。
+func TestImportLegacy_Parser(t *testing.T) {
+	d := t.TempDir()
+	dbp := filepath.Join(d, "m.db")
+	h, err := db.Open(dbp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	ctx := context.Background()
+	md := []byte("# ceo_memory\n\n" +
+		"### 决策 1：上线路径\n- 触发：业主 terminal\n- provenance：`terminal`\n- 裁：走 A\n\n" +
+		"### 决策 2：预算追加\n- provenance：`feishu:o1`\n- 裁：加 10 万\n")
+	if n, err := importLegacy(ctx, h, md); err != nil || n != 2 {
+		t.Fatalf("首跑应入 2 行: n=%d err=%v", n, err)
+	}
+	if n, err := importLegacy(ctx, h, md); err != nil || n != 0 {
+		t.Fatalf("二跑应零增: n=%d err=%v", n, err)
+	}
+	rows, err := h.ListMemory(ctx, "decision", 0)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("行数不符: %v %d", err, len(rows))
+	}
+	byTitle := map[string]*db.Memory{}
+	for _, m := range rows {
+		byTitle[m.Title] = m
+	}
+	if m := byTitle["上线路径"]; m == nil || m.Provenance != "terminal" || m.EventRef != "legacy-import" {
+		t.Fatalf("决策 1 行不符: %+v", m)
+	}
+	if m := byTitle["预算追加"]; m == nil || m.Provenance != "feishu:o1" {
+		t.Fatalf("决策 2 行不符: %+v", m)
+	}
+	if m := byTitle["上线路径"]; m != nil && !strings.Contains(string(m.Content), "走 A") {
+		t.Fatalf("正文未入: %q", m.Content)
 	}
 }

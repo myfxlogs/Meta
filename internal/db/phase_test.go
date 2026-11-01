@@ -25,6 +25,8 @@ var expectedEdges = []Edge{
 	{PhaseDeploying, PhaseToDeploy, EdgeDeployFailed},
 	{PhaseAuditing, PhaseReview, EdgeAuditDead},
 	{PhaseWorking, PhaseAssigned, EdgeYield},
+	// 补边（阶段3·票0011）：CTO-A 需求待裁泊车
+	{PhaseWorking, PhaseCreated, EdgeReqPending},
 	// 任一非终态→作废
 	{PhaseCreated, PhaseVoid, EdgeVoid},
 	{PhaseDesigning, PhaseVoid, EdgeVoid},
@@ -39,7 +41,7 @@ var expectedEdges = []Edge{
 var allKinds = []EdgeKind{
 	EdgeDesignStart, EdgeDispatch, EdgeClaim, EdgeDeliver, EdgeAuditStart,
 	EdgeAuditPass, EdgeDeployStart, EdgeDeployDone, EdgeRequeue, EdgeReject,
-	EdgeDesignDead, EdgeDeployFailed, EdgeAuditDead, EdgeYield, EdgeVoid,
+	EdgeDesignDead, EdgeDeployFailed, EdgeAuditDead, EdgeYield, EdgeReqPending, EdgeVoid,
 }
 
 func allPhases() []Phase { return append(append([]Phase{}, NonTerminal...), Terminal...) }

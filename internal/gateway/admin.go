@@ -37,6 +37,7 @@ func (g *Gateway) Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv1.Ac
 		WorkDir:     req.WorkDir,
 		PreferShell: req.PreferShell,
 		Adjunct:     req.Adjunct,
+		Provenance:  req.Provenance, // caster 透传触发事件行戳
 	})
 	if err != nil {
 		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
@@ -112,7 +113,7 @@ func eventItem(e *db.Event) *pbv1.EventItem {
 	return &pbv1.EventItem{
 		Id: e.ID, Kind: e.Kind, FromPhase: string(e.FromPhase), ToPhase: string(e.ToPhase),
 		Actor: e.Actor, Note: e.Note, AtUnixNano: e.CreatedAt.UnixNano(),
-		TicketId: e.TicketID, Role: e.Role,
+		TicketId: e.TicketID, Role: e.Role, Provenance: e.Provenance,
 	}
 }
 
@@ -164,6 +165,19 @@ func (g *Gateway) Ping(_ context.Context, _ *pbv1.Empty) (*pbv1.Ack, error) {
 	return &pbv1.Ack{Ok: true, Note: "pong"}, nil
 }
 
+// IssueCeoToken `meta ceo` 交互面开 run（terminal 戳）：建一条 pid=0 的
+// role=CEO seat_run——无子进程（CLI 本体即席）；其 Events 订阅 EOF 即除名+判死。
+func (g *Gateway) IssueCeoToken(ctx context.Context, _ *pbv1.CeoTokenReq) (*pbv1.CeoTokenResp, error) {
+	run := g.newRun("", "CEO", "")
+	run.Provenance = "terminal"
+	if err := g.database.CreateRun(ctx, run); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	_ = g.database.AppendEvent(ctx, "", "ceo_token", db.Event{
+		Actor: "gateway", Note: "交互面开 run " + run.RunID, Provenance: "terminal"})
+	return &pbv1.CeoTokenResp{RunId: run.RunID, RunToken: run.RunToken}, nil
+}
+
 func (g *Gateway) Runs(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.RunList, error) {
 	runs, err := g.database.RunsForTicket(ctx, ref.Id)
 	if err != nil {
@@ -191,6 +205,7 @@ func (g *Gateway) Observe(_ *pbv1.Empty, stream pbv1.AdminGateway_ObserveServer)
 		case e := <-ch:
 			if err := stream.Send(&pbv1.ObsEvent{
 				Kind: e.Kind, TicketId: e.TicketID, RunId: e.RunID, Role: e.Role, Note: e.Note,
+				Provenance: e.Provenance,
 			}); err != nil {
 				return err
 			}

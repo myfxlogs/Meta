@@ -31,6 +31,17 @@ service AdminGateway {
   rpc Observe(Empty) returns (stream ObsEvent); // 事件观察口导出
   rpc RetroVerdict(RetroReq) returns (Ack);  // 回翻件：滞留待审票一次性机械补录
   rpc Ping(Empty) returns (Ack);             // 健康核验径（meta ping / meta-probe.sh）
+  rpc IssueCeoToken(CeoTokenReq) returns (CeoTokenResp); // `meta ceo` 交互面开 run：provenance=terminal
+}
+
+// CEO 面（总设计 §12 钦定五 RPC）。一切请求带 run_token——首验 role=CEO 活 run；
+// provenance 一律盖自 run 行，请求自报不认（D9 机械牙）。
+service CeoGateway {
+  rpc Events(Subscribe) returns (stream EventItem); // 订阅＝CEO 锁登记（一人订阅在第二拒，EOF 除名）
+  rpc SubmitRequirement(Requirement) returns (TicketRef); // 立需求票（spec 部分栏）＋requirement 事件
+  rpc Rule(Ruling) returns (RuleAck);              // void（须重述确认）|budget_raise|redirect
+  rpc Inquire(Inquiry) returns (Ack);              // 质询→起 CTO adjunct 诊断实例（只产报告不产票）
+  rpc Memory(stream MemoryOp) returns (stream MemoryOp); // ceo_memory 读写流
 }
 
 message SeatMsg {
@@ -45,6 +56,7 @@ message SeatMsg {
     SecretReq secret_req = 8;
     Rule rule = 9; // 裁决回流帧（adjunct 裁决席专用，§1.4）
     ExecReq exec_req = 10; // 命令代跑请求（部署闸：role=CTO+票相位=部署中+非 adjunct，缺一即拒）
+    SeatAdmin admin = 11; // 立票/填spec/派工帧（role==CTO 非 adjunct 机械闸，§1.5）
   }
 }
 
@@ -57,6 +69,7 @@ message GatewayMsg {
     SecretResp secret_resp = 5;
     Ack ack = 6; // Deliver 回执：席位等执再退，防尾帧丢在传输缓冲
     ExecResp exec_resp = 7; // 代跑回执：退码+输出路径+尾段（cmd_run 同文）
+    Ack admin_resp = 8; // SeatAdmin 回执
   }
 }
 
@@ -161,6 +174,23 @@ message SecretResp {
   bool denied = 3;
 }
 
+// SeatAdmin 席位流内管理帧（§1.5）：CTO-A 写径随席位流走——权限随角色收，
+// D-24 降权迁移后天然存活（CLI 管理径 socket 属主权会把它关在门外）。
+message SeatAdmin {
+  oneof action {
+    FillSpec fill_spec = 1;       // 回填本票八栏（限派发票自身施工中）
+    NewTicket create_ticket = 2;  // 立子票（spec 全量；created 事件沿用本 run 戳）
+    DispatchReq dispatch = 3;     // 派子票（role=CEO 由 DispatchSeat 永拒）
+  }
+}
+
+// FillSpec 回填票面：spec_md＝票面 markdown 原文，网关经 inject.ParseTicketMD
+// 解析+缺一不派闸校验后 marshal 入库——席侧不落 proto 序列化职责。
+message FillSpec {
+  string ticket_id = 1;
+  bytes spec_md = 2;
+}
+
 message AdoptAuth {
   string run_token = 1;
 }
@@ -187,6 +217,7 @@ message DispatchReq {
   string work_dir = 4;
   string prefer_shell = 5; // 非空＝该壳尝试提首（smoke 指定径）
   bool adjunct = 6;        // 辅助席（裁决/诊断）：不占相位，必给 prompt_file
+  string provenance = 7;   // 触发事件行的 provenance 透传（caster 自动带；spawn 盖进 seat_run）
 }
 
 message BudgetReq {
@@ -226,6 +257,7 @@ message EventItem {
   int64 at_unix_nano = 7;
   string ticket_id = 8;
   string role = 9; // 决策41：actor 为 run_id 时经 seat_run 映射带出，否则空
+  string provenance = 10; // 事件行 provenance 列透传（D9：CEO 链盖戳可查）
 }
 
 message EventCursor {
@@ -267,9 +299,89 @@ message ObsEvent {
   string run_id = 3;
   string role = 4;
   string note = 5;
+  string provenance = 6;
 }
 
 message Empty {}
+
+// ---------- CEO 面消息（五 RPC 载荷；run_token 首验 role=CEO 活 run） ----------
+
+message Subscribe {
+  string run_token = 1;
+  bool follow = 2; // false＝回放待处理队列即完（无头席排水径）；true＝随流派发
+}
+
+// Requirement 需求提交（§1.4）：立票许空 spec——goal=原文、why=定向+provenance。
+message Requirement {
+  string run_token = 1;
+  string title = 2;
+  string goal = 3;       // 需求原文
+  string direction = 4;  // CEO 定向（方向/优先序/约束/边界）
+  string provenance = 5; // 客户端可自报——网关盖 run 行戳，自报不认（D9）
+}
+
+// Ruling CEO 裁决：void（破坏性，须 confirm 重述确认 §3.4）/budget_raise（追加
+// 硬顶解冻）/redirect（req_pending 泊车票重派 CTO）。
+message Ruling {
+  string run_token = 1;
+  string action = 2;
+  string ticket_id = 3;
+  string note = 4;
+  bool confirm = 5;
+  int64 hard_cap = 6; // budget_raise：新票级硬顶（抬帽不清零）
+}
+
+message RuleAck {
+  bool ok = 1;
+  bool need_confirm = 2; // 破坏性裁决未带确认帧——须重发 confirm=true
+  string note = 3;
+}
+
+// Inquiry 质询（§8 质询权）：起一次 CTO adjunct 诊断实例——只产报告不产票。
+message Inquiry {
+  string run_token = 1;
+  string ticket_id = 2; // 诊断对象票（adjunct 依附位）
+  string question = 3;
+}
+
+// MemoryOp ceo_memory 流读写：put 落行（event_ref=run_id 机械盖）；
+// get 按 kind 倒序回放（kind 空＝全量）；row＝响应行。
+message MemoryOp {
+  string run_token = 1;
+  oneof op {
+    MemoryPut put = 2;
+    MemoryGet get = 3;
+    MemoryRow row = 4;
+  }
+}
+
+message MemoryPut {
+  string kind = 1; // memo|decision|say 等；say→同步出 ceo_say 事件（§1.9）
+  string title = 2;
+  bytes content = 3;
+}
+
+message MemoryGet {
+  string kind = 1;
+  int32 limit = 2; // 0/负＝服务端缺省
+}
+
+message MemoryRow {
+  int64 id = 1;
+  string kind = 2;
+  string title = 3;
+  bytes content = 4;
+  string event_ref = 5;   // put 时机械盖 run_id——D-22 比对基准
+  string provenance = 6;  // 盖自 run 行
+  int64 at_unix_nano = 7;
+}
+
+message CeoTokenReq {}
+
+message CeoTokenResp {
+  string run_id = 1;
+  string run_token = 2;
+}
 
 // ---------- 播报员路由表（D-26/令#E13：事件→动作电话簿，判断永不进播报员） ----------
 
@@ -314,6 +426,9 @@ message GatewayConfig {
   repeated RoleBudget role_budget = 9;
   repeated ShellRow shell = 10;
   repeated ProjectSeed project = 11;               // 项目配方种子（缺 id 行才落，DB 行是活态）
+  repeated string ceo_events = 12;      // CeoGateway.Events 流放行 kind 列
+  repeated string ceo_spawn_kinds = 13; // 无头 CEO 化身触发 kind 列（决策54/E16）
+  string ceo_prompt = 14;               // 无头席提示模板路径（{{kind}} 等占位）
 }
 
 // SandboxSpec 沙箱形制（§11）：代跑执行身份——run_as 缺省＋按步覆盖。

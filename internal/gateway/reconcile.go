@@ -40,10 +40,32 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 			g.reconcileActor(ctx, t)
 		case db.PhaseCreated:
 			// 已立（§5.3 钦定行）：等 CTO-A 唤起，补发 spawn 事件。
+			// req_pending 泊车票机械抑制（§1.4）：最新事件为 req_pending 的票
+			// 是「需求待裁」摆位，补发会无头重派空转——跳过，等 CEO redirect。
+			if k, err := g.database.LatestEventKind(ctx, t.ID); err == nil &&
+				k == string(db.EdgeReqPending) {
+				continue
+			}
 			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
 				Actor: "gateway", Note: "对账补发: CTO",
 			})
 			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
+		}
+	}
+	// B1 设计锁启动重建（§1.8）：设计链在途票（设计中/已派/施工中）且有
+	// 活 CTO run 者照相位恢复持锁——run 已死者随回队径自然不占（锁语义
+	// ＝持锁票离开施工中/终态释放，见 transition）。
+	for _, t := range tickets {
+		switch t.Phase {
+		case db.PhaseDesigning, db.PhaseAssigned, db.PhaseWorking:
+		default:
+			continue
+		}
+		if t.Project == "" {
+			continue
+		}
+		if r, err := g.database.ActiveRunForTicketRole(ctx, t.ID, "CTO"); err == nil && r != nil {
+			g.designLocks[t.Project] = t.ID
 		}
 	}
 }
