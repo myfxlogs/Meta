@@ -25,7 +25,6 @@ shell { name: "devin"    model: "swe-2-max" role: "CTO" priority: 10 }
 shell { name: "claude"   role: "CTO" priority: 20 }
 shell { name: "opencode" role: "CTO" priority: 30 attempt_cap: 8000000 }
 
-<<<<<<< HEAD
 # 项目配方种子（票0010 部署闸）：meta 自举首个被部署项目。
 # run_as 诚实妥协（设计-0007 §1.8/§11）：check 步跑票代码＝不可信→metaseat；
 # integrate/deploy/probe/rollback 是仓内固定件（git/换装/socket）→按步覆盖 mluser。
@@ -71,8 +70,7 @@ ceo_events: "ceo_gap"
 ceo_events: "ceo_last_resort"
 ceo_events: "redirect"
 ceo_prompt: "config/caster/ceo-headless.md"
-=======
+
 # 前端席位板（票0012）：loopback+token 钦定最小暴露面；仅 loopback 地址合法。
 # token 种子=业主动作：meta secret put secret.board.token（值读 stdin）。
 board_listen: "127.0.0.1:9712"
->>>>>>> t/0012-seat-board
