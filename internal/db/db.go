@@ -37,6 +37,11 @@ func Open(path string) (*DB, error) {
 		sq.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	// 幂等补列迁移：旧库 seat_run 可能缺 adjunct（票0004 增列）。
+	if err := ensureColumn(sq, "seat_run", "adjunct", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		sq.Close()
+		return nil, fmt.Errorf("migrate adjunct: %w", err)
+	}
 	for _, f := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Chmod(f, 0o600) // 库含密文与票真源，仅属主可读写
 	}
@@ -82,4 +87,30 @@ func (d *DB) JournalMode() (string, error) {
 		return "", err
 	}
 	return m, nil
+}
+
+// ensureColumn 幂等 ALTER：列缺才 ADD COLUMN（sqlite 无 IF NOT EXISTS 列语法）。
+func ensureColumn(sq *sql.DB, table, col, decl string) error {
+	rows, err := sq.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == col {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = sq.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col + ` ` + decl)
+	return err
 }

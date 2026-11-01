@@ -86,14 +86,14 @@ func TestTransition(t *testing.T) {
 	ctx := context.Background()
 	mkTicket(t, d, "t1")
 
-	if err := d.Transition(ctx, "t1", PhaseDesigning, EdgeDesignStart, "cto-a", ""); err != nil {
+	if _, err := d.Transition(ctx, "t1", PhaseDesigning, EdgeDesignStart, "cto-a", ""); err != nil {
 		t.Fatalf("合法边被拒: %v", err)
 	}
 	if p, _ := d.PhaseOf(ctx, "t1"); p != PhaseDesigning {
 		t.Fatalf("相位=%s 预期 设计中", p)
 	}
 	var ille *ErrIllegalEdge
-	if err := d.Transition(ctx, "t1", PhaseDone, EdgeDeployDone, "x", ""); !errors.As(err, &ille) {
+	if _, err := d.Transition(ctx, "t1", PhaseDone, EdgeDeployDone, "x", ""); !errors.As(err, &ille) {
 		t.Fatalf("越边未拒: %v", err)
 	}
 	if p, _ := d.PhaseOf(ctx, "t1"); p != PhaseDesigning {
@@ -101,7 +101,7 @@ func TestTransition(t *testing.T) {
 	}
 	// 驳回计数
 	toPhase(t, d, "t1", PhaseAuditing)
-	if err := d.Transition(ctx, "t1", PhaseAssigned, EdgeReject, "审计", "判决：退码不符"); err != nil {
+	if _, err := d.Transition(ctx, "t1", PhaseAssigned, EdgeReject, "审计", "判决：退码不符"); err != nil {
 		t.Fatalf("驳回边被拒: %v", err)
 	}
 	tk, _ := d.GetTicket(ctx, "t1")
@@ -214,7 +214,7 @@ func toPhase(t *testing.T, d *DB, id string, target Phase) {
 		if i < 0 || i+1 >= len(order) {
 			t.Fatalf("toPhase: 相位 %s 不在主链", p)
 		}
-		if err := d.Transition(context.Background(), id, order[i+1], kinds[i], "test", ""); err != nil {
+		if _, err := d.Transition(context.Background(), id, order[i+1], kinds[i], "test", ""); err != nil {
 			t.Fatalf("toPhase→%s: %v", order[i+1], err)
 		}
 	}
