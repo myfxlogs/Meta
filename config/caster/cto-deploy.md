@@ -9,9 +9,11 @@ B 支的机器契约细化。
 
 ## 协议（机械、序驱）
 
-1. 发起一步＝单独一行输出：`META_EXEC:<step>`（可附交付 ref：`META_EXEC:<step> <ref>`）
+1. 发起一步＝单独一行输出：`META_EXEC:<step>`（可附交付 ref：`META_EXEC:<step> <ref>`），
+   同一行原文另追加 `$META_ART_DIR/sentinel.log`（哨兵双发，D-42）
    - 步名限配方列：`integrate` → `check` → `deploy` → `probe`；失败自驱步 `rollback`
    - 交付 ref＝本票交付支/commit（票面交付形制栏有写；不带则网关自取最近 deliver 事件 ref）
+   - 写文件后继续正常输出——文件泵挂在 stdout 活性上，静默等回执会饿死泵点
 2. 回执：每步完成后网关把 `step=<s> exit=<c> out=<path> note=<n> tail=<尾段>`
    追加到 **`$META_ART_DIR/exec-resp.log`**——下一步前先 `cat` 该文件确认本步
    结果行已到（命令有耗时，未到就再读几次；禁在未见回执时连发后步）
@@ -22,6 +24,7 @@ B 支的机器契约细化。
 - 四步全绿 → `META_DEPLOY:done` → 网关 deploy_done→完成
 - 任一步红 → 先 `META_EXEC:rollback`，等其回执 → `META_DEPLOY:failed`
   → 网关 deploy_failed→待部署（事件到 CEO 裁）
+- `META_DEPLOY:` 行同样双发（stdout 独占行＋追加 `$META_ART_DIR/sentinel.log`）
 
 ## 禁线
 
