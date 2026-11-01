@@ -194,3 +194,13 @@
 - 与 hermes 的本质差：它用钟表问「该学了吗」，我们用事实问「成了吗」；它沉淀「自己觉得顺的」，我们沉淀「独立查验确认过的」
 - 落点：总设计 §4 技能库段、施工卡摘要五节、审计卡判决意见句；实现（库目录＋注入机械化）入 D-17 排阶段 2
 - 措辞规同场生效：对外称「借鉴 hermes 概念、过闸版」
+
+### 决策 26：返修交付全绿＋claude 钥匙副本制落地＋二审在席
+- 触发：返修席退出（b3ccd8a）→ CEO 机械验证四绿 → 补钥匙 → 复跑冒烟全绿 → 二审派发
+- provenance：`system_event`
+- **返修核验**：R1 接线（含变异验证）＋R2（删/接线）＋R3（报告=脚本原文含终止行）全修；申报偏差一处（清零点挪 spawn 前，理由窄竞）交二审裁定
+- **claude 钥匙**：真源＝`~/.claude/profiles/glm.json` env 块（非 .claude.json）——metaseat 落 `.claude-env`（600）＋profiles 副本；鉴权活体「正常」。返修冒烟的 claude 缺席系此因（D-10 预言命中，现已闭合）
+- **复跑冒烟**：三壳实读（claude 17959/opencode 5370）＋锚 8 钦定剧本（devin 死→claude 接班交付）——`t0002-rework.smoke-report.txt`
+- **分支搬运**：metaseat 独立克隆经 bundle 桥接回 `/opt/meta` 并 CEO 代推 origin（b3ccd8a）；旧 mluser 施工间已拆
+- **业主换模型**：claude 行换 GLM-5.3-Flash（业主亲自操作中）——不影响任何锚；席位模型行随 D-9 配置化登记
+- 二审在席（swe-2-max·只读·判决走 stdout）；通过即 阶段 1 完，随后网关激活（D-7）
