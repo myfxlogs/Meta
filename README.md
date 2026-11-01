@@ -1,8 +1,8 @@
-# Meta v2
+# Meta
 
 O 项目的工单/席位治理层——重建版。
 
-> 前身 `/opt/meta`（已归档 `~/archive/meta-2026-11-01.tar.gz`，远端已清空）。
+> 前身已归档：`/opt/meta-archive` + `~/archive/meta-2026-11-01.tar.gz`，远端已清空。
 > 本仓自 2026-11-01 零史重建——设计议程见 `docs/设计议程.md`（待立）。
 
 ## 定位
