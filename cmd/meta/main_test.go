@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"meta/internal/config"
+	"meta/internal/db"
 	"meta/internal/gateway"
 	pbv1 "meta/internal/pb/metav1"
 )
@@ -129,5 +130,44 @@ func TestCLI_GlueE2E(t *testing.T) {
 	}
 	if err := eventsCmd([]string{"--socket", sock, "--ticket", "tcli"}); err != nil {
 		t.Fatal("events:", err)
+	}
+}
+
+// TestImportLegacy_Parser 锚8 补强：importLegacy 解析器本体直测——fixture md
+// 两个决策块→两行（provenance 抽取）；二跑零增（kind+title 幂等）。
+func TestImportLegacy_Parser(t *testing.T) {
+	d := t.TempDir()
+	dbp := filepath.Join(d, "m.db")
+	h, err := db.Open(dbp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	ctx := context.Background()
+	md := []byte("# ceo_memory\n\n" +
+		"### 决策 1：上线路径\n- 触发：业主 terminal\n- provenance：`terminal`\n- 裁：走 A\n\n" +
+		"### 决策 2：预算追加\n- provenance：`feishu:o1`\n- 裁：加 10 万\n")
+	if n, err := importLegacy(ctx, h, md); err != nil || n != 2 {
+		t.Fatalf("首跑应入 2 行: n=%d err=%v", n, err)
+	}
+	if n, err := importLegacy(ctx, h, md); err != nil || n != 0 {
+		t.Fatalf("二跑应零增: n=%d err=%v", n, err)
+	}
+	rows, err := h.ListMemory(ctx, "decision", 0)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("行数不符: %v %d", err, len(rows))
+	}
+	byTitle := map[string]*db.Memory{}
+	for _, m := range rows {
+		byTitle[m.Title] = m
+	}
+	if m := byTitle["上线路径"]; m == nil || m.Provenance != "terminal" || m.EventRef != "legacy-import" {
+		t.Fatalf("决策 1 行不符: %+v", m)
+	}
+	if m := byTitle["预算追加"]; m == nil || m.Provenance != "feishu:o1" {
+		t.Fatalf("决策 2 行不符: %+v", m)
+	}
+	if m := byTitle["上线路径"]; m != nil && !strings.Contains(string(m.Content), "走 A") {
+		t.Fatalf("正文未入: %q", m.Content)
 	}
 }

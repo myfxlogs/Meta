@@ -258,6 +258,149 @@ func TestCeoRule(t *testing.T) {
 	})
 }
 
+// TestCeoRule_RedirectPrompt redirect 重派的是 CTO-A——缺栏票落 CTO 再派
+// 内联提示（防误用 CEO 无头化身模板：角色指反＝席行为错轨）；全栏票走
+// 注入机径（PromptFile 空＝由注入机组装全套前缀）。
+func TestCeoRule_RedirectPrompt(t *testing.T) {
+	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	ctx := context.Background()
+	c := ceoClient(t, dir)
+	run := mkCeoRun(t, g, "terminal")
+	park := func(id string, spec []byte) {
+		t.Helper()
+		mkTicketAt(t, g, id, db.PhaseWorking)
+		if spec != nil {
+			if err := g.DB().UpdateSpec(ctx, id, spec); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := g.DB().Transition(ctx, id, db.PhaseCreated, db.EdgeReqPending, "cto", "待裁"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 缺栏（需求票原始态：goal+why）→内联 CTO-A 再派提示。
+	park("trp1", mustSpec(t, func(ts *pbv1.TicketSpec) { ts.Goal, ts.Why = "做X", "定向" }))
+	if ack, _ := c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
+		TicketId: "trp1", Note: "改走轻量轨"}); ack == nil || !ack.Ok {
+		t.Fatalf("redirect 缺栏票未成: %+v", ack)
+	}
+	g.mu.Lock()
+	pf1 := g.specs[specKey{"trp1", "CTO"}].PromptFile
+	g.mu.Unlock()
+	if pf1 == "" {
+		t.Fatal("缺栏票 redirect 未落覆盖提示（注入机缺一不派会空转）")
+	}
+	body, err := os.ReadFile(pf1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "CTO-A") || strings.Contains(string(body), "无头化身") {
+		t.Fatalf("redirect 提示角色指错（应 CTO-A 非 CEO 化身）: %s", pf1)
+	}
+
+	// 全栏（CTO-A 已 fill_spec 后泊车）→注入机径。
+	full := mustSpec(t, func(ts *pbv1.TicketSpec) {
+		ts.Goal, ts.Why, ts.Scope, ts.OutOfScope = "g", "w", "s", "o"
+		ts.Refs, ts.Anchors, ts.Verify, ts.Deliver = "r", "a", "v", "d"
+	})
+	park("trp2", full)
+	if ack, _ := c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
+		TicketId: "trp2", Note: "续作"}); ack == nil || !ack.Ok {
+		t.Fatalf("redirect 全栏票未成: %+v", ack)
+	}
+	g.mu.Lock()
+	pf2 := g.specs[specKey{"trp2", "CTO"}].PromptFile
+	g.mu.Unlock()
+	if pf2 != "" {
+		t.Fatalf("全栏票 redirect 应走注入机径（PromptFile 空）: %q", pf2)
+	}
+}
+
+func mustSpec(t *testing.T, fill func(*pbv1.TicketSpec)) []byte {
+	t.Helper()
+	ts := &pbv1.TicketSpec{}
+	fill(ts)
+	b, err := proto.Marshal(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// TestDesignLock B1 设计锁做实锚：同项目二票并发起设计——A 持锁（派发即取、
+// 持到离开施工中）期间 B 派发拒；A 交付放锁→spawn_needed 解排队＋B 可派。
+func TestDesignLock(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "idle")
+	t.Setenv("META_ADOPT_GRACE", "30")
+	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	ctx := context.Background()
+	for _, id := range []string{"ta", "tb"} {
+		mkTicketAt(t, g, id, db.PhaseCreated)
+		if err := g.DB().SetProject(ctx, id, "p1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A 派 CTO→持锁；helper 置 idle（不自连），测试侧 Attach 流代行
+	// claim/deliver——避免 worker helper 与代行流双 claim 竞速断流。
+	idleSpec := dispatchSpec()
+	for i, e := range idleSpec.Env {
+		if strings.HasPrefix(e, "SEAT_MODE=") {
+			idleSpec.Env[i] = "SEAT_MODE=idle"
+		}
+	}
+	if err := g.DispatchSeat(ctx, "ta", "CTO", idleSpec); err != nil {
+		t.Fatal(err)
+	}
+	g.mu.Lock()
+	holder := g.designLocks["p1"]
+	g.mu.Unlock()
+	if holder != "ta" {
+		t.Fatalf("派发后 A 未持设计锁: %q", holder)
+	}
+	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec()); err == nil ||
+		!strings.Contains(err.Error(), "设计锁") {
+		t.Fatalf("B 同项目派发未被锁拒: %v", err)
+	}
+
+	_, sc := dialSeatGateway(t, filepath.Join(dir, "run", "meta.sock"))
+	st, _ := sc.Attach(ctx)
+	var arun *db.Run
+	waitFor2(t, 5*time.Second, func() bool {
+		arun, _ = g.DB().ActiveRunForTicketRole(ctx, "ta", "CTO")
+		return arun != nil
+	})
+	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: arun.RunToken}}})
+	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "ta"}}})
+	waitPhase(t, g, "ta", db.PhaseWorking, 5*time.Second)
+	// 施工中仍持锁（交付前不放）。
+	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec()); err == nil {
+		t.Fatal("A 施工中 B 派发未被锁拒（锁提前释放）")
+	}
+	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{Ref: "r1"}}})
+	// 放锁→解排队补发（扫 DB 行＝持久真源，不依赖观察口消费侧）。
+	waitFor2(t, 5*time.Second, func() bool {
+		evs, _ := g.DB().Events(ctx, "tb")
+		for _, e := range evs {
+			if e.Kind == "spawn_needed" && strings.Contains(e.Note, "设计锁释放") {
+				return true
+			}
+		}
+		return false
+	})
+	waitFor2(t, 5*time.Second, func() bool {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		return g.designLocks["p1"] == ""
+	})
+	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec()); err != nil {
+		t.Fatalf("A 交付后 B 派发仍拒: %v", err)
+	}
+	st.CloseSend()
+}
+
 // TestCeoInquire 锚5：Inquire→adjunct CTO run 起＋adjunct_deliver 回。
 func TestCeoInquire(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")

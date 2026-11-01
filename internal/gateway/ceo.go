@@ -14,8 +14,8 @@ import (
 
 	"meta/internal/db"
 	"meta/internal/inject"
-	"meta/internal/route"
 	pbv1 "meta/internal/pb/metav1"
+	"meta/internal/route"
 )
 
 // ceo.go —— CEO 面五 RPC（总设计 §12）＋连接登记锁＋事件泵＋无头席内部唤起
@@ -449,9 +449,15 @@ func (g *Gateway) CeoRule(ctx context.Context, r *pbv1.Ruling) (*pbv1.RuleAck, e
 		if t.Phase != db.PhaseCreated || k != string(db.EdgeReqPending) {
 			return fail("票 " + r.TicketId + " 非 req_pending 泊车态")
 		}
-		pf, perr := g.renderCeoPrompt(Event{Kind: "redirect", TicketID: r.TicketId, Note: r.Note})
+		// 重派的是 **CTO-A**（再设计席）——spec 全栏则走注入机径（全套前缀
+		// ＋判决史）；缺栏（需求票未回填）注入机会「缺一不派」，落 CTO-A
+		// 再派内联提示。不得用 CEO 无头化身模板（角色指反＝席行为错轨）。
 		spec := SeatSpec{WorkDir: g.ceoWorkDir(), Provenance: run.Provenance}
-		if perr == nil {
+		if !specComplete(t) {
+			pf, perr := g.renderRedirectPrompt(r.TicketId, r.Note)
+			if perr != nil {
+				return nil, status.Error(codes.Internal, perr.Error())
+			}
 			spec.PromptFile = pf
 		}
 		if err := g.DispatchSeat(ctx, r.TicketId, "CTO", spec); err != nil {
@@ -495,11 +501,49 @@ func (g *Gateway) renderInquirePrompt(q *pbv1.Inquiry) (string, error) {
 		"- run 取证：`meta runs --socket " + g.cfg.SocketPath + " --ticket " + q.TicketId + "`\n" +
 		"- 席位日志目录：`" + filepath.Join(g.cfg.RunDir, "logs") + "`\n\n" +
 		"## 出口（必须）\n\n写完诊断报告后正常退出即可（adjunct_deliver 回流）。\n"
+	return g.writeCeoPromptFile("inquire-", body)
+}
+
+// specComplete 票 spec 八栏全否（机械判——缺一不派闸同一把尺）：
+// 全则派发走注入机径，缺则调用方须给覆盖提示文件。
+func specComplete(t *db.Ticket) bool {
+	if len(t.Spec) == 0 {
+		return false
+	}
+	ts := &pbv1.TicketSpec{}
+	if err := proto.Unmarshal(t.Spec, ts); err != nil {
+		return false
+	}
+	return inject.CheckSpec(ts) == nil
+}
+
+// renderRedirectPrompt CEO redirect 后的 CTO-A 再派提示（需求票缺栏时用——
+// 注入机「缺一不派」会挡，故此径自含轨与哨兵约定，防空提示误派）。
+func (g *Gateway) renderRedirectPrompt(ticketID, note string) (string, error) {
+	body := "# CTO-A 再派（CEO redirect · 需求票 " + ticketID + "）\n\n" +
+		"你是 **CTO-A**：需求→设计文档→拆票→派发（角色卡：roles/CTO.md）。\n" +
+		"本票先前因「需求待裁」泊车（req_pending），CEO 已重定向——按新定向续作。\n\n" +
+		"## CEO 新定向\n\n" + note + "\n\n" +
+		"## 轨（设计-0007 §1.4 钦定）\n\n" +
+		"1. 读票：`meta events --socket " + g.cfg.SocketPath + " --ticket " + ticketID + "`\n" +
+		"   取 created/requirement/req_pending/ruling 行——goal=需求原文、定向与新定向在行内。\n" +
+		"2. 产出设计文档并 commit 到仓。\n" +
+		"3. 回填本票八栏：`META_ADMIN:fill_spec|<本票八栏 .md 路径>`（只许本票）。\n" +
+		"4. 立子票：`META_ADMIN:create_ticket|<id>|<title>|<子票八栏 .md 路径>`\n" +
+		"5. 派子票（role∈{施工,审计,CTO}，CEO 禁派闸挡）：`META_ADMIN:dispatch|<id>|<role>|[promptfile~workdir]`\n" +
+		"6. 完工交付：末行单独输出 `META_DELIVER:<交付 ref>`。\n\n" +
+		"## 出口\n\n仍属「需求待裁」（动钱/范围外/票面歧义）→ `Yield` 再泊车等 CEO；\n" +
+		"**不要选一种解释硬做**。\n"
+	return g.writeCeoPromptFile("redirect-", body)
+}
+
+// writeCeoPromptFile CEO 面内联提示落盘共用径（run/inject/<前缀><rand>.md）。
+func (g *Gateway) writeCeoPromptFile(prefix, body string) (string, error) {
 	dir := filepath.Join(g.cfg.RunDir, "inject")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	p := filepath.Join(dir, "inquire-"+randHex(6)+".md")
+	p := filepath.Join(dir, prefix+randHex(6)+".md")
 	return p, os.WriteFile(p, []byte(body), 0o600)
 }
 
@@ -638,8 +682,8 @@ func (g *Gateway) onTerminal(ticketID string) {
 	g.cancelAlarm(ticketID)
 }
 
-// releaseDesignLock 票离开设计中→放项目设计锁；锁释放事件→查同项目已立票
-// →补发 spawn_needed:CTO（事件驱动解锁，零定时，§1.8）。
+// releaseDesignLock 持锁票离开施工中/入终态→放项目设计锁；锁释放事件→查
+// 同项目已立票→补发 spawn_needed:CTO（事件驱动解锁，零定时，§1.8）。
 func (g *Gateway) releaseDesignLock(ctx context.Context, ticketID string) {
 	t, err := g.database.GetTicket(ctx, ticketID)
 	if err != nil || t == nil || t.Project == "" {

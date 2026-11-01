@@ -51,9 +51,19 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
 		}
 	}
-	// B1 设计锁启动重建（§1.8）：设计中票的 project 持锁照相位恢复。
+	// B1 设计锁启动重建（§1.8）：设计链在途票（设计中/已派/施工中）且有
+	// 活 CTO run 者照相位恢复持锁——run 已死者随回队径自然不占（锁语义
+	// ＝持锁票离开施工中/终态释放，见 transition）。
 	for _, t := range tickets {
-		if t.Phase == db.PhaseDesigning && t.Project != "" {
+		switch t.Phase {
+		case db.PhaseDesigning, db.PhaseAssigned, db.PhaseWorking:
+		default:
+			continue
+		}
+		if t.Project == "" {
+			continue
+		}
+		if r, err := g.database.ActiveRunForTicketRole(ctx, t.ID, "CTO"); err == nil && r != nil {
 			g.designLocks[t.Project] = t.ID
 		}
 	}
