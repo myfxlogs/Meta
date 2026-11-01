@@ -43,11 +43,14 @@ routes { kind: "deploy_done" note: "部署完成（闭环终态）" actions { no
 routes { kind: "reject" note: "驳回→通知＋自动重派施工（判决史随注入累积）"
   actions { notify { template: "【Meta】审计:驳回转交[{{ticket_id}}]" } }
   actions { dispatch { role: "施工" work_dir: "/opt/meta" prompt_template: "caster/build-seat.md" } } }
-routes { kind: "audit_dead" note: "审计席死→重起审计（不计驳回）" actions { dispatch { role: "审计" prefer_shell: "devin" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
+routes { kind: "audit_dead" note: "审计席死→通知＋重起审计（不计驳回）"
+  actions { notify { template: "【Meta】⚠️审计席中断[{{ticket_id}}]——自动重派中" } }
+  actions { dispatch { role: "审计" prefer_shell: "devin" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
 routes { kind: "spawn_needed" note_contains: "审计" note: "对账补发消费端：待审滞留→派审计" actions { dispatch { role: "审计" prefer_shell: "devin" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
 routes { kind: "spawn_needed" note_contains: "CTO" note: "补发消费端：已立/待部署滞留或部署锁释补发→派 CTO" actions { dispatch { role: "CTO" work_dir: "/opt/meta" prompt_template: "caster/cto-deploy.md" } } }
 routes { kind: "spawn_needed" note_contains: "施工" note: "对账补发消费端：已派滞留→派施工" actions { dispatch { role: "施工" work_dir: "/opt/meta" prompt_template: "caster/build-seat.md" } } }
 # ——通知面（决策41 新格式）——
+routes { kind: "shell_limited" note: "壳限流/日限打穿（决策17 配额面）" actions { notify { template: "【Meta】⚠️{{note}}限流打穿——今日退席，明日自愈" } } }
 routes { kind: "claim"             actions { notify { template: "【Meta】{{role}}:接单[{{ticket_id}}]" } } }
 routes { kind: "shells_exhausted"  actions { notify { template: "【Meta】⚠️全壳耗尽[{{ticket_id}}]——换班链走完仍失败" } } }
 routes { kind: "dispatch"          actions { notify { template: "【Meta】系统:派单[{{ticket_id}}]" } } }
