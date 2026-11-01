@@ -26,12 +26,19 @@ routes { kind: "deliver" note: "交付→通知＋起审计席（决策53 复位
   actions { notify { template: "【Meta】{{role}}:完工转交[{{ticket_id}}]" } }
   actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
 routes { kind: "audit_start" note: "审计拉起（决策34 缺口补）" actions { notify { template: "【Meta】审计:接单[{{ticket_id}}]" } } }
-routes { kind: "audit_pass" note: "判决通过→待部署（部署闸票再接 dispatch CTO-B）" actions { notify { template: "【Meta】审计:完成转交[{{ticket_id}}]" } } }
+routes { kind: "audit_pass" note: "判决通过→待部署＋派 CTO-B 部署席（票0010：闭环最后一只手）"
+  actions { notify { template: "【Meta】审计:完成转交[{{ticket_id}}]" } }
+  actions { dispatch { role: "CTO" work_dir: "/opt/meta"
+                       prompt_template: "caster/cto-deploy.md" } } }
+routes { kind: "deploy_start" note: "部署席领票步行（部署中）" actions { notify { template: "【Meta】CTO:部署开工[{{ticket_id}}]" } } }
+routes { kind: "deploy_failed" note: "部署失败已回滚→待部署＋CEO 裁（重试/作废）" actions { notify { template: "【Meta】⚠️CTO:部署失败[{{ticket_id}}]——已回滚待裁" } } }
+routes { kind: "deploy_done" note: "部署完成（闭环终态）" actions { notify { template: "【Meta】CTO:部署完成[{{ticket_id}}]" } } }
 routes { kind: "reject" note: "驳回→通知＋自动重派施工（判决史随注入累积）"
   actions { notify { template: "【Meta】审计:驳回转交[{{ticket_id}}]" } }
   actions { dispatch { role: "施工" work_dir: "/opt/meta" } } }
 routes { kind: "audit_dead" note: "审计席死→重起审计（不计驳回）" actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
 routes { kind: "spawn_needed" note_contains: "审计" note: "对账补发消费端：待审滞留→派审计" actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
+routes { kind: "spawn_needed" note_contains: "CTO" note: "补发消费端：已立/待部署滞留或部署锁释补发→派 CTO" actions { dispatch { role: "CTO" work_dir: "/opt/meta" prompt_template: "caster/cto-deploy.md" } } }
 routes { kind: "spawn_needed" note_contains: "施工" note: "对账补发消费端：已派滞留→派施工" actions { dispatch { role: "施工" work_dir: "/opt/meta" } } }
 # ——通知面（决策41 新格式）——
 routes { kind: "claim"             actions { notify { template: "【Meta】{{role}}:接单[{{ticket_id}}]" } } }

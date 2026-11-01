@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/prototext"
 
 	"meta/internal/clock"
 	"meta/internal/db"
@@ -43,6 +44,11 @@ type Config struct {
 	// 注入机（票0003，§4）：Root 空＝注入机关，dispatch 无 --prompt-file 即缺径。
 	InjectRoot    string   // 注入源根：roles/ 与 docs/经验库|技能库 所在
 	InjectRecipes []string // 项目配方/纪律文档（相对 InjectRoot，序即拼）
+
+	// 部署闸（票0010，§10/B1/B2/D1）。
+	Projects    []*pbv1.ProjectSeed // 项目配方种子（同 id 行已存在不动——DB 行是活态）
+	SudoBin     string              // 代跑 sudo 路径；缺省 "sudo"
+	ExecTimeout time.Duration       // 单步超时缺省（配方沙箱未声明时），缺省 15m
 }
 
 // ShellSeed 壳登记表种子一行（配置行→DB 活态行；attempt_cap 驻内存不持久化——
@@ -77,6 +83,12 @@ func (c *Config) withDefaults() {
 	}
 	if c.QuickExit <= 0 {
 		c.QuickExit = 20 * time.Second
+	}
+	if c.SudoBin == "" {
+		c.SudoBin = "sudo"
+	}
+	if c.ExecTimeout <= 0 {
+		c.ExecTimeout = 15 * time.Minute
 	}
 	if c.SelfPath == "" {
 		if p, err := os.Executable(); err == nil {
@@ -136,6 +148,7 @@ type Gateway struct {
 	frozen    map[string]bool         // budget_frozen 票集（冻票无活性）
 	active    map[string]int          // 壳名 → 活跃 run 数（provider 并发闸）
 	attemptCaps map[string]int64     // ShellKey → 该行尝试帽覆盖（§7）
+	projectLocks map[string]map[string]bool // 项目三锁：project → {design|integrate|deploy}（B1）
 	spawnQ    chan spawnReq
 	done      chan struct{}
 	closed    bool
@@ -161,16 +174,44 @@ func New(cfg Config) (*Gateway, error) {
 		warned:    map[string]bool{},
 		frozen:    map[string]bool{},
 		active:    map[string]int{},
+		projectLocks: map[string]map[string]bool{},
 		spawnQ:    make(chan spawnReq, 64),
 		done:      make(chan struct{}),
 	}
 	for _, dir := range []string{
 		filepath.Join(cfg.RunDir, "seats"),
 		filepath.Join(cfg.RunDir, "logs"),
+		filepath.Join(cfg.RunDir, "exec"),
 	} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			d.Close()
 			return nil, err
+		}
+	}
+	// 代跑干净 clone 父目录：0755——run_as 降权用户要能遍历/建 clone 子目录（D1）。
+	if err := os.MkdirAll(filepath.Join(cfg.RunDir, "deploy"), 0o755); err != nil {
+		d.Close()
+		return nil, err
+	}
+	// 项目配方种子：同 id 行已存在不动（DB 行是活态，同壳行种子语义）。
+	for _, ps := range cfg.Projects {
+		if ps == nil || ps.Id == "" {
+			continue
+		}
+		sb := ""
+		if ps.Sandbox != nil {
+			if b, err := prototext.Marshal(ps.Sandbox); err == nil {
+				sb = string(b)
+			}
+		}
+		if _, err := d.SeedProject(context.Background(), db.Project{
+			ID: ps.Id, RepoURL: ps.RepoUrl, DefaultBranch: ps.DefaultBranch,
+			IntegrateCmd: ps.IntegrateCmd, CheckCmd: ps.CheckCmd,
+			DeployCmd: ps.DeployCmd, ProbeCmd: ps.ProbeCmd,
+			RollbackCmd: ps.RollbackCmd, SandboxSpec: sb,
+		}); err != nil {
+			d.Close()
+			return nil, fmt.Errorf("项目种子 %s: %w", ps.Id, err)
 		}
 	}
 	// vault.key 存在才载（secret put 之前可能还没有）。
@@ -202,6 +243,7 @@ func New(cfg Config) (*Gateway, error) {
 	}
 
 	g.Reconcile(context.Background()) // §5.3 全相位对账，启动一次非周期
+	g.rebuildProjectLocks(context.Background()) // 项目锁按票相位重建（B1）
 	go g.dispatcher()                  // spawn 调度器：事件驱动，非周期
 	return g, nil
 }
@@ -331,10 +373,27 @@ func (g *Gateway) onStall(ticketID string) {
 // 事件行＋emit。先落行后门铃——门铃先于落行的窗口会被下一 poke 补回，
 // 但严格因果更省一次迟延。
 func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, kind db.EdgeKind, actor, note string) error {
+	var from db.Phase
+	var project string
+	if t, err := g.database.GetTicket(ctx, ticketID); err == nil && t != nil {
+		from, project = t.Phase, t.Project
+	}
 	if _, err := g.database.Transition(ctx, ticketID, to, kind, actor, note); err != nil {
 		return err
 	}
 	g.emit(Event{Kind: "phase:" + string(kind), TicketID: ticketID})
+	// 项目锁随相位占用释放（B1）：出离 设计中 释 design；出离 部署中 释
+	// integrate+deploy。deploy_failed 的本票不补 spawn——回 待部署 归 CEO 裁。
+	switch from {
+	case db.PhaseDesigning:
+		g.releaseProjectLocks(ctx, project, "", true, lockDesign)
+	case db.PhaseDeploying:
+		skip := ""
+		if kind == db.EdgeDeployFailed {
+			skip = ticketID
+		}
+		g.releaseProjectLocks(ctx, project, skip, true, lockIntegrate, lockDeploy)
+	}
 	if kind == db.EdgeReject {
 		if t, err := g.database.GetTicket(ctx, ticketID); err == nil && t.RejectCount >= 3 {
 			_ = g.database.AppendEvent(ctx, ticketID, "reject_limit", db.Event{

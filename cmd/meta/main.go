@@ -63,6 +63,8 @@ func main() {
 		err = budgetCmd(os.Args[2:])
 	case "observe":
 		err = observeCmd(os.Args[2:])
+	case "ping":
+		err = pingCmd(os.Args[2:])
 	case "caster":
 		err = casterCmd(os.Args[2:])
 	case "retro":
@@ -95,6 +97,7 @@ func usage() {
   meta runs --socket <sock> --ticket <id>
   meta budget --socket <sock> --ticket <id> [--attempt-cap N] [--hard-cap N]
   meta observe --socket <sock>
+  meta ping --socket <sock> [--timeout 5s]                                 (健康核验：AdminGateway.Ping)
   meta caster --socket <sock> --routes <f> --state-dir <d> --run-dir <r> --notify-cmd <sh> [--once] [--replay-history]
   meta retro --socket <sock> --ticket <id> --verdict pass|reject --ref <判决档>
   meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
@@ -199,6 +202,7 @@ func serve(args []string) error {
 		RoleCaps:          map[string]int64{},
 		InjectRoot:        *f.injectRoot,
 		InjectRecipes:     splitCSV(*f.injectRecipe),
+		Projects:          gc.Project, // 项目配方种子（票0010 部署闸）
 	}
 	for _, rb := range gc.RoleBudget {
 		gcfg.RoleCaps[rb.Role] = rb.AttemptCap
@@ -530,6 +534,30 @@ func budgetCmd(args []string) error {
 		}
 	}
 	fmt.Printf("%s\tcap=%d used=%d\thard=%d total=%d\n", *tid, cur.Cap, cur.Used, cur.HardCap, cur.UsedTotal)
+	return nil
+}
+
+// pingCmd 健康核验径（票0010）：拨一次 AdminGateway.Ping——活即退 0，
+// 拨不通/超时非零退。meta-probe.sh 的部署后探针即本件。
+func pingCmd(args []string) error {
+	fs := flag.NewFlagSet("ping", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	timeout := fs.Duration("timeout", 5*time.Second, "拨号+应答上限")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	ack, err := c.Ping(ctx, &pbv1.Empty{})
+	if err != nil {
+		return err
+	}
+	fmt.Println("pong ok=", ack.Ok, ack.Note)
 	return nil
 }
 
