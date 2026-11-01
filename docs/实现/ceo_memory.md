@@ -464,3 +464,15 @@
 - **夜锁（临时，非人手插单）**：deliver→自动审派与 audit_dead→重派两路由暂停（防六班空转烧量——opencode 日配额保护），判决由后续修复后的外壳正常捕获；解锁条件＝D-42 修复部署
 - **晨课（首要）**：①小票修 D-42（扫描点移到适配器解析后文本流）②修后解锁两路由 ③卡审票捞判转正
 署名：claude/GLM（业主上身·对话态）
+
+### 决策 63：闸前批手工部署＋0013 放行＋票挂项目缺口立票（业主令「执行部署」）
+- 触发：业主 terminal「好，执行部署吧」
+- provenance：`terminal`
+- **实况**：0007–0012 六票全审过卡「待部署」——部署闸本体（0010）也在批内，自动径不存在，手工并一次是设计内动作（此后票过审自动部署）
+- **已执行（全机录）**：①六支按序并入 master（0007→0012，commit `df7f6a5`→`2fbb61a`＋缝补 `125871e`＋换装留档 `79fdeea`）——冲突取并集不丢任何一侧功能：0009 role 拆行路由＋空提示闸/席位级死因、0010 部署四步/项目双锁/sudo -n 代跑、0011 CEO 面全链、0012 席位板 Connect 面；pb 自 proto 全量重生成，字段号撞车取并集重编号②`go build/vet/test(144)/selfcheck` 全绿③`meta-deploy.sh` 换装三件套：新二进制晋升（`125871e-deploy`）、prev 留底、重启、`meta ping`＝pong
+- **并入缝补三处**（合并语义缝，非任一票码）：`ActiveRuns` Scan 补 provenance 末位（0012 早于 0011 列写）；部署测试 `/dev/null` 提示撞 0009 空提示闸→换真 fixture 文件；`gateway.textproto` 冲突残块（board_listen）补解
+- **相位诚实面**：六票相位仍「待部署」——**部署闸对一切票今日不可服务**：`ticket.project` 全表空（`NewTicket.project`＝设计-0007 §193 列明未落字段，无一生产径写项目列），exec 闸「无配方登记」必拒；另 check 步 `sudo -n -u metaseat` 待业主 `/etc/sudoers.d/meta-runner` 行（票面明列业主动作，sudo 失→fail loud 不静默降级）。闸前存量票共十张（0003–0012）
+- **已立票补缺口**：`req-9ce5efb2e4ad`「票→项目挂接线」（provenance=terminal 经 `meta ceo` 交互面）——NewTicket.project 落地＋立票/派发径 SetTicketProject 接线＋存量票回填合法径；已渲 cto-design.md 派 CTO-A 设计席（run `ca93f994`，施工中）——走 `meta ceo` 是我这个 terminal CEO 接住了 requirement 事件，派设计席＝处理分内件，非手工插单
+- **0013 放行**：硬依赖 0011 已并主干并在线——渲 build-seat.md 派施工（run `15bcd163`，devin/swe-2-high，施工中）；播报员断流期对账补发 spawn_needed:CTO 两行错过消费，无双开
+- **遗留**：①sudoers 行待业主亲手落 ②`meta import-legacy` 未跑——ceo_memory 表空，本文件仍为活账③夜锁解锁前提（D-42 修）随批内票消化 ④闸可用后十张存量票过闸翻完成＝部署闸端到端首验
+署名：devin/SWE-2-Max（业主上身·CEO 对话态）
