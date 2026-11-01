@@ -144,3 +144,13 @@
 - **概率**：今天低（prompt 受控、仓内容自营）；**阶段 3+/登记 O 后不可接受**（施工读外仓内容跑外仓测试＝提示注入真实面——A7 注入链为此而设；禁区#18 恰是此闸）
 - **结论**：非「要不要」而是「O 接入前哪点做」。三层立即动作：① 降权用户 `metaseat`（不动系统策略，砍掉凭证失窃这一最大半径，下次 spawn 起用——A7 降权与只读的 OS 落地）② sudo 密码轮换（在对话与本地转录出现过；建议 sandbox 定型、最后一次 sudo 后轮换）③ sandbox 方案 A/B 待业主一字令
 - 自查：rtk tee 日志零命中密码（记过滤输出不记命令串）；暴露面=会话转录
+
+### 决策 19：metaseat 降权座落成（业主令「建个用户吧」；sudo 密码业主裁不轮换）
+- provenance：`terminal`
+- **已落地并验证**（矩阵见经验库 metaseat 条）：
+  - 用户 `metaseat`（uid 1001，无 sudo 组）；CLI 三壳可达（devin/claude/opencode）；devin 活体冒烟「正常」
+  - **隔离六路全拒**：`~/.ssh`、`~/.claude`（转录，含密码）、`feishu-manage.env`、`/opt/o/secrets`、`/opt/o-research/env`、rtk 日志——席位爆炸半径从「mluser 全权」缩到「自家家＋CLI 只读树＋/opt 只读」
+  - 收紧副作用：`~/.claude`→700（原 775，原本全机可读——顺手补了个洞）；`/opt/o/secrets` 等三目录→711
+- **席位制式（t0003 起生效）**：施工席以 metaseat 跑；施工区＝`/home/metaseat/worktrees` 下**独立克隆**（不共享 `/opt/meta/.git`，主仓对席位只读）；**交付＝CEO 从克隆取提交代推 origin**（metaseat 无 ssh key，推送是 CEO 机械动作）；devin 档位仍 dangerous（用户级隔离即本轮主要收益；OS 级 sandbox 待 A/B 选型）
+- **sudo 密码不轮换**（业主裁，接受残余）：残余=转录在 mluser 域可读——metaseat 已验证拒读 `~/.claude`，实际暴露面已缩到「mluser 自身进程」，与既有威胁模型一致
+- 经验库＋2（metaseat 三坎、sudo 假阳性）
