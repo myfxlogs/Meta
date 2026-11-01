@@ -42,6 +42,11 @@ func Open(path string) (*DB, error) {
 		sq.Close()
 		return nil, fmt.Errorf("migrate adjunct: %w", err)
 	}
+	// 幂等补列迁移：旧库 project 可能缺 integrate_cmd（票0010 增列）。
+	if err := ensureColumn(sq, "project", "integrate_cmd", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		sq.Close()
+		return nil, fmt.Errorf("migrate integrate_cmd: %w", err)
+	}
 	for _, f := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Chmod(f, 0o600) // 库含密文与票真源，仅属主可读写
 	}

@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -111,6 +112,7 @@ type session struct {
 	resultOK     bool   // 见到 FrameResult
 	verdict      string // META_VERDICT 哨兵捕到的审计判决（pass|reject）
 	verdictRef   string // 判决档 ref
+	deployNote   string // META_DEPLOY:done|failed 哨兵原行（CTO-B 部署支，票0010）
 }
 
 // run 主流程：收养口 → attach+claim → 起壳 → 帧泵 → 退码分级自退。
@@ -158,10 +160,14 @@ func (s *session) run() int {
 		s.mu.Unlock()
 		s.mu.Lock()
 		verdict, vref := s.verdict, s.verdictRef
+		deployNote := s.deployNote
 		s.mu.Unlock()
+		note := fmt.Sprintf("%s exit=0%s", s.spec.Shell, resultNote(s.resultOK))
+		if deployNote != "" {
+			note = deployNote + " " + note // 哨兵入 note——网关 CTO-B 支靠它选边
+		}
 		s.enqueueSync(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{
-			Ref: vref, Verdict: verdict,
-			Note: fmt.Sprintf("%s exit=0%s", s.spec.Shell, resultNote(s.resultOK))}}})
+			Ref: vref, Verdict: verdict, Note: note}}})
 		// 等 Deliver 回执（有界 3s）——尾帧不许丢在传输缓冲里。
 		select {
 		case <-s.ackCh:
@@ -292,6 +298,8 @@ func (s *session) pumpGateway() {
 			// 许可提示自动答拒（禁区#12：席位不等人）。
 			s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_PermissionReply{
 				PermissionReply: &pbv1.PermissionReply{AskId: b.PermissionAsk.AskId, Allow: false}}})
+		case *pbv1.GatewayMsg_ExecResp:
+			s.relayExecResp(b.ExecResp)
 		}
 	}
 }
@@ -423,7 +431,45 @@ func (s *session) scanSentinel(l []byte) bool {
 		s.mu.Unlock()
 		return true
 	}
+	// META_EXEC:<step>[ <ref>]——CTO-B 部署支的命令代跑请求（票0010）。
+	// 网关三重闸后 sudo -n 代跑，回执经 exec_resp 落 $META_ART_DIR/exec-resp.log。
+	if rest, ok := strings.CutPrefix(line, "META_EXEC:"); ok {
+		parts := strings.Fields(rest)
+		if len(parts) > 0 {
+			req := &pbv1.ExecReq{Step: parts[0]}
+			if len(parts) > 1 {
+				req.Ref = parts[1]
+			}
+			s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_ExecReq{ExecReq: req}})
+		}
+		return true
+	}
+	// META_DEPLOY:done|failed——部署支交付哨兵：原行存住，Deliver note 携带。
+	if strings.HasPrefix(line, "META_DEPLOY:") {
+		s.mu.Lock()
+		s.deployNote = line
+		s.mu.Unlock()
+		return true
+	}
 	return false
+}
+
+// relayExecResp 代跑回执落盘：壳（无头 agentic 壳）读
+// $META_ART_DIR/exec-resp.log 得知步退码——回席不是回壳，壳经文件取数。
+func (s *session) relayExecResp(r *pbv1.ExecResp) {
+	line := fmt.Sprintf("step=%s exit=%d out=%s note=%s tail=%s",
+		r.Step, r.ExitCode, r.OutPath, r.Note, r.Tail)
+	fmt.Fprintln(os.Stderr, "seat: exec_resp", line) // 席位日志留痕
+	if s.spec.ArtifactDir == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(s.spec.ArtifactDir, "exec-resp.log"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintln(f, line)
 }
 
 func (s *session) sendProgress(stage, note string) {

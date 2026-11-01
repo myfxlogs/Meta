@@ -78,7 +78,36 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 		} else if r != nil {
 			return fmt.Errorf("dispatch: 票 %s 该角色 %s 已有活席 %s", ticketID, role, r.RunID)
 		}
-		if role != "审计" {
+		deployBranch := false
+		if role == "CTO" {
+			// CTO 两支路（票0010）：待部署→部署支（B1 双锁：integrate+deploy，
+			// 不走边——claim 时才 deploy_start→部署中）；已立→设计支（design 锁，
+			// 随后照旧走边）。其余相位不可派 CTO。
+			lockGate := func(lockNames []string, what string) error {
+				if g.acquireProjectLocks(t.Project, lockNames...) {
+					return nil
+				}
+				note := "项目 " + t.Project + " " + what + "锁占用（B1 串行闸）"
+				_ = g.database.AppendEvent(ctx, ticketID, "spawn_blocked", db.Event{
+					Actor: "gateway", Note: note})
+				g.emit(Event{Kind: "spawn_blocked", TicketID: ticketID, Role: role, Note: note})
+				return fmt.Errorf("dispatch: %s", note)
+			}
+			switch t.Phase {
+			case db.PhaseToDeploy:
+				if err := lockGate([]string{lockIntegrate, lockDeploy}, "部署/集成"); err != nil {
+					return err
+				}
+				deployBranch = true
+			case db.PhaseCreated:
+				if err := lockGate([]string{lockDesign}, "设计"); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("dispatch: 相位 %s 不可派 CTO（设计支=已立 部署支=待部署）", t.Phase)
+			}
+		}
+		if role != "审计" && !deployBranch {
 			// 机械走边到已派：已立→设计中→已派（阶段 1 手工径无 CTO，网关直行）。
 			for t.Phase != db.PhaseAssigned {
 				var to db.Phase
@@ -442,11 +471,20 @@ func logTail(path string, n int64) string {
 	return strings.TrimSpace(string(b))
 }
 
-// shellsExhausted 全壳耗尽：事件→CEO（§8.1 必报）。
+// shellsExhausted 全壳耗尽：事件→CEO（§8.1 必报）。CTO 部署支连席都起
+// 不来时票仍卡在 待部署——把派发点取走的双锁放回（不补 spawn：再发就是
+// 往死壳上连环撞），等下一次对账/CEO 径再拾。
 func (g *Gateway) shellsExhausted(ctx context.Context, req spawnReq) {
 	_ = g.database.AppendEvent(ctx, req.ticketID, "shells_exhausted", db.Event{
 		Actor: "gateway", Note: "角色 " + req.role + " 全部候选用尽"})
 	g.emit(Event{Kind: "shells_exhausted", TicketID: req.ticketID, Role: req.role})
+	if req.role == "CTO" {
+		if t, err := g.database.GetTicket(ctx, req.ticketID); err == nil && t != nil &&
+			t.Phase == db.PhaseToDeploy {
+			g.releaseProjectLocks(ctx, t.Project, req.ticketID, false,
+				lockIntegrate, lockDeploy)
+		}
+	}
 }
 
 // shellsFor 角色登记行；空表按配置行落种再读（D-9：登记表种子出码外——
