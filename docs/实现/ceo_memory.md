@@ -227,6 +227,13 @@
 - 转正依据（手工径 CEO 兼）：两票判决档＋验证矩阵实录；CEO 卡必读加技能库索引
 - D-17 部分闭合：目录＋首三技 done；**注入机械化仍排阶段 2**
 
+### 决策 31：网关激活（D-7 部分闭/D-8 闭）
+- 触发：业主「好，请继续」→ 按既定顺序执行网关点火
+- provenance：`terminal`＋`system_event`（socket/表/密文行核验）
+- **已立**：`meta serve` 起立（nohup，pid 2640269；`run/meta.sock` 0600）；九表齐；**凭证七枚入 `secret` 表**（AES-GCM 密文＋ACL 矩阵照凭证清单；`dsn.fin` 入库**零 ACL**——待业主单独裁）；admin CLI 走**绝对路径**径
+- **残余**：①`ceo_memory`/票档导入 DB 待 CEO 面（§13 阶段 3，钦定顺序）②网关以 nohup 存活——重启即失，systemd unit＋OnFailure 属阶段 2 前置（B4）③CLI 相对 socket 路径被 gRPC 误析为 scheme→新债 D-23（票 0003 修）④网关及其 spawn 的席位暂以 mluser 跑——metaseat 全家降权迁移列为 D-24（阶段 2 内）
+- **下一步**：票 0003（阶段 2）经网关 `dispatch` 派发——**首个自托管派单**＝自举锚的一半
+
 ### 决策 30：三层账不断之法——CEO 版收口门（令#E10）
 - 触发：业主 terminal「如何保证这个层不断？也用会话尾三步机械门？」＋「（打法）没有进 ceo_memory？」两问连击
 - provenance：`terminal`
