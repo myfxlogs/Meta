@@ -134,6 +134,19 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 			deferred = true // provider 并发闸：本轮跳过，错峰后重排
 			continue
 		}
+		// 新尝试起席：尝试内用量清零＋80% 警复位（§5.5 闸是尝试内闸——
+		// 换壳重做不得背着上一尝试的 used，首帧即被 100% 硬停秒杀）。
+		// 在 spawn 前清而非起席成功点：快壳 attach 后首帧用量可能先于清零落库。
+		if err := g.database.ResetAttemptUsage(ctx, req.ticketID); err != nil {
+			g.emit(Event{Kind: "budget_reset_failed", TicketID: req.ticketID, Role: req.role,
+				Note: err.Error()})
+			_ = g.database.AppendEvent(ctx, req.ticketID, "budget_reset_failed", db.Event{
+				Actor: "gateway", Note: "尝试内用量清零失败：" + err.Error()})
+			return // 闸不可保即摆位（非壳之错不进 failSet）——库恢复后 CTO 重派
+		}
+		g.mu.Lock()
+		delete(g.warned, req.ticketID)
+		g.mu.Unlock()
 		st, code := g.trySpawn(ctx, req, spec, at)
 		if st != nil { // 席位立住：本票派发完成
 			g.onSeatAlive(ctx, st, at)

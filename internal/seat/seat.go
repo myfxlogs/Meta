@@ -151,12 +151,8 @@ func (s *session) run() int {
 		case <-time.After(3 * time.Second):
 		}
 		return ExitClean
-	case adapter.ExitTransient:
-		return ExitTransient
-	case adapter.ExitFatal:
-		return ExitFatal
 	}
-	return ExitSpawnFail
+	return ExitCodeOf(class) // 非 OK 分级→席位退码：与网关 ClassOfExit 同表
 }
 
 func resultNote(ok bool) string {
@@ -470,7 +466,7 @@ func tailKeep(s string) string {
 	return s
 }
 
-// ExitCodeOf 壳退码→席位退出码映射（供网关侧读码分级同表）。
+// ExitCodeOf 壳退码→席位退出码映射（与 ClassOfExit 同表互逆，单一映射源）。
 func ExitCodeOf(class adapter.ExitClass) int {
 	switch class {
 	case adapter.ExitTransient:

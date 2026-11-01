@@ -202,6 +202,97 @@ func TestBudget_ThreeGates(t *testing.T) {
 	}
 }
 
+// TestBudget_AttemptReset 换壳重做的新尝试：尝试内用量从零起（上一尝试的
+// used 不清零会让新尝试首帧即被 100% 硬停秒杀），80% 警按尝试各发一次；
+// 票级 used_total 跨尝试单调不清零。（驳回1 R1 回归锚——删 ResetAttemptUsage
+// 接线或删 warned 复位，本表必红。）
+func TestBudget_AttemptReset(t *testing.T) {
+	g, dir := newTestGateway(t, func(c *Config) {
+		d := filepath.Dir(c.DBPath)
+		*c = dispatchCfg(d)
+	})
+	ctx := context.Background()
+	mkTicketAt(t, g, "tr", db.PhaseAssigned)
+	if err := g.DB().SetBudgetCaps(ctx, "tr", 100, 1000); err != nil {
+		t.Fatal(err)
+	}
+	// idle 席不自己连——测试代驾 Attach 推 Usage 帧。
+	spec := SeatSpec{PromptFile: "/dev/null", WorkDir: "/tmp",
+		Env: []string{"GO_HELPER_SEAT=1", "SEAT_MODE=idle", "META_ADOPT_GRACE=30",
+			"PATH=" + os.Getenv("PATH")}}
+	if err := g.DispatchSeat(ctx, "tr", "施工", spec); err != nil {
+		t.Fatal(err)
+	}
+	waitEvent(t, g, "seat_up", "tr", 10*time.Second) // idle 席过秒退窗口即立住
+
+	runs, _ := g.DB().RunsForTicket(ctx, "tr")
+	if len(runs) != 1 {
+		t.Fatalf("首尝试应有 1 run: %d", len(runs))
+	}
+	_, c := dialSeatGateway(t, filepath.Join(dir, "run", "meta.sock"))
+	s1, err := c.Attach(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	send1 := func(m *pbv1.SeatMsg) {
+		if err := s1.Send(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send1(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: runs[0].RunToken}}})
+	send1(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "tr"}}})
+	waitEvent(t, g, "phase:claim", "tr", 5*time.Second)
+
+	// 尝试1：用量到 95%——80% 警一次（边沿）。
+	send1(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 95}}})
+	waitEvent(t, g, "budget_warn", "tr", 3*time.Second)
+	s1.CloseSend() // 代驾流 EOF：杀后双源互证第二源
+	if err := syscall.Kill(-runs[0].PID, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+
+	// ①级中途死→回队→failSet 排除 devin→claude 顶上（新尝试）。
+	waitEvent(t, g, "seat_up", "tr", 15*time.Second)
+	runs, _ = g.DB().RunsForTicket(ctx, "tr")
+	if len(runs) != 2 || runs[1].Shell != "claude" {
+		t.Fatalf("第二尝试应换 claude: runs=%d", len(runs))
+	}
+
+	// 新尝试 used 从零起：+10 不许碰旧账 95→105 秒杀（R1 病灶）。
+	s2, err := c.Attach(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	send2 := func(m *pbv1.SeatMsg) {
+		if err := s2.Send(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: runs[1].RunToken}}})
+	send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 10}}})
+	for _, e := range collectEvents(g, 400*time.Millisecond) {
+		if e.Kind == "budget_stop" || e.Kind == "budget_frozen" {
+			t.Fatalf("新尝试首帧被旧账秒杀: %v", e)
+		}
+	}
+	if !processAlive(runs[1].PID) {
+		t.Fatal("新尝试席位被误杀")
+	}
+	if b, _ := g.DB().GetBudget(ctx, "tr"); b.Used != 10 {
+		t.Fatalf("尝试内 used 应为 10（清零后重计）: %d", b.Used)
+	}
+
+	// 80% 警按尝试各发一次：本尝试再到 80 必再警。
+	send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 70}}})
+	waitEvent(t, g, "budget_warn", "tr", 3*time.Second)
+
+	// 票级累计不清零：95+10+70=175。
+	if b, _ := g.DB().GetBudget(ctx, "tr"); b.Used != 80 || b.UsedTotal != 175 {
+		t.Fatalf("预算账不符: used=%d used_total=%d（预期 80/175）", b.Used, b.UsedTotal)
+	}
+	s2.CloseSend()
+}
+
 // TestAlarm_UsageResets 用量帧重置闹钟（锚5 增量：Progress 之外的活性帧）。
 func TestAlarm_UsageResets(t *testing.T) {
 	g, dir := newTestGateway(t, func(c *Config) { c.ProgressTimeout = 300 * time.Millisecond })

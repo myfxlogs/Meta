@@ -117,16 +117,7 @@ type Budget struct {
 	UsedTotal int64 // 票级累计（单调递增，追加=抬帽不清零）
 }
 
-// EnsureBudget 票级预算行落库（caps 首次写入即定；已存在只取不改）。
-func (d *DB) EnsureBudget(ctx context.Context, ticketID string, cap, hardCap int64) error {
-	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO budget (ticket_id, cap, hard_cap, used, used_total, updated_at)
-		 VALUES (?,?,?,0,0,?) ON CONFLICT(ticket_id) DO NOTHING`,
-		ticketID, cap, hardCap, d.now().UnixNano())
-	return err
-}
-
-// SetBudgetCaps 覆写两帽（追加预算＝抬帽不清零的落点）。
+// SetBudgetCaps 覆写两帽（追加预算＝抬帽不清零的落点；无行则建）。
 func (d *DB) SetBudgetCaps(ctx context.Context, ticketID string, cap, hardCap int64) error {
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO budget (ticket_id, cap, hard_cap, used, used_total, updated_at)
