@@ -16,3 +16,6 @@ devin swe-2-max，metaseat 降权座，`-p --prompt-file`，默认 permission mo
 
 ## 引用
 `t0002.audit-err.log`；ceo_memory 决策 22
+
+## 补记（同日第四次实证，CEO）
+t0003 正审第四次死于同因（提示词已点名「禁 tail/grep/cat/ls/sqlite3、只用原生文件工具」仍无效）——**devin 只读审计形态在本环境实证不可靠，弃用**。审计席正审改 harness 原生子代理（claude，默认权限，读文件原生），devin swe-2-max 保留为预审/诊断席。路由偏离已报备业主（决策 36）。
