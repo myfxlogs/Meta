@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS project (
   repo_url                  TEXT NOT NULL DEFAULT '',
   default_branch            TEXT NOT NULL DEFAULT '',
   check_cmd                 TEXT NOT NULL DEFAULT '',
+  integrate_cmd             TEXT NOT NULL DEFAULT '',
   deploy_cmd                TEXT NOT NULL DEFAULT '',
   probe_cmd                 TEXT NOT NULL DEFAULT '',
   rollback_cmd              TEXT NOT NULL DEFAULT '',
@@ -113,4 +114,17 @@ CREATE TABLE IF NOT EXISTS secret (
   created_at INTEGER NOT NULL,
   rotated_at INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS cmd_run (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id   TEXT NOT NULL,
+  run_id      TEXT NOT NULL,
+  step        TEXT NOT NULL,
+  exit_code   INTEGER NOT NULL DEFAULT -1,
+  out_path    TEXT NOT NULL DEFAULT '',
+  tail        TEXT NOT NULL DEFAULT '',
+  diff_files  TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cmd_run_ticket ON cmd_run(ticket_id, id);
 `

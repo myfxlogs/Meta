@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -119,6 +120,8 @@ func (g *Gateway) handleSeatMsg(ctx context.Context, st *runState, stream pbv1.S
 		return g.handleSecret(ctx, st, stream, b.SecretReq)
 	case *pbv1.SeatMsg_Rule:
 		return g.handleRule(ctx, st, b.Rule)
+	case *pbv1.SeatMsg_ExecReq:
+		return g.handleExec(ctx, st, stream, b.ExecReq)
 	case *pbv1.SeatMsg_Auth:
 		return status.Error(codes.InvalidArgument, "重复 RunAuth")
 	default:
@@ -152,6 +155,10 @@ func (g *Gateway) handleClaim(ctx context.Context, st *runState, c *pbv1.Claim) 
 	to, kind, idem := db.PhaseWorking, db.EdgeClaim, db.PhaseWorking
 	if st.run.Role == "审计" {
 		to, kind, idem = db.PhaseAuditing, db.EdgeAuditStart, db.PhaseAuditing
+	}
+	// CTO-B 部署支领票：待部署→deploy_start→部署中（票0010——相位步行席）。
+	if st.run.Role == "CTO" && phase == db.PhaseToDeploy {
+		to, kind, idem = db.PhaseDeploying, db.EdgeDeployStart, db.PhaseDeploying
 	}
 	if phase == idem {
 		return nil // 收养后重领：幂等
@@ -305,6 +312,38 @@ func (g *Gateway) handleDeliver(ctx context.Context, st *runState, stream pbv1.S
 		}
 		return ack("verdict " + d.Verdict)
 	}
+	// CTO-B 部署支交付（票0010）：note 哨兵驱动边选择——对抗性锚 a 提名区：
+	// META_DEPLOY:done→deploy_done→完成；META_DEPLOY:failed→deploy_failed→
+	// 待部署（翻映射＝失败票落完成）。缺哨兵即拒，不猜。
+	if st.run.Role == "CTO" {
+		phase, err := g.database.PhaseOf(ctx, st.run.TicketID)
+		if err != nil {
+			return status.Error(codes.Internal, err.Error())
+		}
+		if phase == db.PhaseDeploying {
+			var to db.Phase
+			var kind db.EdgeKind
+			switch {
+			case strings.Contains(d.Note, "META_DEPLOY:done"):
+				to, kind = db.PhaseDone, db.EdgeDeployDone
+			case strings.Contains(d.Note, "META_DEPLOY:failed"):
+				to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
+			default:
+				return status.Error(codes.InvalidArgument,
+					"部署席 Deliver 缺 META_DEPLOY:done|failed 哨兵")
+			}
+			if err := g.transition(ctx, st.run.TicketID, to, kind,
+				st.run.RunID, d.Ref+" "+d.Note); err != nil {
+				var ille *db.ErrIllegalEdge
+				if errors.As(err, &ille) {
+					return status.Error(codes.FailedPrecondition, err.Error())
+				}
+				return status.Error(codes.Internal, err.Error())
+			}
+			g.cancelAlarm(st.run.TicketID)
+			return ack("deploy " + string(kind))
+		}
+	}
 	if err := g.transition(ctx, st.run.TicketID, db.PhaseReview, db.EdgeDeliver,
 		st.run.RunID, d.Ref+" "+d.Note); err != nil {
 		var ille *db.ErrIllegalEdge
@@ -430,19 +469,42 @@ func (g *Gateway) onRunDead(st *runState) {
 	}
 	var to db.Phase
 	var kind db.EdgeKind
+	note := "席位死亡：SIGCHLD+EOF 双源互证"
 	switch phase {
 	case db.PhaseWorking:
 		to, kind = db.PhaseAssigned, db.EdgeRequeue
 	case db.PhaseAuditing:
 		to, kind = db.PhaseReview, db.EdgeAuditDead
+	case db.PhaseDeploying:
+		// D-2：部署中席死＝部署失败（回滚态未核）——deploy_failed 边回
+		// 待部署＋note 带「先核回滚态」与前任 run/日志线索，归 CEO 裁。
+		to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
+		note = fmt.Sprintf("部署中席死：先核回滚态（前任 run=%s log=%s）",
+			st.run.RunID, st.run.LogPath)
+	case db.PhaseToDeploy:
+		// 部署席死在 claim 前（相位还没步行）：非部署失败＝机器失效——
+		// 放锁＋给本票补 spawn（重试径；failSet 已分级换壳，壳尽自然停）。
+		if st.run.Role == "CTO" {
+			if tk, err := g.database.GetTicket(ctx, st.run.TicketID); err == nil && tk != nil {
+				g.releaseProjectLocks(ctx, tk.Project, st.run.TicketID, true,
+					lockIntegrate, lockDeploy)
+				_ = g.database.AppendEvent(ctx, st.run.TicketID, "spawn_needed", db.Event{
+					Actor: "gateway", Note: "锁释补发: CTO"})
+				g.emit(Event{Kind: "spawn_needed", TicketID: st.run.TicketID, Role: "CTO"})
+			}
+		}
+		return
 	default:
 		return
 	}
 	if err := g.transition(ctx, st.run.TicketID, to, kind,
-		"gateway", "席位死亡：SIGCHLD+EOF 双源互证"); err != nil {
+		"gateway", note); err != nil {
 		return
 	}
 	g.cancelAlarm(st.run.TicketID)
+	if kind == db.EdgeDeployFailed {
+		return // 部署失败不自动重派：回 待部署＋事件，归 CEO 裁
+	}
 	g.emit(Event{Kind: "requeue", TicketID: st.run.TicketID, RunID: st.run.RunID,
 		Role: st.run.Role})
 	// 回队即重派（换壳 redo；审计席死→重起审计——spec 在则秒接，失则

@@ -508,3 +508,26 @@ func TestProdConfig(t *testing.T) {
 		t.Fatal("模板渲染未消化 {{ticket_id}}")
 	}
 }
+// TestDeployRoutes 票0010 锚9：真路由表 config/caster.textproto——
+// audit_pass→Dispatch{role:"CTO"}（部署支派发径）；deploy_failed→notify。
+func TestDeployRoutes(t *testing.T) {
+	tb, err := LoadTable("../../config/caster.textproto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeAdmin{}
+	var notifies []string
+	e := &Engine{table: tb, configRoot: "../../config",
+		cfg: Config{StateDir: t.TempDir(),
+			Notify: func(_ context.Context, s string) error {
+				notifies = append(notifies, s)
+				return nil
+			},
+			Logf: func(string, ...any) {}}}
+	e.process(context.Background(), f, &pbv1.EventItem{Kind: "audit_pass", TicketId: "t1"})
+	if f.nDispatch() != 1 || f.dispatches[0].Role != "CTO" {
+		t.Fatalf("audit_pass 应派 CTO-B: %+v", f.dispatches)
+	}
+	e.process(context.Background(), f, &pbv1.EventItem{Kind: "deploy_failed", TicketId: "t2"})
+	if len(notifies) == 0 {
+		t.Fatal("deploy_failed 应触发 notify")
