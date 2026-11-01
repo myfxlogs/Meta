@@ -1,0 +1,9 @@
+.gomodcache/
+.gocache/
+.gopath/
+run/
+*.db
+*.db-wal
+*.db-shm
+*.sock
+/meta

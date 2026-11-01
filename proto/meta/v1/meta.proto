@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package meta.v1;
+
+option go_package = "meta/internal/pb/metav1";
+
+// 席位面：unix socket 双向流（总设计 §12）。首帧必为 RunAuth。
+service SeatGateway {
+  rpc Attach(stream SeatMsg) returns (stream GatewayMsg);
+}
+
+// 收养面：席位在 per-seat UDS 上暴露，仅供网关重启收养（§5.1）。
+// 首帧＝网关出示 run_token；席位验不过即拒。
+service SeatAdopt {
+  rpc Adopt(AdoptAuth) returns (AdoptAck);
+}
+
+message SeatMsg {
+  oneof body {
+    RunAuth auth = 1;
+    Claim claim = 2;
+    Progress progress = 3;
+    Usage usage = 4;
+    Deliver deliver = 5;
+    PermissionReply permission_reply = 6;
+    Yield yield = 7;
+    SecretReq secret_req = 8;
+  }
+}
+
+message GatewayMsg {
+  oneof body {
+    Ticket ticket = 1;
+    PermissionAsk permission_ask = 2;
+    Abort abort = 3;
+    Extend extend = 4;
+    SecretResp secret_resp = 5;
+  }
+}
+
+message RunAuth {
+  string run_token = 1;
+}
+
+message Claim {
+  string ticket_id = 1;
+}
+
+message Progress {
+  string stage = 1; // 调查|设计|写码|自测|提交|交付
+  string note = 2;
+}
+
+message Usage {
+  int64 tokens_used = 1;
+}
+
+message Deliver {
+  string ref = 1; // 交付 commit/支名
+  string note = 2;
+}
+
+message PermissionReply {
+  string ask_id = 1;
+  bool allow = 2;
+}
+
+message Yield {
+  string kind = 1; // 环境|设计漂移|受阻|票面歧义
+  string reason = 2;
+}
+
+message SecretReq {
+  string name = 1;
+}
+
+message Ticket {
+  string id = 1;
+  string title = 2;
+  bytes spec = 3; // proto 序列化票面八栏
+}
+
+message PermissionAsk {
+  string ask_id = 1;
+  string what = 2;
+}
+
+message Abort {
+  string reason = 1;
+}
+
+message Extend {
+  int64 tokens = 1;
+}
+
+message SecretResp {
+  string name = 1;
+  bytes value = 2;
+  bool denied = 3;
+}
+
+message AdoptAuth {
+  string run_token = 1;
+}
+
+message AdoptAck {
+  bool accepted = 1;
+  string ticket_id = 2;
+}
