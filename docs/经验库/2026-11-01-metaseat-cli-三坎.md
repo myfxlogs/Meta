@@ -7,7 +7,7 @@
 Ubuntu 24.04，devin 3000.11.234，席位用户 metaseat
 
 ## 解法（已成固定位）
-1. **遍历链**：`chmod 711` 放 `/home/mluser`、`~/.local`、`~/.local/share`（只放行遍历不放列目录）；CLI 树 `chmod -R o+rX`（`~/.local/bin`、`~/.local/share/devin`、`~/.npm-global`、`~/.opencode`）——**先收紧再开放**：`~/.claude`→700（转录含密码！）、`/opt/meta-archive`、`/opt/o/secrets`、`/opt/o-research`→711
+1. **遍历链**：`chmod 711` 放 `/home/mluser`、`~/.local`、`~/.local/share`（只放行遍历不放列目录）；CLI 树 `chmod -R o+rX`（`~/.local/bin`、`~/.local/share/devin`、`~/.npm-global`、`~/.opencode`）——**先收紧再开放**：`~/.claude`→700（转录含密码！）、`/opt/meta-archive`、`/opt/o/secrets`、`/opt/o-research`→711。**开放后必扫树内敏感件**：devin `credentials.toml` 原件原为 664（全机可读）——收 600；席位用副本，原件只归属主
 2. **凭据副本制**：`cp credentials.toml` 到 `/home/metaseat/.local/share/devin/`（600，metaseat 属主）——席位有独立凭据副本，不写回 mluser 树；网关时代由 `Secret(name)` RPC 替代（凭证清单正解）
 3. **信任库**：真身在 `~/.local/share/devin/cli/trusted_workspaces.json`（config.json 里写 `respect_workspace_trust:false` 无效、CLI 旗不存在）；metaseat 版 `trusted_paths:["/home/metaseat"]`——**只信自己家，不信 /opt 与 /**
 

@@ -154,3 +154,12 @@
 - **席位制式（t0003 起生效）**：施工席以 metaseat 跑；施工区＝`/home/metaseat/worktrees` 下**独立克隆**（不共享 `/opt/meta/.git`，主仓对席位只读）；**交付＝CEO 从克隆取提交代推 origin**（metaseat 无 ssh key，推送是 CEO 机械动作）；devin 档位仍 dangerous（用户级隔离即本轮主要收益；OS 级 sandbox 待 A/B 选型）
 - **sudo 密码不轮换**（业主裁，接受残余）：残余=转录在 mluser 域可读——metaseat 已验证拒读 `~/.claude`，实际暴露面已缩到「mluser 自身进程」，与既有威胁模型一致
 - 经验库＋2（metaseat 三坎、sudo 假阳性）
+
+### 决策 20：三壳「绕过安全授权」的分层结论＋一处实修
+- 触发：业主 terminal「其他壳是否也能绕过安全授权？」
+- provenance：`terminal`
+- **OS 层绕不过**：metaseat 的笼子是内核级用户隔离，与壳无关——任何进程以 metaseat 身份跑都在同一盒内；claude/opencode 现连鉴权都过不了（凭据在 mluser 700 目录，副本未配＝D-10）
+- **工具层三壳皆有全权档**（t0002 实测全通）：devin `--permission-mode dangerous`；claude `--dangerously-skip-permissions`（或 `--permission-mode acceptEdits --permission-prompts none`）；opencode `--auto --standalone`——**技术上绕过壳内审批对三壳都是平凡的**
+- **故真闸在调度层**：Claude Code 分类器拦「无点名起无审批代理」（审计席 claude bypass 被拦实证）＋授权台账（决策 4/6 业主点名）。分层定式：**OS 层管爆炸半径、工具层管便利、授权层（业主点名）管谁可用便利档**
+- **实修一处**：devin 凭据原件 664（全机可读，含 metaseat）→ 600 复核拒✓；经验库 metaseat 条补「开放后必扫树内敏感件」步骤
+- **仍在的开放面（如实）**：网络全开（外传通道，关它要防火墙）；/opt 755 部分对席位可读（按设计席位须读项目）；metaseat 可持久化于自家（无 lingering，不随重启复活）
