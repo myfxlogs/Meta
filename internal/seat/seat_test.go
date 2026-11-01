@@ -76,7 +76,7 @@ func newTestSession(ticketID string) *session {
 
 func TestScanSentinel(t *testing.T) {
 	s := newTestSession("t1")
-	scan := func(l string) bool { return s.scanSentinel([]byte(l)) }
+	scan := func(l string) bool { return s.scanSentinel(l, false) }
 	if scan("normal output line") {
 		t.Fatal("普通行被吞")
 	}
@@ -105,7 +105,7 @@ func TestScanSentinel_Admin(t *testing.T) {
 	dir := t.TempDir()
 	specFile := filepath.Join(dir, "spec.md")
 	_ = os.WriteFile(specFile, []byte("# spec"), 0o600)
-	scan := func(l string) bool { return s.scanSentinel([]byte(l)) }
+	scan := func(l string) bool { return s.scanSentinel(l, false) }
 
 	if !scan("META_ADMIN:fill_spec|" + specFile) {
 		t.Fatal("fill_spec 哨兵未吞")
@@ -139,7 +139,12 @@ func (f *fakeAdapter) Name() string { return "fake" }
 func (f *fakeAdapter) Build(adapter.Spec) (adapter.Command, error) {
 	return adapter.Command{Argv: f.argv}, nil
 }
-func (f *fakeAdapter) Parse([]byte) []adapter.Frame           { return nil }
+
+// Parse 直通帧：D-42 后哨兵走帧 Text 逐段扫描，伪适配器须原行透传
+// （与 devin 适配器的 Text=原行 同形）。
+func (f *fakeAdapter) Parse(l []byte) []adapter.Frame {
+	return []adapter.Frame{{Kind: adapter.FrameText, Note: string(l), Text: string(l)}}
+}
 func (f *fakeAdapter) Tokens() int64                          { return 0 }
 func (f *fakeAdapter) FinalTokens(adapter.Spec) (int64, bool) { return 0, false }
 func (f *fakeAdapter) Classify(int, string) adapter.ExitClass { return adapter.ExitOK }
@@ -163,7 +168,26 @@ func (s *stubSeatGW) Attach(stream pbv1.SeatGateway_AttachServer) error {
 	}
 }
 
+// parseAdapter 真 Parse 假起壳（D-42 测试件）：Build 换脚本 argv——
+// JSON 壳哨兵/不可解析行测试须走真适配器文本流，又不能真起壳 CLI。
+type parseAdapter struct {
+	adapter.Adapter
+	argv []string
+}
+
+func (p *parseAdapter) Build(adapter.Spec) (adapter.Command, error) {
+	return adapter.Command{Argv: p.argv}, nil
+}
+
 func runSeatWithArgv(t *testing.T, role, script string) (int, []*pbv1.SeatMsg) {
+	t.Helper()
+	return runSeatSession(t, role, "",
+		&fakeAdapter{argv: []string{"/bin/sh", "-c", script}})
+}
+
+// runSeatSession 起一次真席位（桩网关＋预造适配器）；artDir 非空挂
+// META_ART_DIR（sentinel.log 文件兜底径测试用）。
+func runSeatSession(t *testing.T, role, artDir string, ad adapter.Adapter) (int, []*pbv1.SeatMsg) {
 	t.Helper()
 	dir := t.TempDir()
 	gsock := filepath.Join(dir, "g.sock")
@@ -178,14 +202,12 @@ func runSeatWithArgv(t *testing.T, role, script string) (int, []*pbv1.SeatMsg) {
 	t.Cleanup(srv.Stop)
 
 	old := adapterNew
-	adapterNew = func(string) (adapter.Adapter, error) {
-		return &fakeAdapter{argv: []string{"/bin/sh", "-c", script}}, nil
-	}
+	adapterNew = func(string) (adapter.Adapter, error) { return ad, nil }
 	t.Cleanup(func() { adapterNew = old })
 
 	s := &session{
 		spec: spec{
-			Spec:        adapter.Spec{Shell: "fake", Role: role, WorkDir: dir},
+			Spec:        adapter.Spec{Shell: "fake", Role: role, WorkDir: dir, ArtifactDir: artDir},
 			GatewaySock: gsock,
 			SeatSock:    filepath.Join(dir, "seat.sock"),
 			RunToken:    "tok", TicketID: "t1", RunID: "r1",
@@ -316,5 +338,135 @@ func TestRunChild_输入层(t *testing.T) {
 	s2 := &session{spec: spec{Spec: adapter.Spec{Shell: "devin"}}}
 	if code2, _ := s2.runChild(ad2); code2 != codeInputErr {
 		t.Fatalf("Build 失败 runChild=%d 预期 codeInputErr", code2)
+	}
+}
+
+// ---------- D-42：哨兵扫描移层＋sentinel.log 文件兜底 ----------
+
+// TestScanSentinel_TextLines（对抗锚）：帧 Text 多行块内嵌哨兵行命中；
+// 行中提及 META_DELIVER:（非行首）不命中——旁注免疫。
+func TestScanSentinel_TextLines(t *testing.T) {
+	s := newTestSession("t1")
+	live := s.scanFrameText("干活正文\nMETA_DELIVER:ref99\n收尾正文")
+	if !s.deliverSeen || s.deliverRef != "ref99" {
+		t.Fatalf("内嵌哨兵行未命中: seen=%v ref=%q", s.deliverSeen, s.deliverRef)
+	}
+	if !live {
+		t.Fatal("含正文段的帧应算活性")
+	}
+	// 全哨兵段帧不算活性。
+	s2 := newTestSession("t1")
+	if s2.scanFrameText("META_DELIVER:r1\nMETA_DEPLOY:done") {
+		t.Fatal("全哨兵段帧误报活性")
+	}
+	// 行中提及（非行首）不命中——保「单独一行」钦定。
+	s3 := newTestSession("t1")
+	s3.scanFrameText("旁注：末行须 META_DELIVER:x 钦定")
+	if s3.deliverSeen {
+		t.Fatal("行中提及哨兵被误命中")
+	}
+}
+
+// TestRun_JSONShellSentinel（D-42 主锚）：真 claude 适配器＋脚本吐
+// assistant JSONL（文本块含 \nMETA_VERDICT:pass:vr1\n）——JSON 包裹的
+// 哨兵经帧 Text 流命中，原始行扫描永不可能捕到。
+func TestRun_JSONShellSentinel(t *testing.T) {
+	real, err := adapter.New("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := `printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"干活中\nMETA_VERDICT:pass:vr1\n收尾"}]}}'; exit 0`
+	code, msgs := runSeatSession(t, "审计", "",
+		&parseAdapter{Adapter: real, argv: []string{"/bin/sh", "-c", script}})
+	if code != ExitClean {
+		t.Fatalf("JSON 壳哨兵应 ExitClean: %d", code)
+	}
+	d := hasDeliver(msgs)
+	if d == nil || d.Verdict != "pass" || d.Ref != "vr1" {
+		t.Fatalf("Deliver 不符: %+v", d)
+	}
+}
+
+// TestRun_MergedLineFileFallback（对抗锚）：stdout 粘并行（哨兵非行首，
+// 流源不中）＋sentinel.log 预置净行→文件兜底捕获，Deliver.Ref 正确。
+func TestRun_MergedLineFileFallback(t *testing.T) {
+	art := t.TempDir()
+	if err := os.WriteFile(filepath.Join(art, "sentinel.log"),
+		[]byte("META_DELIVER:ref7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, msgs := runSeatSession(t, "施工", art,
+		&fakeAdapter{argv: []string{"/bin/sh", "-c",
+			"echo '前缀粘文META_DELIVER:polluted'; exit 0"}})
+	if code != ExitClean {
+		t.Fatalf("文件兜底哨兵应 ExitClean: %d", code)
+	}
+	d := hasDeliver(msgs)
+	if d == nil || d.Ref != "ref7" {
+		t.Fatalf("Deliver.ref 不符（文件净行应胜）: %+v", d)
+	}
+}
+
+// TestSentinelFileDedup（对抗锚）：stdout＋文件双发同一 META_ADMIN 行→
+// 原文配对消化，CreateTicket 帧仅一条；污染行与净行不配对各发各的。
+func TestSentinelFileDedup(t *testing.T) {
+	s := newTestSession("t1")
+	dir := t.TempDir()
+	specFile := filepath.Join(dir, "spec.md")
+	_ = os.WriteFile(specFile, []byte("# spec"), 0o600)
+	line := "META_ADMIN:create_ticket|c1|子票|" + specFile
+
+	s.scanSentinel(line, false) // 流源
+	s.scanSentinel(line, true)  // 文件源同行→配对消化
+	count := func() int {
+		n := 0
+		for {
+			select {
+			case m := <-s.sendq:
+				if m.GetAdmin().GetCreateTicket() != nil {
+					n++
+				}
+			default:
+				return n
+			}
+		}
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("双发同文哨兵应只出一条 admin 帧: %d", n)
+	}
+	// 对称序：文件先见，流中再见同样配对消化。
+	if s.pending[line] != 0 {
+		t.Fatalf("配对后 pending 应归 0: %d", s.pending[line])
+	}
+	s.scanSentinel(line, true)
+	s.scanSentinel(line, false)
+	if n := count(); n != 1 {
+		t.Fatalf("文件先序配对应仍只一条: %d", n)
+	}
+	// 污染流行与文件净行不配对（配对键＝原文整体）——各发各的。
+	polluted := line + "尾巴"
+	s.scanSentinel(line, true)
+	s.scanSentinel(polluted, false)
+	if n := count(); n != 2 {
+		t.Fatalf("污染行与净行应各发各的: %d", n)
+	}
+}
+
+// TestRun_RawLineFallback（对抗锚）：fd-1 直写形不可解析行上哨兵
+// 经适配器透传帧（Text=原行）仍捕获。
+func TestRun_RawLineFallback(t *testing.T) {
+	real, err := adapter.New("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := "echo 'META_DELIVER:rawref'; exit 0" // claude 解析失败→Text=原行
+	code, msgs := runSeatSession(t, "施工", "",
+		&parseAdapter{Adapter: real, argv: []string{"/bin/sh", "-c", script}})
+	if code != ExitClean {
+		t.Fatalf("原行哨兵应 ExitClean: %d", code)
+	}
+	d := hasDeliver(msgs)
+	if d == nil || d.Ref != "rawref" {
+		t.Fatalf("Deliver.ref 不符: %+v", d)
 	}
 }

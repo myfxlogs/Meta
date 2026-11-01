@@ -25,3 +25,5 @@ commit `t{{ticket_id}}: <为什么>` 推支（**不并 master**）→交付摘�
 （新增/修改面、根因、验证引、下一步=全量遗留申报、可沉淀打法候选）
 →收口两步门（归位扫描＋工作区净）→**exit 0 前确认交付帧发出**
 （外壳 Deliver 径；审计席判决走 `META_VERDICT:` 哨兵不在你径）。
+交付哨兵 `META_DELIVER:<commit>` 双发：stdout 末行独占一行＋同一行
+原文追加 `$META_ART_DIR/sentinel.log`。

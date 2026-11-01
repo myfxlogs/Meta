@@ -48,12 +48,12 @@ type ocLine struct {
 func (o *opencode) Parse(line []byte) []Frame {
 	var m ocLine
 	if err := json.Unmarshal(line, &m); err != nil {
-		return []Frame{{Kind: FrameText, Note: preview(string(line), 200)}}
+		return []Frame{{Kind: FrameText, Note: preview(string(line), 200), Text: string(line)}}
 	}
 	switch m.Type {
 	case "text":
 		if m.Part.Text != "" {
-			return []Frame{{Kind: FrameText, Note: preview(m.Part.Text, 200)}}
+			return []Frame{{Kind: FrameText, Note: preview(m.Part.Text, 200), Text: m.Part.Text}}
 		}
 	case "tool_use":
 		return []Frame{{Kind: FrameText, Stage: "工具", Note: m.Part.Type}}
@@ -64,7 +64,8 @@ func (o *opencode) Parse(line []byte) []Frame {
 		return []Frame{{Kind: FrameUsage, Note: "step_finish " + m.Part.Reason,
 			Tokens: o.tokens, CostUSD: o.costUSD}}
 	case "error":
-		return []Frame{{Kind: FrameError, Note: preview(m.Part.Message+m.Part.Reason, 200)}}
+		return []Frame{{Kind: FrameError, Note: preview(m.Part.Message+m.Part.Reason, 200),
+			Text: m.Part.Message + m.Part.Reason}}
 	}
 	return nil
 }
