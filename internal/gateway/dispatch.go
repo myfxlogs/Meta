@@ -107,6 +107,20 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 		return
 	}
 
+	// 注入机径：无 --prompt-file 覆盖且注入机开 → 组装提示前缀文件。
+	// 组装失败＝缺一不派（§6.1），出事件即返——非壳之错，不耗壳尝试。
+	if spec.PromptFile == "" && g.cfg.InjectRoot != "" {
+		pf, err := g.injectPrompt(ctx, req.ticketID, req.role, t)
+		if err != nil {
+			g.emit(Event{Kind: "inject_failed", TicketID: req.ticketID, Role: req.role,
+				Note: err.Error()})
+			_ = g.database.AppendEvent(ctx, req.ticketID, "inject_failed", db.Event{
+				Actor: "gateway", Note: err.Error()})
+			return
+		}
+		spec.PromptFile = pf
+	}
+
 	rows, err := g.shellsFor(ctx, req.role)
 	if err != nil {
 		return

@@ -91,7 +91,23 @@ message SecretReq {
 message Ticket {
   string id = 1;
   string title = 2;
-  bytes spec = 3; // proto 序列化票面八栏
+  bytes spec = 3; // 序列化 TicketSpec（票面八栏全量，§6.1 缺一不派）
+}
+
+// TicketSpec 票面八栏全量入库（票0003）：创建票时由票面 markdown 解析落 spec BLOB；
+// 注入机组装席位提示前缀时出 DB 渲染。判决史初值随票入，动态驳回/Yield 由
+// ticket_event（reject/yield）在注入时追加，不在此冻结。
+message TicketSpec {
+  string goal = 1;         // 1. 目标
+  string why = 2;          // 2. 为什么
+  string scope = 3;        // 3. 范围内
+  string out_of_scope = 4; // 4. 范围外（禁线）
+  string refs = 5;         // 5. 设计引用
+  string anchors = 6;      // 6. 验收锚
+  string verify = 7;       // 7. 验证命令
+  string deliver = 8;      // 8. 交付形制
+  string appendix = 9;     // 附（预算/优先级/依赖票）
+  string verdicts = 10;    // 判决史（创建时初值，常为「空」）
 }
 
 message PermissionAsk {
@@ -127,7 +143,7 @@ message AdoptAck {
 message NewTicket {
   string id = 1;
   string title = 2;
-  bytes spec = 3;
+  bytes spec = 3; // 序列化 TicketSpec（可空——无 spec 票仅可 --prompt-file 覆盖径派发）
   int64 attempt_cap = 4; // 每次尝试内 token 上限（§5.5）；0=不设
   int64 hard_cap = 5;    // 票级累计硬顶；0=不设
 }

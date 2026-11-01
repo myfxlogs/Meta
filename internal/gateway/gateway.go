@@ -33,9 +33,19 @@ type Config struct {
 	Stagger          time.Duration // ②a 限流错峰时延，缺省 10s
 	QuickExit        time.Duration // ①秒退判定窗口（attach 或死于此窗口内），缺省 20s
 	MaxPerShell      int           // provider 并发闸：同名壳并行席位上限，0=不限
+
+	// 注入机（票0003，§4）：Root 空＝注入机关，dispatch 无 --prompt-file 即缺径。
+	InjectRoot    string   // 注入源根：roles/ 与 docs/经验库|技能库 所在
+	InjectRecipes []string // 项目配方/纪律文档（相对 InjectRoot，序即拼）
 }
 
 func (c *Config) withDefaults() {
+	// D-23 类坑反向：路径全量绝对化——席位 env（socket/注入文件）跨 cwd 引用。
+	for _, p := range []*string{&c.DBPath, &c.RunDir, &c.SocketPath} {
+		if abs, err := filepath.Abs(*p); err == nil {
+			*p = abs
+		}
+	}
 	if c.ProgressTimeout <= 0 {
 		c.ProgressTimeout = 30 * time.Minute
 	}
