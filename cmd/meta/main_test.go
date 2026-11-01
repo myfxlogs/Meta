@@ -4,15 +4,34 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"meta/internal/config"
 	"meta/internal/gateway"
 	pbv1 "meta/internal/pb/metav1"
 )
+
+// TestServe_无配置拒起（票0004 锚 7 首句）：无 --config 且缺省路径
+// （<可执行>/../config/gateway.textproto）无文件→serve 拒起且报路径指引
+// （配置必载 D-9——fail loud，登记表在码里就不叫配置化）。
+func TestServe_无配置拒起(t *testing.T) {
+	// 前提断言：测试二进制不在生产布局，缺省路径必不存在——保测试确定性。
+	if _, err := os.Stat(config.DefaultPath()); err == nil {
+		t.Skipf("缺省路径 %s 存在（生产布局跑测试）——不适用", config.DefaultPath())
+	}
+	err := serve([]string{
+		"--db", filepath.Join(t.TempDir(), "m.db"),
+		"--socket", filepath.Join(t.TempDir(), "m.sock"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "--config") {
+		t.Fatalf("无配置应拒起且带指引: %v", err)
+	}
+}
 
 // TestAdmin_相对socket（D-23 锚）：`meta observe --socket run/meta.sock`
 // 相对路径必须绝对化后连通——修复前 gRPC 把 "run/meta.sock" 误析为

@@ -75,9 +75,7 @@ func (d *DB) ShellHealth(ctx context.Context, s Shell) (string, error) {
 // RunsForTicket 票的全部 seat_run（取证/管理面导出）。
 func (d *DB) RunsForTicket(ctx context.Context, ticketID string) ([]*Run, error) {
 	rows, err := d.db.QueryContext(ctx,
-		`SELECT run_id, seat_id, ticket_id, role, shell, pid, run_token, socket_path, log_path,
-		        started_at, attached_at, adopted_at, exited_at, exit_code, stream_closed, dead
-		 FROM seat_run WHERE ticket_id=? ORDER BY started_at`, ticketID)
+		`SELECT `+runCols+` FROM seat_run WHERE ticket_id=? ORDER BY started_at`, ticketID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,10 +84,10 @@ func (d *DB) RunsForTicket(ctx context.Context, ticketID string) ([]*Run, error)
 	for rows.Next() {
 		var r Run
 		var started, attached, adopted, exited int64
-		var closed, dead int
+		var closed, dead, adjunct int
 		if err := rows.Scan(&r.RunID, &r.SeatID, &r.TicketID, &r.Role, &r.Shell, &r.PID,
 			&r.RunToken, &r.SocketPath, &r.LogPath, &started, &attached, &adopted,
-			&exited, &r.ExitCode, &closed, &dead); err != nil {
+			&exited, &r.ExitCode, &closed, &dead, &adjunct); err != nil {
 			return nil, err
 		}
 		r.StartedAt = time.Unix(0, started)
@@ -104,6 +102,7 @@ func (d *DB) RunsForTicket(ctx context.Context, ticketID string) ([]*Run, error)
 		}
 		r.StreamClosed = closed != 0
 		r.Dead = dead != 0
+		r.Adjunct = adjunct != 0
 		out = append(out, &r)
 	}
 	return out, rows.Err()

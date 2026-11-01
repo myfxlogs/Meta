@@ -6,6 +6,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"meta/internal/db"
 	pbv1 "meta/internal/pb/metav1"
 )
 
@@ -35,6 +36,7 @@ func (g *Gateway) Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv1.Ac
 		PromptFile:  req.PromptFile,
 		WorkDir:     req.WorkDir,
 		PreferShell: req.PreferShell,
+		Adjunct:     req.Adjunct,
 	})
 	if err != nil {
 		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
@@ -84,12 +86,76 @@ func (g *Gateway) Events(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.EventL
 	}
 	out := &pbv1.EventList{}
 	for _, e := range evs {
-		out.Items = append(out.Items, &pbv1.EventItem{
-			Id: e.ID, Kind: e.Kind, FromPhase: string(e.FromPhase), ToPhase: string(e.ToPhase),
-			Actor: e.Actor, Note: e.Note, AtUnixNano: e.CreatedAt.UnixNano(),
-		})
+		out.Items = append(out.Items, eventItem(e))
 	}
 	return out, nil
+}
+
+// EventsAfter 水位游标回读（D-25/播报员）：跨票全序 id>since_id 页。
+func (g *Gateway) EventsAfter(ctx context.Context, c *pbv1.EventCursor) (*pbv1.EventList, error) {
+	limit := int(c.Limit)
+	if limit <= 0 || limit > 1000 {
+		limit = 500
+	}
+	evs, err := g.database.EventsAfter(ctx, c.SinceId, limit)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &pbv1.EventList{}
+	for _, e := range evs {
+		out.Items = append(out.Items, eventItem(e))
+	}
+	return out, nil
+}
+
+func eventItem(e *db.Event) *pbv1.EventItem {
+	return &pbv1.EventItem{
+		Id: e.ID, Kind: e.Kind, FromPhase: string(e.FromPhase), ToPhase: string(e.ToPhase),
+		Actor: e.Actor, Note: e.Note, AtUnixNano: e.CreatedAt.UnixNano(),
+		TicketId: e.TicketID, Role: e.Role,
+	}
+}
+
+// RetroVerdict 回翻件（决策40 §15.4）：滞留 待审 票一次性机械补录——
+// 两跳皆走钦定边经 transition() 包装（事件行＋门铃照出，路由通知自动跟发）：
+// 待审→审计中(audit_start)→待部署(audit_pass) 或 →已派(reject)。
+// 闸：相位必须 待审（幂等——二次调用相位已走即拒）；ref 必填（无指证的
+// 回翻＝无 provenance 的相位篡改）。补录性质在 actor=admin/note 显式留痕。
+func (g *Gateway) RetroVerdict(ctx context.Context, r *pbv1.RetroReq) (*pbv1.Ack, error) {
+	if r.TicketId == "" {
+		return nil, status.Error(codes.InvalidArgument, "ticket_id 空")
+	}
+	if r.Ref == "" {
+		return &pbv1.Ack{Ok: false, Note: "ref 必填（判决档/决策号指证）"}, nil
+	}
+	var to db.Phase
+	var kind db.EdgeKind
+	switch r.Verdict {
+	case "pass":
+		to, kind = db.PhaseToDeploy, db.EdgeAuditPass
+	case "reject":
+		to, kind = db.PhaseAssigned, db.EdgeReject
+	default:
+		return &pbv1.Ack{Ok: false, Note: "verdict 必填 pass|reject"}, nil
+	}
+	phase, err := g.database.PhaseOf(ctx, r.TicketId)
+	if err != nil {
+		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
+	}
+	if phase != db.PhaseReview {
+		return &pbv1.Ack{Ok: false, Note: "回翻闸：相位 " + string(phase) + " 非 待审"}, nil
+	}
+	if err := g.transition(ctx, r.TicketId, db.PhaseAuditing, db.EdgeAuditStart,
+		"admin", "回翻·人工判决补录 ref="+r.Ref); err != nil {
+		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
+	}
+	// 对抗性锚提名行：第二跳 audit_pass/reject——删则票滞留审计中成
+	// 「假审计中」（永远等不来的审计席）。
+	if err := g.transition(ctx, r.TicketId, to, kind,
+		"admin", "回翻判决 "+r.Verdict+" ref="+r.Ref); err != nil {
+		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
+	}
+	return &pbv1.Ack{Ok: true, Note: "回翻完成→" + string(to)}, nil
 }
 
 func (g *Gateway) Runs(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.RunList, error) {
@@ -104,6 +170,7 @@ func (g *Gateway) Runs(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.RunList,
 			ExitCode: int32(r.ExitCode), Dead: r.Dead,
 			Attached: !r.AttachedAt.IsZero(), Adopted: !r.AdoptedAt.IsZero(),
 			StartedAt: r.StartedAt.UnixNano(), ExitedAt: r.ExitedAt.UnixNano(),
+			Adjunct: r.Adjunct,
 		})
 	}
 	return out, nil

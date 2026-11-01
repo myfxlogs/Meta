@@ -1,0 +1,26 @@
+# 网关配置（D-9 配置出码外；帽值毛口径 D-27——0003 施工实测 20.18M 起算）
+# serve --config 可覆盖路径；缺/坏拒起。部署同步 /opt/meta/config/。
+
+progress_timeout   { seconds: 1800 }  # 30m 进度帧闹钟
+auth_timeout       { seconds: 5 }
+adopt_dial_timeout { seconds: 2 }
+stagger            { seconds: 10 }    # ②a 限流错峰
+quick_exit         { seconds: 20 }    # ①秒退判定窗
+max_per_shell: 6
+default_attempt_cap: 20000000
+ticket_hard_cap:     120000000        # ≈3 施工尝试+审计+CTO 合计毛值
+
+role_budget { role: "施工" attempt_cap: 40000000 }  # 0003 整票 20.18M×2 余量
+role_budget { role: "审计" attempt_cap: 15000000 }
+role_budget { role: "CTO"  attempt_cap: 15000000 }
+
+# 壳登记表种子（角色行空才落；priority 小者优先；model 空＝壳自身缺省）
+shell { name: "devin"    model: "swe-2-high" role: "施工" priority: 10 }
+shell { name: "claude"   role: "施工" priority: 20 }
+shell { name: "opencode" role: "施工" priority: 30 attempt_cap: 8000000 note: "每日限量低帽" }
+shell { name: "claude"   role: "审计" priority: 10 note: "devin 只读形态四死弃用·决策39/40" }
+shell { name: "devin"    model: "swe-2-max" role: "审计" priority: 20 }
+shell { name: "opencode" role: "审计" priority: 30 attempt_cap: 8000000 }
+shell { name: "devin"    model: "swe-2-max" role: "CTO" priority: 10 }
+shell { name: "claude"   role: "CTO" priority: 20 }
+shell { name: "opencode" role: "CTO" priority: 30 attempt_cap: 8000000 }

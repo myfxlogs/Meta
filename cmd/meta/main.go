@@ -19,7 +19,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
+	"meta/internal/caster"
+	"meta/internal/config"
 	"meta/internal/db"
 	"meta/internal/gateway"
 	"meta/internal/inject"
@@ -60,6 +63,10 @@ func main() {
 		err = budgetCmd(os.Args[2:])
 	case "observe":
 		err = observeCmd(os.Args[2:])
+	case "caster":
+		err = casterCmd(os.Args[2:])
+	case "retro":
+		err = retroCmd(os.Args[2:])
 	case "supervise":
 		err = superviseCmd(os.Args[2:])
 	case "upgrade":
@@ -88,6 +95,8 @@ func usage() {
   meta runs --socket <sock> --ticket <id>
   meta budget --socket <sock> --ticket <id> [--attempt-cap N] [--hard-cap N]
   meta observe --socket <sock>
+  meta caster --socket <sock> --routes <f> --state-dir <d> --run-dir <r> --notify-cmd <sh> [--once] [--replay-history]
+  meta retro --socket <sock> --ticket <id> --verdict pass|reject --ref <判决档>
   meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
   meta upgrade --new <bin> --install <path> [--prev <p>] [--restart-cmd "<cmd>"] [--check-socket <sock>]
   meta version`)
@@ -95,8 +104,8 @@ func usage() {
 
 // serveFlags serve/supervise 共用的参数面（supervise 原样透传给 serve 子进程）。
 type serveFlags struct {
-	db, sock, runDir, injectRoot, injectRecipe *string
-	progressTimeout, stagger                  *time.Duration
+	db, sock, runDir, injectRoot, injectRecipe, configP *string
+	progressTimeout, stagger                           *time.Duration
 }
 
 func bindServeFlags(fs *flag.FlagSet) serveFlags {
@@ -108,6 +117,7 @@ func bindServeFlags(fs *flag.FlagSet) serveFlags {
 		stagger:         fs.Duration("stagger", 10*time.Second, "②a 限流错峰时延"),
 		injectRoot:      fs.String("inject-root", "", "注入机源根（roles/+docs/两库所在；空＝注入机关）"),
 		injectRecipe:    fs.String("inject-recipe", "", "项目配方/纪律文档（相对 inject-root，逗号分隔多件）"),
+		configP:         fs.String("config", "", "网关配置 textproto（缺省 <可执行>/../config/gateway.textproto；必载拒起）"),
 	}
 }
 
@@ -125,6 +135,9 @@ func (f serveFlags) serveArgs() []string {
 	}
 	if *f.injectRecipe != "" {
 		a = append(a, "--inject-recipe", *f.injectRecipe)
+	}
+	if *f.configP != "" {
+		a = append(a, "--config", absOr(f.configP, ""))
 	}
 	return a
 }
@@ -153,15 +166,51 @@ func serve(args []string) error {
 		*f.injectRoot = absOr(f.injectRoot, "")
 	}
 
-	g, err := gateway.New(gateway.Config{
-		DBPath:          *f.db,
-		RunDir:          *f.runDir,
-		SocketPath:      *f.sock,
-		ProgressTimeout: *f.progressTimeout,
-		Stagger:         *f.stagger,
-		InjectRoot:      *f.injectRoot,
-		InjectRecipes:   splitCSV(*f.injectRecipe),
-	})
+	// 配置必载（D-9）：缺省 <可执行>/../config/gateway.textproto；缺/坏拒起。
+	cfgPath := *f.configP
+	if cfgPath == "" {
+		cfgPath = config.DefaultPath()
+	}
+	gc, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	// 显式旗标 override 配置行（现行旗标全保留；配置是底不是顶）。
+	set := map[string]bool{}
+	fs.Visit(func(fl *flag.Flag) { set[fl.Name] = true })
+	gcDur := func(name string, d *durationpb.Duration, flagV time.Duration) time.Duration {
+		if !set[name] && d != nil && d.AsDuration() > 0 {
+			return d.AsDuration()
+		}
+		return flagV
+	}
+	gcfg := gateway.Config{
+		DBPath:            *f.db,
+		RunDir:            *f.runDir,
+		SocketPath:        *f.sock,
+		ProgressTimeout:   gcDur("progress-timeout", gc.ProgressTimeout, *f.progressTimeout),
+		Stagger:           gcDur("stagger", gc.Stagger, *f.stagger),
+		AuthTimeout:       gcDur("", gc.AuthTimeout, 0),
+		AdoptDialTimeout:  gcDur("", gc.AdoptDialTimeout, 0),
+		QuickExit:         gcDur("", gc.QuickExit, 0),
+		MaxPerShell:       int(gc.MaxPerShell),
+		DefaultAttemptCap: gc.DefaultAttemptCap,
+		TicketHardCap:     gc.TicketHardCap,
+		RoleCaps:          map[string]int64{},
+		InjectRoot:        *f.injectRoot,
+		InjectRecipes:     splitCSV(*f.injectRecipe),
+	}
+	for _, rb := range gc.RoleBudget {
+		gcfg.RoleCaps[rb.Role] = rb.AttemptCap
+	}
+	for _, s := range gc.Shell {
+		gcfg.ShellRows = append(gcfg.ShellRows, gateway.ShellSeed{
+			Name: s.Name, Model: s.Model, Role: s.Role,
+			Priority: int(s.Priority), AttemptCap: s.AttemptCap,
+		})
+	}
+
+	g, err := gateway.New(gcfg)
 	if err != nil {
 		return err
 	}
@@ -506,4 +555,97 @@ func observeCmd(args []string) error {
 		}
 		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", e.Kind, e.TicketId, e.RunId, e.Role, e.Note)
 	}
+}
+
+// casterCmd 播报员引擎（票0004 §3）：AdminGateway 客户端常驻——
+// 水位游标回读＋路由表机械映射（notify/dispatch）。
+func casterCmd(args []string) error {
+	fs := flag.NewFlagSet("caster", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	routes := fs.String("routes", "", "路由表 textproto（必）")
+	stateDir := fs.String("state-dir", "", "水位/渲染产物目录（必）")
+	runDir := fs.String("run-dir", "run", "run 目录（{{run_dir}} 占位符）")
+	notifyCmd := fs.String("notify-cmd", "", "通知脚本（必）")
+	once := fs.Bool("once", false, "只 connect+resync 一次即退")
+	replay := fs.Bool("replay-history", false, "水位缺失时追补历史（缺省快进只推位）")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *routes == "" || *stateDir == "" || *notifyCmd == "" {
+		return fmt.Errorf("--routes/--state-dir/--notify-cmd 必填")
+	}
+	sockAbs := absOr(sock, "")
+	eng, err := caster.New(caster.Config{
+		RoutesPath:    absOr(routes, ""),
+		StateDir:      absOr(stateDir, ""),
+		RunDir:        absOr(runDir, ""),
+		SocketPath:    sockAbs,
+		NotifyCmd:     *notifyCmd,
+		ReplayHistory: *replay,
+		Dial: func(ctx context.Context) (caster.AdminClient, error) {
+			c, conn, err := admin(sockAbs)
+			if err != nil {
+				return nil, err
+			}
+			return &adminCaster{c: c, conn: conn}, nil
+		},
+	})
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if *once {
+		return eng.Once(ctx)
+	}
+	return eng.Run(ctx)
+}
+
+// adminCaster caster.AdminClient 的真实现（AdminGateway over unix socket）。
+type adminCaster struct {
+	c    pbv1.AdminGatewayClient
+	conn *grpc.ClientConn
+}
+
+func (a *adminCaster) EventsAfter(ctx context.Context, sinceID int64, limit int32) (*pbv1.EventList, error) {
+	return a.c.EventsAfter(ctx, &pbv1.EventCursor{SinceId: sinceID, Limit: limit})
+}
+
+func (a *adminCaster) Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv1.Ack, error) {
+	return a.c.Dispatch(ctx, req)
+}
+
+func (a *adminCaster) Observe(ctx context.Context) (pbv1.AdminGateway_ObserveClient, error) {
+	return a.c.Observe(ctx, &pbv1.Empty{})
+}
+
+// retroCmd 回翻件入口（§15.4）：滞留 待审 票一次性机械补录 audit_start→
+// audit_pass|reject 两跳。
+func retroCmd(args []string) error {
+	fs := flag.NewFlagSet("retro", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	tid := fs.String("ticket", "", "")
+	verdict := fs.String("verdict", "", "pass|reject")
+	ref := fs.String("ref", "", "判决档/决策号指证（必）")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *tid == "" || *verdict == "" || *ref == "" {
+		return fmt.Errorf("--ticket/--verdict/--ref 必填")
+	}
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ack, err := c.RetroVerdict(context.Background(), &pbv1.RetroReq{
+		TicketId: *tid, Verdict: *verdict, Ref: *ref})
+	if err != nil {
+		return err
+	}
+	if !ack.Ok {
+		return fmt.Errorf("retro: %s", ack.Note)
+	}
+	fmt.Println("retro", *tid, *verdict, "ok:", ack.Note)
+	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,6 +104,8 @@ type session struct {
 	tail         string // 壳 stderr/stdout 尾，分级输入
 	tailLastUsage int64 // 流内已报用量（终值补差基准）
 	resultOK     bool   // 见到 FrameResult
+	verdict      string // META_VERDICT 哨兵捕到的审计判决（pass|reject）
+	verdictRef   string // 判决档 ref
 }
 
 // run 主流程：收养口 → attach+claim → 起壳 → 帧泵 → 退码分级自退。
@@ -143,7 +146,11 @@ func (s *session) run() int {
 		s.mu.Lock()
 		s.finishing = true
 		s.mu.Unlock()
+		s.mu.Lock()
+		verdict, vref := s.verdict, s.verdictRef
+		s.mu.Unlock()
 		s.enqueueSync(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{
+			Ref: vref, Verdict: verdict,
 			Note: fmt.Sprintf("%s exit=0%s", s.spec.Shell, resultNote(s.resultOK))}}})
 		// 等 Deliver 回执（有界 3s）——尾帧不许丢在传输缓冲里。
 		select {
@@ -201,6 +208,9 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 		l := sc.Bytes()
 		s.noteTail(l)
 		os.Stdout.Write(append(l, '\n')) // 原文留痕进席位日志
+		if s.scanSentinel(l) {
+			continue // 哨兵行不进适配器（壳与外壳的约定，与壳无关）
+		}
 		for _, fr := range ad.Parse(l) {
 			switch fr.Kind {
 			case adapter.FrameText:
@@ -383,6 +393,27 @@ func (s *session) drain() {
 	for len(s.sendq) > 0 && time.Now().Before(deadline) {
 		<-time.After(5 * time.Millisecond)
 	}
+}
+
+// scanSentinel 壳 stdout 哨兵扫描（壳与外壳的约定行，不进 adapter——
+// 裁决席 META_RULE/审计席 META_VERDICT 均「最后单独一行」钦定，§1.4/§15.2）。
+// 命中即消费返回 true。
+func (s *session) scanSentinel(l []byte) bool {
+	line := strings.TrimSpace(string(l))
+	if rest, ok := strings.CutPrefix(line, "META_RULE:"); ok {
+		action, note, _ := strings.Cut(rest, ":")
+		s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Rule{
+			Rule: &pbv1.Rule{Action: action, Note: note}}})
+		return true
+	}
+	if rest, ok := strings.CutPrefix(line, "META_VERDICT:"); ok {
+		v, ref, _ := strings.Cut(rest, ":")
+		s.mu.Lock()
+		s.verdict, s.verdictRef = v, ref
+		s.mu.Unlock()
+		return true
+	}
+	return false
 }
 
 func (s *session) sendProgress(stage, note string) {

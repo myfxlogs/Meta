@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meta.v1;
 
+import "google/protobuf/duration.proto";
+
 option go_package = "meta/internal/pb/metav1";
 
 // 席位面：unix socket 双向流（总设计 §12）。首帧必为 RunAuth。
@@ -24,8 +26,10 @@ service AdminGateway {
   rpc Budget(TicketRef) returns (BudgetMsg);
   rpc Phase(TicketRef) returns (PhaseMsg);
   rpc Events(TicketRef) returns (EventList); // 判决史/事件审计径
+  rpc EventsAfter(EventCursor) returns (EventList); // 水位游标回读（播报员补报径）
   rpc Runs(TicketRef) returns (RunList);     // seat_run 取证径
   rpc Observe(Empty) returns (stream ObsEvent); // 事件观察口导出
+  rpc RetroVerdict(RetroReq) returns (Ack);  // 回翻件：滞留待审票一次性机械补录
 }
 
 message SeatMsg {
@@ -38,6 +42,7 @@ message SeatMsg {
     PermissionReply permission_reply = 6;
     Yield yield = 7;
     SecretReq secret_req = 8;
+    Rule rule = 9; // 裁决回流帧（adjunct 裁决席专用，§1.4）
   }
 }
 
@@ -70,8 +75,15 @@ message Usage {
 }
 
 message Deliver {
-  string ref = 1; // 交付 commit/支名
+  string ref = 1;     // 交付 commit/支名；审计席＝判决档 ref
   string note = 2;
+  string verdict = 3; // 审计判决：审计席必填 pass|reject，余角色必须空
+}
+
+// Rule 裁决回流帧：adjunct 裁决席（role=CTO）经 META_RULE 哨兵上报。
+message Rule {
+  string action = 1; // kill_requeue|defer
+  string note = 2;   // 裁决理由
 }
 
 message PermissionReply {
@@ -154,6 +166,7 @@ message DispatchReq {
   string prompt_file = 3;  // 席位提示词文件（一律文件径，不内联）
   string work_dir = 4;
   string prefer_shell = 5; // 非空＝该壳尝试提首（smoke 指定径）
+  bool adjunct = 6;        // 辅助席（裁决/诊断）：不占相位，必给 prompt_file
 }
 
 message BudgetReq {
@@ -191,6 +204,19 @@ message EventItem {
   string actor = 5;
   string note = 6;
   int64 at_unix_nano = 7;
+  string ticket_id = 8;
+  string role = 9; // 决策41：actor 为 run_id 时经 seat_run 映射带出，否则空
+}
+
+message EventCursor {
+  int64 since_id = 1; // 已处理最大 ticket_event.id（水位）
+  int32 limit = 2;    // 页大小；0/负＝服务端缺省
+}
+
+message RetroReq {
+  string ticket_id = 1;
+  string verdict = 2; // pass|reject
+  string ref = 3;     // 判决档/决策号指证（必填——无指证的回翻＝无 provenance）
 }
 
 message EventList {
@@ -208,6 +234,7 @@ message RunItem {
   bool adopted = 8;
   int64 started_at = 9;
   int64 exited_at = 10;
+  bool adjunct = 11;
 }
 
 message RunList {
@@ -223,3 +250,60 @@ message ObsEvent {
 }
 
 message Empty {}
+
+// ---------- 播报员路由表（D-26/令#E13：事件→动作电话簿，判断永不进播报员） ----------
+
+message RouteTable { repeated Route routes = 1; }
+
+message Route {
+  string kind = 1;            // 匹配 ticket_event.kind（精确等值；表外不动作）
+  repeated Action actions = 2;
+  string note = 3;
+  string note_contains = 4;   // 可选：行 note 子串匹配（空＝只按 kind）
+}
+
+message Action {
+  oneof body {
+    NotifyAction notify = 1;     // 调通知脚本
+    DispatchAction dispatch = 2; // 调 AdminGateway.Dispatch
+  }
+}
+
+message NotifyAction { string template = 1; } // 占位符 {{ticket_id}} {{kind}} {{note}} {{role}} {{action}}
+
+message DispatchAction {
+  string role = 1;
+  string prompt_template = 2; // 模板文件（相对配置根）；空＝注入机径
+  string work_dir = 3;
+  string prefer_shell = 4;
+  bool adjunct = 5;
+}
+
+// ---------- 网关配置（D-9 出码外；帽值毛口径 D-27） ----------
+
+message GatewayConfig {
+  google.protobuf.Duration progress_timeout = 1;   // 缺省 30m
+  google.protobuf.Duration auth_timeout = 2;       // 5s
+  google.protobuf.Duration adopt_dial_timeout = 3; // 2s
+  google.protobuf.Duration stagger = 4;            // 10s
+  google.protobuf.Duration quick_exit = 5;         // 20s
+  int32 max_per_shell = 6;                         // 0=不限
+  int64 default_attempt_cap = 7;                   // 角色行未配时的尝试内帽（毛值 token）
+  int64 ticket_hard_cap = 8;                       // 票级累计硬顶缺省（毛值）
+  repeated RoleBudget role_budget = 9;
+  repeated ShellRow shell = 10;
+}
+
+message RoleBudget {
+  string role = 1;
+  int64 attempt_cap = 2;
+}
+
+message ShellRow {
+  string name = 1;
+  string model = 2;
+  string role = 3;
+  int32 priority = 4;    // 小者优先
+  int64 attempt_cap = 5; // >0＝本行尝试帽覆盖角色缺省
+  string note = 6;
+}
