@@ -260,6 +260,7 @@ message Route {
   repeated Action actions = 2;
   string note = 3;
   string note_contains = 4;   // 可选：行 note 子串匹配（空＝只按 kind）
+  string role = 5;            // 可选：非空则要求 EventItem.role 等值（空＝不滤，旧行语义不变）
 }
 
 message Action {

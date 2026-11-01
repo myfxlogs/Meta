@@ -2312,6 +2312,7 @@ type Route struct {
 	Actions       []*Action              `protobuf:"bytes,2,rep,name=actions,proto3" json:"actions,omitempty"`
 	Note          string                 `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
 	NoteContains  string                 `protobuf:"bytes,4,opt,name=note_contains,json=noteContains,proto3" json:"note_contains,omitempty"` // 可选：行 note 子串匹配（空＝只按 kind）
+	Role          string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`                                     // 可选：非空则要求 EventItem.role 等值（空＝不滤，旧行语义不变）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2370,6 +2371,13 @@ func (x *Route) GetNote() string {
 func (x *Route) GetNoteContains() string {
 	if x != nil {
 		return x.NoteContains
+	}
+	return ""
+}
+
+func (x *Route) GetRole() string {
+	if x != nil {
+		return x.Role
 	}
 	return ""
 }
@@ -2995,12 +3003,13 @@ const file_proto_meta_v1_meta_proto_rawDesc = "" +
 	"\x05Empty\"4\n" +
 	"\n" +
 	"RouteTable\x12&\n" +
-	"\x06routes\x18\x01 \x03(\v2\x0e.meta.v1.RouteR\x06routes\"\x7f\n" +
+	"\x06routes\x18\x01 \x03(\v2\x0e.meta.v1.RouteR\x06routes\"\x93\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12)\n" +
 	"\aactions\x18\x02 \x03(\v2\x0f.meta.v1.ActionR\aactions\x12\x12\n" +
 	"\x04note\x18\x03 \x01(\tR\x04note\x12#\n" +
-	"\rnote_contains\x18\x04 \x01(\tR\fnoteContains\"x\n" +
+	"\rnote_contains\x18\x04 \x01(\tR\fnoteContains\x12\x12\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\"x\n" +
 	"\x06Action\x12/\n" +
 	"\x06notify\x18\x01 \x01(\v2\x15.meta.v1.NotifyActionH\x00R\x06notify\x125\n" +
 	"\bdispatch\x18\x02 \x01(\v2\x17.meta.v1.DispatchActionH\x00R\bdispatchB\x06\n" +

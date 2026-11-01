@@ -48,6 +48,13 @@ func runHelperSeat() {
 		ruleSeat() // 裁决席：Attach+Claim→发 Rule 帧→守
 	case "verdict":
 		verdictSeat() // 审计席：Attach+Claim→Deliver{verdict,ref}→退
+	case "exitcode":
+		// 强制退码席：SEAT_EXIT_CODE 钦定值秒退——席位级/壳级死因分级测试用。
+		code := 1
+		if v, err := strconv.Atoi(os.Getenv("SEAT_EXIT_CODE")); err == nil {
+			code = v
+		}
+		os.Exit(code)
 	default:
 		fmt.Fprintln(os.Stderr, "helper: 未知 SEAT_MODE")
 		os.Exit(1)

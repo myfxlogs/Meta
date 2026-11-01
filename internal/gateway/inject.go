@@ -13,6 +13,9 @@ import (
 	pbv1 "meta/internal/pb/metav1"
 )
 
+// assemble 注入机组装件（包级缝——测试可换 mock 产物空径，D-40 锚 3）。
+var assemble = inject.Assemble
+
 // injectPrompt 注入机落盘径：票 spec 出 DB→组装前缀→写 run/inject/<票>.md，
 // 路径填进本次派发的 PromptFile。判决史＝spec 初值＋ticket_event 的
 // reject/yield 行动态追加（驳回理由累积，重做者必读）。
@@ -38,7 +41,7 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 		}
 	}
 
-	out, err := inject.Assemble(inject.Input{
+	out, err := assemble(inject.Input{
 		Root:     g.cfg.InjectRoot,
 		Role:     role,
 		TicketID: ticketID,

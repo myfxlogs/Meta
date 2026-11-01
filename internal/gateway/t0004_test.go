@@ -18,10 +18,15 @@ import (
 )
 
 // adjunctSpec adjunct 派发 spec（必给 prompt_file；SEAT_MODE 经 Env 注入）。
-func adjunctSpec(mode string, extra ...string) SeatSpec {
+func adjunctSpec(t *testing.T, mode string, extra ...string) SeatSpec {
+	t.Helper()
+	pf := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(pf, []byte("# fixture 提示\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	env := []string{"GO_HELPER_SEAT=1", "SEAT_MODE=" + mode,
 		"META_ADOPT_GRACE=30", "PATH=" + os.Getenv("PATH")}
-	return SeatSpec{PromptFile: "/dev/null", WorkDir: "/tmp",
+	return SeatSpec{PromptFile: pf, WorkDir: "/tmp",
 		Env: append(env, extra...), Adjunct: true}
 }
 
@@ -67,7 +72,7 @@ func TestAdjunct_KillRequeue(t *testing.T) {
 	if err := g.DispatchSeat(ctx, "ta1", "CTO", SeatSpec{Adjunct: true, WorkDir: "/tmp"}); err == nil {
 		t.Fatal("adjunct 无 prompt_file 应拒")
 	}
-	spec := adjunctSpec("rule", "SEAT_RULE=kill_requeue:空转确认")
+	spec := adjunctSpec(t, "rule", "SEAT_RULE=kill_requeue:空转确认")
 	if err := g.DispatchSeat(ctx, "ta1", "CTO", spec); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +112,7 @@ func TestAdjunct_Defer(t *testing.T) {
 	waitPhase(t, g, "ta2", db.PhaseWorking, 5*time.Second)
 
 	if err := g.DispatchSeat(ctx, "ta2", "CTO",
-		adjunctSpec("rule", "SEAT_RULE=defer:真在干活", "SEAT_RULE_COUNT=3")); err != nil {
+		adjunctSpec(t, "rule", "SEAT_RULE=defer:真在干活", "SEAT_RULE_COUNT=3")); err != nil {
 		t.Fatal(err)
 	}
 	// 3 帧同流发：1→count=1 闹钟后移；2→count=2；3→帽尽 defer_limit 不增。
@@ -143,7 +148,7 @@ func TestAdjunct_DeliverNoPhase(t *testing.T) {
 	waitPhase(t, g, "ta4", db.PhaseWorking, 5*time.Second)
 
 	if err := g.DispatchSeat(ctx, "ta4", "CTO",
-		adjunctSpec("rule", "SEAT_RULE=defer:真在干活")); err != nil {
+		adjunctSpec(t, "rule", "SEAT_RULE=defer:真在干活")); err != nil {
 		t.Fatal(err)
 	}
 	waitEvent(t, g, "adjunct_claim", "ta4", 10*time.Second)
@@ -263,7 +268,7 @@ func TestConfigSeeds(t *testing.T) {
 	if err := g.DB().CreateTicket(ctx, "tc1", "配置票", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.DispatchSeat(ctx, "tc1", "施工", dispatchSpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "tc1", "施工", dispatchSpec(t)); err != nil {
 		t.Fatal(err)
 	}
 	waitEvent(t, g, "seat_up", "tc1", 10*time.Second)
@@ -281,7 +286,7 @@ func TestConfigSeeds(t *testing.T) {
 	if err := g.DB().CreateTicket(ctx, "tc2", "低帽票", nil); err != nil {
 		t.Fatal(err)
 	}
-	spec := dispatchSpec()
+	spec := dispatchSpec(t)
 	spec.PreferShell = "opencode"
 	if err := g.DispatchSeat(ctx, "tc2", "施工", spec); err != nil {
 		t.Fatal(err)
@@ -302,7 +307,7 @@ func TestAuditGate(t *testing.T) {
 	ctx := context.Background()
 	mkTicketAt(t, g, "tg1", db.PhaseReview)
 
-	spec := dispatchSpec()
+	spec := dispatchSpec(t)
 	spec.Env = []string{"GO_HELPER_SEAT=1", "SEAT_MODE=idle",
 		"META_ADOPT_GRACE=30", "PATH=" + os.Getenv("PATH")} // 测试代驾
 	if err := g.DispatchSeat(ctx, "tg1", "审计", spec); err != nil {
@@ -358,7 +363,7 @@ func TestVerdictFlow(t *testing.T) {
 	if err := g.DB().CreateTicket(ctx, "tv1", "判决票", nil); err != nil {
 		t.Fatal(err)
 	}
-	specW := dispatchSpec()
+	specW := dispatchSpec(t)
 	if err := g.DispatchSeat(ctx, "tv1", "施工", specW); err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +378,7 @@ func TestVerdictFlow(t *testing.T) {
 	s1.CloseSend()
 	syscall.Kill(-wrun.PID, syscall.SIGKILL)
 
-	specA := dispatchSpec()
+	specA := dispatchSpec(t)
 	specA.Env = []string{"GO_HELPER_SEAT=1", "SEAT_MODE=verdict", "SEAT_VERDICT=reject",
 		"SEAT_REF=docs/x/判.md", "META_ADOPT_GRACE=30", "PATH=" + os.Getenv("PATH")}
 	if err := g.DispatchSeat(ctx, "tv1", "审计", specA); err != nil {
@@ -400,7 +405,7 @@ func TestVerdictFlow(t *testing.T) {
 
 	// —— pass 径：另一票 →待部署 ——
 	mkTicketAt(t, g, "tv2", db.PhaseReview)
-	specA2 := dispatchSpec()
+	specA2 := dispatchSpec(t)
 	specA2.Env = []string{"GO_HELPER_SEAT=1", "SEAT_MODE=verdict", "SEAT_VERDICT=pass",
 		"SEAT_REF=docs/x/判2.md", "META_ADOPT_GRACE=30", "PATH=" + os.Getenv("PATH")}
 	if err := g.DispatchSeat(ctx, "tv2", "审计", specA2); err != nil {
@@ -413,7 +418,7 @@ func TestVerdictFlow(t *testing.T) {
 
 	// —— 非法 verdict＋杀审计席 ——
 	mkTicketAt(t, g, "tv3", db.PhaseReview)
-	specA3 := dispatchSpec()
+	specA3 := dispatchSpec(t)
 	specA3.Env = []string{"GO_HELPER_SEAT=1", "SEAT_MODE=worker",
 		"META_ADOPT_GRACE=30", "PATH=" + os.Getenv("PATH")}
 	if err := g.DispatchSeat(ctx, "tv3", "审计", specA3); err != nil {
@@ -532,7 +537,7 @@ func TestInject_PerRole(t *testing.T) {
 	if err := g.DB().CreateTicket(ctx, "tdr", "双角色票", testSpec(t)); err != nil {
 		t.Fatal(err)
 	}
-	spec := dispatchSpec()
+	spec := dispatchSpec(t)
 	spec.PromptFile = "" // 注入径：无 --prompt-file 才走组装落盘
 	if err := g.DispatchSeat(ctx, "tdr", "施工", spec); err != nil {
 		t.Fatal(err)
