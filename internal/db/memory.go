@@ -21,7 +21,7 @@ func (d *DB) PutMemory(ctx context.Context, kind, title string, content []byte, 
 	res, err := d.db.ExecContext(ctx,
 		`INSERT INTO ceo_memory (kind, title, content, event_ref, provenance, created_at)
 		 VALUES (?,?,?,?,?,?)`,
-		kind, title, content, eventRef, provenance, d.now().UnixNano())
+		cargs(kind, title, []byte(clean(string(content))), eventRef, provenance, d.now().UnixNano())...)
 	if err != nil {
 		return 0, err
 	}

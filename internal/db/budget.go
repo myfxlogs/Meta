@@ -14,7 +14,7 @@ func (d *DB) AddUsage(ctx context.Context, ticketID string, delta int64, countAt
 		`INSERT INTO budget (ticket_id, used, used_total, updated_at) VALUES (?,?,?,?)
 		 ON CONFLICT(ticket_id) DO UPDATE SET
 		   used=used+excluded.used, used_total=used_total+excluded.used_total, updated_at=excluded.updated_at`,
-		ticketID, usedDelta, delta, d.now().UnixNano())
+		cargs(ticketID, usedDelta, delta, d.now().UnixNano())...)
 	return err
 }
 
@@ -28,7 +28,7 @@ func (d *DB) EnsureBudgetDefaults(ctx context.Context, ticketID string, cap, har
 		`INSERT INTO budget (ticket_id, cap, hard_cap, used, used_total, updated_at)
 		 VALUES (?,?,?,0,0,?)
 		 ON CONFLICT(ticket_id) DO NOTHING`,
-		ticketID, cap, hardCap, d.now().UnixNano())
+		cargs(ticketID, cap, hardCap, d.now().UnixNano())...)
 	return err
 }
 
@@ -37,7 +37,7 @@ func (d *DB) IncrementDefer(ctx context.Context, ticketID string) (int, error) {
 	var n int
 	err := d.db.QueryRowContext(ctx,
 		`UPDATE ticket SET defer_count=defer_count+1, updated_at=? WHERE id=?
-		 RETURNING defer_count`, d.now().UnixNano(), ticketID).Scan(&n)
+		 RETURNING defer_count`, cargs(d.now().UnixNano(), ticketID)...).Scan(&n)
 	return n, err
 }
 

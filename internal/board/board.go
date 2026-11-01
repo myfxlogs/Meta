@@ -155,19 +155,20 @@ func (s *Service) frames(ctx context.Context, e gateway.Event) []*pbv1.BoardFram
 }
 
 // seatRow run 行→席位行投影（§9 列：角色/壳/模型/所领票/当前 stage/预算用量）。
+// DB 源字段净化（决策 67 D-45③）：毒 note/shell 进 SeatRow 即崩板流。
 func (s *Service) seatRow(ctx context.Context, r *db.Run, stageNote string) *pbv1.SeatRow {
 	row := &pbv1.SeatRow{
-		RunId:    r.RunID,
-		Role:     r.Role,
-		TicketId: r.TicketID,
+		RunId:    clean(r.RunID),
+		Role:     clean(r.Role),
+		TicketId: clean(r.TicketID),
 		Attached: !r.AttachedAt.IsZero() || !r.AdoptedAt.IsZero(),
 		Adjunct:  r.Adjunct,
 	}
-	row.Shell, row.Model = splitShell(r.Shell)
+	row.Shell, row.Model = splitShell(clean(r.Shell))
 	if !r.StartedAt.IsZero() {
 		row.StartedAtUnixNano = r.StartedAt.UnixNano()
 	}
-	stage, note, _ := strings.Cut(stageNote, " ")
+	stage, note, _ := strings.Cut(clean(stageNote), " ")
 	row.Stage, row.Note = stage, note
 	if b, err := s.deps.DB.GetBudget(ctx, r.TicketID); err == nil {
 		row.Used, row.Cap = b.Used, b.Cap
@@ -178,7 +179,8 @@ func (s *Service) seatRow(ctx context.Context, r *db.Run, stageNote string) *pbv
 
 func (s *Service) ticketRow(ctx context.Context, t *db.Ticket) *pbv1.TicketRow {
 	row := &pbv1.TicketRow{
-		Id: t.ID, Title: t.Title, Phase: string(t.Phase), BudgetFrozen: t.BudgetFrozen,
+		Id: clean(t.ID), Title: clean(t.Title), Phase: clean(string(t.Phase)),
+		BudgetFrozen: t.BudgetFrozen,
 	}
 	if b, err := s.deps.DB.GetBudget(ctx, t.ID); err == nil {
 		row.UsedTotal, row.HardCap = b.UsedTotal, b.HardCap
@@ -193,6 +195,12 @@ func (s *Service) stageOf(ctx context.Context, ticketID string) string {
 		return ""
 	}
 	return m[ticketID]
+}
+
+// clean 流出面单串净化（决策 67 D-45③，同 gateway.clean 口径）：
+// 非法 UTF-8 换 U+FFFD——板流字段全过本件，坏行不再崩全板。
+func clean(s string) string {
+	return strings.ToValidUTF8(s, "�")
 }
 
 // splitShell 壳 label（"name/model" 或裸名）拆壳名/模型列。

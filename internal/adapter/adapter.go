@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // Spec 起一次壳会话的输入（壳无关）。
@@ -126,11 +127,17 @@ func tailOf(s string, n int) string {
 	return s[len(s)-n:]
 }
 
-// preview 单行预览（Note 字段上限）。
+// preview 单行预览（Note 字段上限）：先净化（壳原文非法 UTF-8 换 �——
+// 决策 67：note 带毒进事件流必炸 marshal），再 ≤n 字节截断且退回 rune
+// 边界（字节截断自制非法 UTF-8 是同族次伤面，决策 67 D-45②）。
 func preview(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) > n {
-		return s[:n] + "…"
+	s = strings.TrimSpace(strings.ToValidUTF8(s, "�"))
+	if len(s) <= n {
+		return s
 	}
-	return s
+	s = s[:n]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s + "…"
 }

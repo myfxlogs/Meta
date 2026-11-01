@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // 录制样本驱动（验收锚2）：testdata/ 下是 2026-11-01 三壳真会话实录。
@@ -196,6 +197,44 @@ func TestClassify(t *testing.T) {
 		}
 		if got := a.Classify(tc.code, tc.tail); got != tc.want {
 			t.Errorf("%s code=%d tail=%q: %d 预期 %d", tc.shell, tc.code, tc.tail, got, tc.want)
+		}
+	}
+}
+
+// TestPreview_UTF8Boundary 净化＋rune 边界截断（票0019 锚2＋对抗锚）：
+// 非法字节→合法串；>n 字节多字节文→≤n 字节＋「…」不残 rune。
+func TestPreview_UTF8Boundary(t *testing.T) {
+	got := preview(string([]byte{0xff, 'x', 0x80}), 200)
+	if !utf8.ValidString(got) {
+		t.Fatalf("preview 出毒: %q", got)
+	}
+	if !strings.Contains(got, "�") || !strings.Contains(got, "x") {
+		t.Fatalf("净化结果不符: %q", got)
+	}
+	got = preview(strings.Repeat("界面", 30), 20)
+	body := strings.TrimSuffix(got, "…")
+	if body == got {
+		t.Fatalf("超长未加省略号: %q", got)
+	}
+	if len(body) > 20 {
+		t.Fatalf("截断超界: %d>20", len(body))
+	}
+	if !utf8.ValidString(body) {
+		t.Fatalf("rune 边界残留: %q", body)
+	}
+}
+
+// TestDevinParse_BadLine devin 行解析毒字节收口（票0019 锚2）：
+// {0xff,'x'} 行→产出帧 Note 合法 UTF-8。
+func TestDevinParse_BadLine(t *testing.T) {
+	a, _ := New("devin")
+	frs := a.Parse([]byte{0xff, 'x'})
+	if len(frs) == 0 {
+		t.Fatal("毒行未产帧")
+	}
+	for _, fr := range frs {
+		if !utf8.ValidString(fr.Note) {
+			t.Fatalf("帧 Note 含毒: %q", fr.Note)
 		}
 	}
 }

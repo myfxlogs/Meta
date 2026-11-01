@@ -1,11 +1,15 @@
 package seat
 
 import (
+	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/grpc"
 
@@ -292,6 +296,56 @@ func TestRun_缺env(t *testing.T) {
 	}
 	if got := Run(); got != ExitSeatErr {
 		t.Fatalf("Run()=%d 预期 ExitSeatErr(%d)", got, ExitSeatErr)
+	}
+}
+
+// TestScanSentinel_BadLine 哨兵行净化（票0019 锚2＋对抗锚）：
+// META_DELIVER:ref\xff→deliverRef 合法 UTF-8（决策 67 毒哨兵同形态）。
+func TestScanSentinel_BadLine(t *testing.T) {
+	s := newTestSession("t1")
+	if !s.scanSentinel([]byte("META_DELIVER:ref\xff tail")) {
+		t.Fatal("毒字节哨兵行未吞")
+	}
+	if !utf8.ValidString(s.deliverRef) {
+		t.Fatalf("deliverRef 含毒: %q", s.deliverRef)
+	}
+	if !strings.Contains(s.deliverRef, "�") {
+		t.Fatalf("deliverRef 缺 U+FFFD: %q", s.deliverRef)
+	}
+	if !s.scanSentinel([]byte("META_VERDICT:reject:r\xff1")) {
+		t.Fatal("META_VERDICT 毒行未吞")
+	}
+	if !utf8.ValidString(s.verdict) || !utf8.ValidString(s.verdictRef) {
+		t.Fatalf("verdict 字段含毒: %q %q", s.verdict, s.verdictRef)
+	}
+}
+
+// failSendStream Send 恒败伪流（sendPump 暗死面试件）。
+type failSendStream struct{ grpc.ClientStream }
+
+func (failSendStream) Send(*pbv1.SeatMsg) error { return errors.New("send boom") }
+func (failSendStream) Recv() (*pbv1.GatewayMsg, error) {
+	return nil, errors.New("recv boom")
+}
+
+// TestSendPump_SendErrLogged Send 败不落暗（票0019 锚2）：伪流 Send 恒败
+// →stderr 有痕（决策 67 次伤面：sendPump 败暗死＝交付帧蒸发无人知）。
+func TestSendPump_SendErrLogged(t *testing.T) {
+	s := newTestSession("t1")
+	s.sendq <- &pbv1.SeatMsg{Body: &pbv1.SeatMsg_Progress{
+		Progress: &pbv1.Progress{Stage: "x"}}}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	s.sendPump(failSendStream{}, nil)
+	_ = w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if !strings.Contains(string(out), "sendPump") {
+		t.Fatalf("Send 败无痕: %q", out)
 	}
 }
 

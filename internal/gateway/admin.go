@@ -5,6 +5,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"meta/internal/db"
 	pbv1 "meta/internal/pb/metav1"
@@ -77,7 +78,7 @@ func (g *Gateway) Phase(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.PhaseMs
 	if t == nil {
 		return nil, status.Error(codes.NotFound, "票不存在")
 	}
-	return &pbv1.PhaseMsg{Phase: string(t.Phase), BudgetFrozen: t.BudgetFrozen}, nil
+	return &pbv1.PhaseMsg{Phase: clean(string(t.Phase)), BudgetFrozen: t.BudgetFrozen}, nil
 }
 
 func (g *Gateway) Events(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.EventList, error) {
@@ -87,7 +88,7 @@ func (g *Gateway) Events(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.EventL
 	}
 	out := &pbv1.EventList{}
 	for _, e := range evs {
-		out.Items = append(out.Items, eventItem(e))
+		out.Items = append(out.Items, eventItemChecked(e))
 	}
 	return out, nil
 }
@@ -104,17 +105,33 @@ func (g *Gateway) EventsAfter(ctx context.Context, c *pbv1.EventCursor) (*pbv1.E
 	}
 	out := &pbv1.EventList{}
 	for _, e := range evs {
-		out.Items = append(out.Items, eventItem(e))
+		out.Items = append(out.Items, eventItemChecked(e))
 	}
 	return out, nil
 }
 
+// eventItem DB 事件行→proto——DB 源字段全净化（决策 67 D-45③：
+// 存量毒行读出 marshal 必炸全流，坏行不得再瘫事件查询口）。
 func eventItem(e *db.Event) *pbv1.EventItem {
 	return &pbv1.EventItem{
-		Id: e.ID, Kind: e.Kind, FromPhase: string(e.FromPhase), ToPhase: string(e.ToPhase),
-		Actor: e.Actor, Note: e.Note, AtUnixNano: e.CreatedAt.UnixNano(),
-		TicketId: e.TicketID, Role: e.Role, Provenance: e.Provenance,
+		Id: e.ID, Kind: clean(e.Kind), FromPhase: clean(string(e.FromPhase)),
+		ToPhase: clean(string(e.ToPhase)),
+		Actor: clean(e.Actor), Note: clean(e.Note), AtUnixNano: e.CreatedAt.UnixNano(),
+		TicketId: clean(e.TicketID), Role: clean(e.Role), Provenance: clean(e.Provenance),
 	}
+}
+
+// eventItemChecked 净化＋逐 item marshal 预检：净化后仍 marshal 败的坏行
+// 以 bad_row 标记顶替，不返 Internal 崩整页（决策 67 D-45③ 对抗锚径）。
+func eventItemChecked(e *db.Event) *pbv1.EventItem {
+	it := eventItem(e)
+	if _, err := proto.Marshal(it); err != nil {
+		return &pbv1.EventItem{Id: e.ID, Kind: "bad_row",
+			TicketId:  clean(e.TicketID),
+			Note:      "bad_row: 事件行 marshal 败（存量毒）",
+			AtUnixNano: e.CreatedAt.UnixNano()}
+	}
+	return it
 }
 
 // RetroVerdict 回翻件（决策40 §15.4）：滞留 待审 票一次性机械补录——
@@ -185,13 +202,18 @@ func (g *Gateway) Runs(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.RunList,
 	}
 	out := &pbv1.RunList{}
 	for _, r := range runs {
-		out.Items = append(out.Items, &pbv1.RunItem{
-			RunId: r.RunID, Role: r.Role, Shell: r.Shell, Pid: int32(r.PID),
+		it := &pbv1.RunItem{
+			RunId: clean(r.RunID), Role: clean(r.Role), Shell: clean(r.Shell), Pid: int32(r.PID),
 			ExitCode: int32(r.ExitCode), Dead: r.Dead,
 			Attached: !r.AttachedAt.IsZero(), Adopted: !r.AdoptedAt.IsZero(),
 			StartedAt: r.StartedAt.UnixNano(), ExitedAt: r.ExitedAt.UnixNano(),
 			Adjunct: r.Adjunct,
-		})
+		}
+		// 逐 item marshal 预检（同 eventItemChecked 径——坏行 bad_row 顶替不崩页）。
+		if _, err := proto.Marshal(it); err != nil {
+			it = &pbv1.RunItem{RunId: "bad_row", Dead: true}
+		}
+		out.Items = append(out.Items, it)
 	}
 	return out, nil
 }
@@ -203,10 +225,17 @@ func (g *Gateway) Observe(_ *pbv1.Empty, stream pbv1.AdminGateway_ObserveServer)
 	for {
 		select {
 		case e := <-ch:
-			if err := stream.Send(&pbv1.ObsEvent{
-				Kind: e.Kind, TicketId: e.TicketID, RunId: e.RunID, Role: e.Role, Note: e.Note,
-				Provenance: e.Provenance,
-			}); err != nil {
+			ob := &pbv1.ObsEvent{
+				Kind: clean(e.Kind), TicketId: clean(e.TicketID), RunId: clean(e.RunID),
+				Role: clean(e.Role), Note: clean(e.Note),
+				Provenance: clean(e.Provenance),
+			}
+			// 预检替换（决策 67 D-45③）：净化后仍 marshal 败的事件发 bad_row
+			// 标记帧而非返错断流——一条毒事件不得再瘫观察口。
+			if _, err := proto.Marshal(ob); err != nil {
+				ob = &pbv1.ObsEvent{Kind: "bad_row", Note: "bad_row: 事件 marshal 败"}
+			}
+			if err := stream.Send(ob); err != nil {
 				return err
 			}
 		case <-stream.Context().Done():

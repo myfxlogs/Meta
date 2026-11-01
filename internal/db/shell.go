@@ -48,7 +48,7 @@ func (d *DB) UpsertShell(ctx context.Context, s Shell) error {
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO shell (name, model, role, priority, health) VALUES (?,?,?,?,?)
 		 ON CONFLICT(name, model, role) DO UPDATE SET priority=excluded.priority`,
-		s.Name, s.Model, s.Role, s.Priority, h)
+		cargs(s.Name, s.Model, s.Role, s.Priority, h)...)
 	return err
 }
 
@@ -56,7 +56,7 @@ func (d *DB) UpsertShell(ctx context.Context, s Shell) error {
 func (d *DB) SetShellHealth(ctx context.Context, s Shell, health string) error {
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE shell SET health=? WHERE name=? AND model=? AND role=?`,
-		health, s.Name, s.Model, s.Role)
+		cargs(health, s.Name, s.Model, s.Role)...)
 	return err
 }
 
@@ -122,7 +122,7 @@ func (d *DB) SetBudgetCaps(ctx context.Context, ticketID string, cap, hardCap in
 		`INSERT INTO budget (ticket_id, cap, hard_cap, used, used_total, updated_at)
 		 VALUES (?,?,?,0,0,?)
 		 ON CONFLICT(ticket_id) DO UPDATE SET cap=excluded.cap, hard_cap=excluded.hard_cap, updated_at=excluded.updated_at`,
-		ticketID, cap, hardCap, d.now().UnixNano())
+		cargs(ticketID, cap, hardCap, d.now().UnixNano())...)
 	return err
 }
 
@@ -130,7 +130,7 @@ func (d *DB) SetBudgetCaps(ctx context.Context, ticketID string, cap, hardCap in
 func (d *DB) ResetAttemptUsage(ctx context.Context, ticketID string) error {
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE budget SET used=0, updated_at=? WHERE ticket_id=?`,
-		d.now().UnixNano(), ticketID)
+		cargs(d.now().UnixNano(), ticketID)...)
 	return err
 }
 
@@ -150,6 +150,6 @@ func (d *DB) GetBudget(ctx context.Context, ticketID string) (Budget, error) {
 func (d *DB) SetBudgetFrozen(ctx context.Context, ticketID string, frozen bool) error {
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE ticket SET budget_frozen=?, updated_at=? WHERE id=?`,
-		boolInt(frozen), d.now().UnixNano(), ticketID)
+		cargs(boolInt(frozen), d.now().UnixNano(), ticketID)...)
 	return err
 }

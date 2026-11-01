@@ -223,17 +223,20 @@ func ParseTicketMD(src []byte) (*pbv1.TicketSpec, error) {
 			cols[sec].WriteString(ln + "\n")
 		}
 	}
+	// 票面 md 来源可带毒字节（决策 67 实证十张 spec 中毒）——十字段逐一
+	// ToValidUTF8 收口，非法序列换 �；spec marshal 双侧强验 UTF-8，
+	// 不净化＝入库即埋雷（决策 67 D-45① 姊妹收口点）。
 	spec := &pbv1.TicketSpec{
-		Goal:       cols[0].String(),
-		Why:        cols[1].String(),
-		Scope:      cols[2].String(),
-		OutOfScope: cols[3].String(),
-		Refs:       cols[4].String(),
-		Anchors:    cols[5].String(),
-		Verify:     cols[6].String(),
-		Deliver:    cols[7].String(),
-		Appendix:   appendix.String(),
-		Verdicts:   verdicts.String(),
+		Goal:       strings.ToValidUTF8(cols[0].String(), "�"),
+		Why:        strings.ToValidUTF8(cols[1].String(), "�"),
+		Scope:      strings.ToValidUTF8(cols[2].String(), "�"),
+		OutOfScope: strings.ToValidUTF8(cols[3].String(), "�"),
+		Refs:       strings.ToValidUTF8(cols[4].String(), "�"),
+		Anchors:    strings.ToValidUTF8(cols[5].String(), "�"),
+		Verify:     strings.ToValidUTF8(cols[6].String(), "�"),
+		Deliver:    strings.ToValidUTF8(cols[7].String(), "�"),
+		Appendix:   strings.ToValidUTF8(appendix.String(), "�"),
+		Verdicts:   strings.ToValidUTF8(verdicts.String(), "�"),
 	}
 	return spec, CheckSpec(spec)
 }
