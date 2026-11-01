@@ -321,6 +321,23 @@ func TestSpawnNeededRoutes(t *testing.T) {
 	}
 }
 
+// TestRender_缺省模板（决策41）：notify 空模板回缺省形
+// 【Meta】{{role}}:{{action}}[{{ticket_id}}]——动作中文化映射在渲染层。
+func TestRender_缺省模板(t *testing.T) {
+	f := &fakeAdmin{}
+	var notifies []string
+	eng, _ := newEngine(t, f, &notifies, true)
+	row := &pbv1.EventItem{Id: 1, Kind: "audit_pass", TicketId: "0009", Role: "审计"}
+	if got := eng.render("", row, true); got != "【Meta】审计:查验通过[0009]" {
+		t.Fatalf("缺省模板不符: %q", got)
+	}
+	// 表外 kind 回原文（渲染兜底，路由仍只走表内行）。
+	row2 := &pbv1.EventItem{Id: 2, Kind: "weird_kind", TicketId: "0010", Role: ""}
+	if got := eng.render("", row2, true); got != "【Meta】:weird_kind[0010]" {
+		t.Fatalf("表外 kind 兜底不符: %q", got)
+	}
+}
+
 func waitFor(t *testing.T, d time.Duration, ok func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(d)
