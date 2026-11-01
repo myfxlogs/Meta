@@ -131,3 +131,44 @@ func TestFeishuCredBad_KeyValue(t *testing.T) {
 		t.Fatalf("KEY=VALUE 凭证未解: %v %+v", ok, app)
 	}
 }
+
+// TestStartFeishu_SyncSubscribe 返修锚（接替席·经验库命中）：StartFeishu
+// 返回＝出站订户已同步注册（先订阅后起泵——经验库 2026-11-01-订阅在
+// goroutine里注册；注册挪回消费者 goroutine 内＝本条红：返回时订户快照
+// 少一，首拍 ceo_say 丢窗）。ctx 先杀＝Run/出站环即退不碰网。
+func TestStartFeishu_SyncSubscribe(t *testing.T) {
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = feishuCfg(filepath.Dir(c.DBPath))
+		seedVault(t, c.RunDir)
+	})
+	blob, err := proto.Marshal(&pbv1.FeishuApp{AppId: "cli_a", AppSecret: "s",
+		OwnerOpenId: "ou_o", ChatId: "oc_o"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, err := db.EncryptSecret(g.vaultKey, blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.DB().PutSecret(context.Background(), FeishuCredName, ct, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	dead, cancel := context.WithCancel(context.Background())
+	g.mu.Lock()
+	before := len(g.observers)
+	g.mu.Unlock()
+	// 活 ctx 装配（死 ctx 连凭证 DB 读一并杀——cred_bad 路径混测）；断言后
+	// 立即 cancel：Run 环/出站环即收，Run 首轮伪凭证拨号随 ctx 中断无副作用。
+	if ch := g.StartFeishu(dead); ch == nil {
+		cancel()
+		t.Fatal("好凭证未起通道")
+	}
+	g.mu.Lock()
+	after := len(g.observers)
+	g.mu.Unlock()
+	cancel()
+	if after != before+1 {
+		t.Fatalf("StartFeishu 返回时出站订户未注册（先订阅后起泵被破）: %d→%d", before, after)
+	}
+}
