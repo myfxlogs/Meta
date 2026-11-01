@@ -282,6 +282,14 @@ func serve(args []string) error {
 		fmt.Fprintf(os.Stderr, "meta: board 已挂 %s\n", bl.Addr)
 	}
 
+	// 飞书双向通道（票0013，禁区#16 全 I/O 归网关）：secret.feishu.app
+	// 行缺/坏→feishu_cred_bad 事件已发＋通道不启（fail loud）。
+	fctx, fcancel := context.WithCancel(context.Background())
+	defer fcancel()
+	if fc := g.StartFeishu(fctx); fc != nil {
+		fmt.Fprintf(os.Stderr, "meta: 飞书通道已起\n")
+	}
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- g.Serve() }()
 
@@ -820,6 +828,9 @@ func (a *adminCaster) Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv
 func (a *adminCaster) Observe(ctx context.Context) (pbv1.AdminGateway_ObserveClient, error) {
 	return a.c.Observe(ctx, &pbv1.Empty{})
 }
+
+// Close D-35：每轮连接结束显式关 ClientConn（FD 不随重连循环累积）。
+func (a *adminCaster) Close() error { return a.conn.Close() }
 
 // retroCmd 回翻件入口（§15.4）：滞留 待审 票一次性机械补录 audit_start→
 // audit_pass|reject 两跳。

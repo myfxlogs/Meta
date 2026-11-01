@@ -497,6 +497,15 @@ message GatewayConfig {
   string board_listen = 15;             // 前端面 TCP 监听（127.0.0.1:<port>；空=不挂板）
 }
 
+// FeishuApp 飞书应用凭证载荷（票0013）：secret.feishu.app 行 vault.key
+// 自解后的格式——网关自解不走 Secret RPC 席位径；ACL 空＝不授任何席。
+message FeishuApp {
+  string app_id = 1;
+  string app_secret = 2;
+  string owner_open_id = 3; // 白名单唯一来源：入站只认此 open_id 等值
+  string chat_id = 4;       // owner chat（say/呼救出站与入站回执落点）
+}
+
 // SandboxSpec 沙箱形制（§11）：代跑执行身份——run_as 缺省＋按步覆盖。
 // D1 禁网关自身用户；meta 配方的诚实妥协＝不可信码只进 check 步（metaseat），
 // integrate/deploy/probe/rollback 为仓内固定脚本按步覆盖 run_as=mluser。

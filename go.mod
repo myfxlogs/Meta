@@ -3,15 +3,18 @@ module meta
 go 1.27.2
 
 require (
+	connectrpc.com/connect/v2 v2.0.2
+	github.com/larksuite/oapi-sdk-go/v3 v3.12.2
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.1
 )
 
 require (
-	connectrpc.com/connect/v2 v2.0.2 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

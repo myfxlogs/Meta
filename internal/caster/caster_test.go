@@ -49,6 +49,7 @@ type fakeAdmin struct {
 	dispatches []*pbv1.DispatchReq
 	streams    []*fakeObs
 	dials      int
+	closes     int // D-35 锚6：每轮 conn 显式 Close 计数
 }
 
 func (f *fakeAdmin) EventsAfter(_ context.Context, sinceID int64, limit int32) (*pbv1.EventList, error) {
@@ -103,6 +104,13 @@ func (f *fakeAdmin) killStream() {
 		}
 	}
 	f.mu.Unlock()
+}
+
+func (f *fakeAdmin) Close() error {
+	f.mu.Lock()
+	f.closes++
+	f.mu.Unlock()
+	return nil
 }
 
 func (f *fakeAdmin) nDispatch() int {
@@ -532,5 +540,35 @@ func TestDeployRoutes(t *testing.T) {
 	e.process(context.Background(), f, &pbv1.EventItem{Kind: "deploy_failed", TicketId: "t2"})
 	if len(notifies) == 0 {
 		t.Fatal("deploy_failed 应触发 notify")
+	}
+}
+
+// TestConnClose D-35 锚6（票0013）：重连循环每轮连接结束显式 Close——
+// 伪 conn 计次数；两轮 cycle（流被 ctx 杀退）→closes==2；Once 径同关。
+// 对抗面：cycle/Once 的 defer Close 删→计数少→锚红。
+func TestConnClose(t *testing.T) {
+	f := &fakeAdmin{}
+	var notifies []string
+	eng, _ := newEngine(t, f, &notifies, false)
+
+	// 两轮 cycle：ctx 已杀→Recv 即退→每轮 conn 必关。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = eng.cycle(ctx)
+	_ = eng.cycle(ctx)
+	f.mu.Lock()
+	got := f.closes
+	f.mu.Unlock()
+	if got != 2 {
+		t.Fatalf("cycle 两轮 Close=%d want 2（D-35 FD 泄漏面）", got)
+	}
+
+	// Once 径同关。
+	_ = eng.Once(context.Background())
+	f.mu.Lock()
+	got = f.closes
+	f.mu.Unlock()
+	if got != 3 {
+		t.Fatalf("Once 后 Close=%d want 3", got)
 	}
 }
