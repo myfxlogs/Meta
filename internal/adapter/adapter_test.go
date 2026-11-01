@@ -180,8 +180,8 @@ func TestClassify(t *testing.T) {
 		want  ExitClass
 	}{
 		{"claude", 0, "", ExitOK},
-		{"claude", -1, "", ExitSpawn},           // SIGKILL 外部杀死＝①机器级
-		{"claude", 1, "Error: rate limit exceeded (429)", ExitTransient}, // ②a
+		{"claude", -1, "", ExitSpawn},                                        // SIGKILL 外部杀死＝①机器级
+		{"claude", 1, "Error: rate limit exceeded (429)", ExitTransient},     // ②a
 		{"claude", 1, "Error: 401 unauthorized: invalid api key", ExitFatal}, // ②b
 		{"opencode", 1, "ProviderError: insufficient quota", ExitFatal},
 		{"opencode", 1, "throttled, try again later", ExitTransient},

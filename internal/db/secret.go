@@ -82,6 +82,20 @@ func (d *DB) PutSecret(ctx context.Context, name string, ciphertext []byte, role
 	return err
 }
 
+// SecretBlob 不过 ACL 直取密文——网关内部机械闸专用（板 token 对验）；
+// 席位侧读径仍只有 GetSecret（role_acl 放行）。
+func (d *DB) SecretBlob(ctx context.Context, name string) (ciphertext []byte, ok bool, err error) {
+	var blob []byte
+	err = d.db.QueryRowContext(ctx, `SELECT value FROM secret WHERE name=?`, name).Scan(&blob)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return blob, true, nil
+}
+
 // GetSecret 按 role_acl 放行取密文——调用方解密。acl 为空串＝不授任何席。
 func (d *DB) GetSecret(ctx context.Context, name, role string) (ciphertext []byte, ok bool, err error) {
 	var blob []byte

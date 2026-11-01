@@ -287,7 +287,7 @@ func newEngineAt(t *testing.T, f *fakeAdmin, notifies *[]string, stateDir string
 	eng, err := New(Config{
 		RoutesPath: routesPath, StateDir: stateDir,
 		RunDir: "/run", SocketPath: "/sock", ReplayHistory: replay,
-		Dial:   func(ctx context.Context) (AdminClient, error) { return f, nil },
+		Dial: func(ctx context.Context) (AdminClient, error) { return f, nil },
 		Notify: func(ctx context.Context, text string) error {
 			*notifies = append(*notifies, text)
 			return nil
@@ -508,6 +508,7 @@ func TestProdConfig(t *testing.T) {
 		t.Fatal("模板渲染未消化 {{ticket_id}}")
 	}
 }
+
 // TestDeployRoutes 票0010 锚9：真路由表 config/caster.textproto——
 // audit_pass→Dispatch{role:"CTO"}（部署支派发径）；deploy_failed→notify。
 func TestDeployRoutes(t *testing.T) {
@@ -531,3 +532,5 @@ func TestDeployRoutes(t *testing.T) {
 	e.process(context.Background(), f, &pbv1.EventItem{Kind: "deploy_failed", TicketId: "t2"})
 	if len(notifies) == 0 {
 		t.Fatal("deploy_failed 应触发 notify")
+	}
+}

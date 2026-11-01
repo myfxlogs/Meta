@@ -345,7 +345,7 @@ func TestDesignLock(t *testing.T) {
 
 	// A 派 CTO→持锁；helper 置 idle（不自连），测试侧 Attach 流代行
 	// claim/deliver——避免 worker helper 与代行流双 claim 竞速断流。
-	idleSpec := dispatchSpec()
+	idleSpec := dispatchSpec(t)
 	for i, e := range idleSpec.Env {
 		if strings.HasPrefix(e, "SEAT_MODE=") {
 			idleSpec.Env[i] = "SEAT_MODE=idle"
@@ -360,7 +360,7 @@ func TestDesignLock(t *testing.T) {
 	if holder != "ta" {
 		t.Fatalf("派发后 A 未持设计锁: %q", holder)
 	}
-	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec()); err == nil ||
+	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec(t)); err == nil ||
 		!strings.Contains(err.Error(), "设计锁") {
 		t.Fatalf("B 同项目派发未被锁拒: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestDesignLock(t *testing.T) {
 	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "ta"}}})
 	waitPhase(t, g, "ta", db.PhaseWorking, 5*time.Second)
 	// 施工中仍持锁（交付前不放）。
-	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec()); err == nil {
+	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec(t)); err == nil {
 		t.Fatal("A 施工中 B 派发未被锁拒（锁提前释放）")
 	}
 	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{Ref: "r1"}}})
@@ -395,7 +395,7 @@ func TestDesignLock(t *testing.T) {
 		defer g.mu.Unlock()
 		return g.designLocks["p1"] == ""
 	})
-	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec(t)); err != nil {
 		t.Fatalf("A 交付后 B 派发仍拒: %v", err)
 	}
 	st.CloseSend()
@@ -744,10 +744,10 @@ func TestAudit_RedispatchReject(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) { *c = dispatchCfg(filepath.Dir(c.DBPath)) })
 	ctx := context.Background()
 	mkTicketAt(t, g, "ta", db.PhaseAuditing)
-	if err := g.DispatchSeat(ctx, "ta", "审计", dispatchSpec()); err == nil {
+	if err := g.DispatchSeat(ctx, "ta", "审计", dispatchSpec(t)); err == nil {
 		t.Fatal("审计中再派审计未拒")
 	}
-	if err := g.DispatchSeat(ctx, "ta", "施工", dispatchSpec()); err == nil {
+	if err := g.DispatchSeat(ctx, "ta", "施工", dispatchSpec(t)); err == nil {
 		t.Fatal("审计中再派施工未拒")
 	}
 }

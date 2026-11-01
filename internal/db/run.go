@@ -49,6 +49,48 @@ func (d *DB) RunByToken(ctx context.Context, token string) (*Run, error) {
 		`SELECT `+runCols+` FROM seat_run WHERE run_token=?`, token))
 }
 
+// RunByID 按 run_id 查 run——板变化帧按事件 RunID 重读现态（幂等投影径）。
+func (d *DB) RunByID(ctx context.Context, runID string) (*Run, error) {
+	return d.scanRun(d.db.QueryRowContext(ctx,
+		`SELECT `+runCols+` FROM seat_run WHERE run_id=?`, runID))
+}
+
+// ActiveRuns 全部未判死 run（板全态帧的活席输入）。
+func (d *DB) ActiveRuns(ctx context.Context) ([]*Run, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT `+runCols+` FROM seat_run WHERE dead=0 ORDER BY started_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Run
+	for rows.Next() {
+		var r Run
+		var started, attached, adopted, exited int64
+		var closed, dead, adjunct int
+		if err := rows.Scan(&r.RunID, &r.SeatID, &r.TicketID, &r.Role, &r.Shell, &r.PID,
+			&r.RunToken, &r.SocketPath, &r.LogPath, &started, &attached, &adopted,
+			&exited, &r.ExitCode, &closed, &dead, &adjunct); err != nil {
+			return nil, err
+		}
+		r.StartedAt = time.Unix(0, started)
+		if attached != 0 {
+			r.AttachedAt = time.Unix(0, attached)
+		}
+		if adopted != 0 {
+			r.AdoptedAt = time.Unix(0, adopted)
+		}
+		if exited != 0 {
+			r.ExitedAt = time.Unix(0, exited)
+		}
+		r.StreamClosed = closed != 0
+		r.Dead = dead != 0
+		r.Adjunct = adjunct != 0
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}
+
 // ActiveRunForTicket 票上未判死的最新 non-adjunct run（启动对账/杀谁 用——
 // §1.3：adjunct 不被收养，也不在 stall 裁决的猎杀集里）。
 func (d *DB) ActiveRunForTicket(ctx context.Context, ticketID string) (*Run, error) {
