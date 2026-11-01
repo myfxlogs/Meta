@@ -290,6 +290,13 @@ func serve(args []string) error {
 		fmt.Fprintf(os.Stderr, "meta: 飞书通道已起\n")
 	}
 
+	// 活票卡消费（票0014/D-31/令#E14）：网关内第三事件消费者——
+	// 订户口同步注册→启动对账补建→逐事件重渲/哈希闸 PATCH。
+	// 凭证同文本通道；坏则 feishu_cred_bad 已报，此处静默不启。
+	if g.StartFeishuCards(fctx) != nil {
+		fmt.Fprintf(os.Stderr, "meta: 活票卡消费已起\n")
+	}
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- g.Serve() }()
 

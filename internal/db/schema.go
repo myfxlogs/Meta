@@ -1,7 +1,8 @@
 package db
 
-// schema 建全九表（总设计 §3.2）：ticket/ticket_event/seat/seat_run/shell/
-// project/ceo_memory/budget/secret。proto 二进制存 BLOB，需查询字段另立列。
+// schema 建全表（总设计 §3.2 九表 ticket/ticket_event/seat/seat_run/shell/
+// project/ceo_memory/budget/secret＋0010 cmd_run＋0014 feishu_card）。
+// proto 二进制存 BLOB，需查询字段另立列。
 const schema = `
 CREATE TABLE IF NOT EXISTS ticket (
   id            TEXT PRIMARY KEY,
@@ -127,4 +128,11 @@ CREATE TABLE IF NOT EXISTS cmd_run (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cmd_run_ticket ON cmd_run(ticket_id, id);
+
+CREATE TABLE IF NOT EXISTS feishu_card (
+  ticket_id  TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL,
+  chat_id    TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
 `
