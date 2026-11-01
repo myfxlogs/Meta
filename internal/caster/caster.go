@@ -215,6 +215,11 @@ func (e *Engine) process(ctx context.Context, cli AdminClient, row *pbv1.EventIt
 		if rt.Kind != row.Kind {
 			continue
 		}
+		// D-39 role 闸（对抗性锚提名行：删则 deliver{role:CTO} 又误派审计）：
+		// 行 role 非空＝要求事件 role 等值；空＝不滤（旧行语义不变）。
+		if rt.Role != "" && rt.Role != row.Role {
+			continue
+		}
 		if rt.NoteContains != "" && !strings.Contains(row.Note, rt.NoteContains) {
 			continue
 		}

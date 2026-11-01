@@ -8,7 +8,8 @@
 
 1. `roles/审计.md`——全文是你的工作法与禁线
 2. 票面：`docs/实现/票-{{ticket_id}}-*.md`（仓内找名）；`meta events --socket
-   {{gateway_sock}} --ticket {{ticket_id}}` 看事件史（判决史/驳回理由必读）
+   {{gateway_sock}} --ticket {{ticket_id}}` 看事件史（判决史/驳回理由必读），
+   `meta phase --socket {{gateway_sock}} --ticket {{ticket_id}}` 自取相位
 3. 交付支：`git worktree list`＋`git branch -a` 找 `t/{{ticket_id}}-*` 支，
    `git diff master...<支>` 取证——**只信 diff 与机器记录，不信施工自述**
 4. `docs/实现/设计-*.md` 中票面「设计引用」栏所列文档

@@ -418,8 +418,10 @@ func (g *Gateway) onRunDead(st *runState) {
 	g.emit(Event{Kind: "seat_dead", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
 
 	if st.attempt.Shell != "" && !st.killByGW {
-		// 中途死＝①机器级（含外部 SIGKILL）：不标健康，进本票 failSet 换下一壳。
-		g.reportShell(ctx, st.run.TicketID, st.run.Role, st.attempt, seat.ClassOfExit(st.exitCode))
+		// 中途死：壳级/机器级进本票 failSet 换下一壳（①不标健康）；
+		// 席位级死因 reportShell 内早退——只落 seat_err 不记壳账（D-40）。
+		g.reportShell(ctx, st.run.TicketID, st.run.Role, st.attempt,
+			seat.ClassOfExit(st.exitCode), st)
 	}
 
 	phase, err := g.database.PhaseOf(ctx, st.run.TicketID)

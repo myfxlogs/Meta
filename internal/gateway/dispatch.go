@@ -189,6 +189,26 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 		spec.PromptFile = pf
 	}
 
+	// D-40 空提示闸（对抗性锚提名行：删则空提示席又烧整条换壳链）：
+	// 注入段之后、壳路由之前——最终 PromptFile 空（无覆盖径且注入机未启）或
+	// 文件读不出/全空白→spawn_blocked 拒起。不耗壳尝试、不进 failSet、不迁
+	// 壳健康（空提示席必秒死且按壳级入账误标好壳——0007 实证）。
+	pfEmpty, err := promptFileEmpty(spec.PromptFile)
+	if err != nil || pfEmpty {
+		note := "空提示拒起"
+		switch {
+		case err != nil:
+			note += "（prompt 文件不可读: " + err.Error() + "）"
+		case spec.PromptFile != "":
+			note += "（prompt 文件无内容）"
+		}
+		_ = g.database.AppendEvent(ctx, req.ticketID, "spawn_blocked", db.Event{
+			Actor: "gateway", Note: note + " role=" + req.role})
+		g.emit(Event{Kind: "spawn_blocked", TicketID: req.ticketID, Role: req.role,
+			Note: note})
+		return
+	}
+
 	rows, err := g.shellsFor(ctx, req.role)
 	if err != nil {
 		return
@@ -251,14 +271,15 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 			delete(g.warned, req.ticketID)
 			g.mu.Unlock()
 		}
-		st, code := g.trySpawn(ctx, req, spec, at)
-		if st != nil { // 席位立住：本票派发完成
+		st, code, alive := g.trySpawn(ctx, req, spec, at)
+		if alive { // 席位立住：本票派发完成
 			g.onSeatAlive(ctx, st, at)
 			return
 		}
-		// 起不来/秒退：分级记 failSet＋健康迁移，换下一行（①②）。
+		// 起不来/秒退：分级记 failSet＋健康迁移，换下一行（①②）；
+		// 席位级死因（ExitWrapper）reportShell 内早退——只落 seat_err 不记壳账。
 		class := seat.ClassOfExit(code)
-		g.reportShell(ctx, req.ticketID, req.role, at, class)
+		g.reportShell(ctx, req.ticketID, req.role, at, class, st)
 	}
 	if deferred {
 		// 全部候选被并发闸挡住：错峰后重排一次（一次性闹钟链，有界语义——
@@ -269,8 +290,10 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 	g.shellsExhausted(ctx, req)
 }
 
-// trySpawn 起一枚候选：spawn 外壳→等 attach 或秒退窗口。返回 (nil, code)=失败。
-func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at route.Attempt) (*runState, int) {
+// trySpawn 起一枚候选：spawn 外壳→等 attach 或秒退窗口。
+// 返回 (st, 0, true)=立住；(st 或 nil, code, false)=失败——st 交 reportShell
+// 做同 run 去重与 seat_err 尾摘要取径（spawn 同步失败时无 runState 为 nil）。
+func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at route.Attempt) (*runState, int, bool) {
 	run := g.newRun(req.ticketID, req.role, at.Shell)
 	run.Shell = shellLabel(at)
 	run.Adjunct = spec.Adjunct
@@ -296,7 +319,7 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 	if err := g.startRun(ctx, run, argv, env); err != nil {
 		_ = g.database.AppendEvent(ctx, req.ticketID, "spawn_failed", db.Event{
 			Actor: "gateway", Note: shellLabel(at) + ": " + err.Error()})
-		return nil, seat.ExitSpawnFail
+		return nil, seat.ExitSpawnFail, false
 	}
 	st := g.bindRun(run)
 	st.attempt = at
@@ -305,11 +328,11 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 	// （壳子进程启动慢）＝视立住放行——进度闹钟兜底。
 	select {
 	case <-st.attachedCh:
-		return st, 0
+		return st, 0, true
 	case <-st.exitCh:
-		return nil, st.exitCode
+		return st, st.exitCode, false
 	case <-oneShot(g.cfg.QuickExit, g.done):
-		return st, 0
+		return st, 0, true
 	}
 }
 
@@ -329,9 +352,39 @@ func (g *Gateway) onSeatAlive(ctx context.Context, st *runState, at route.Attemp
 	g.emit(Event{Kind: "seat_up", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
 }
 
-// reportShell 失效分级落账：任何壳级失败都进本票 failSet（换壳＝排除，
-// 票级重做）；②a/②b 按表迁健康态并发必报事件（①机器级不标壳）。
-func (g *Gateway) reportShell(ctx context.Context, ticketID, role string, at route.Attempt, class adapter.ExitClass) {
+// reportShell 失效分级落账（同一 run 原子置位 failReported——trySpawn 窗口径
+// 与 onRunDead 判死径并发双报只记一次；spawn 同步失败 st 为 nil 单径无重）：
+//   - 席位级（ExitWrapper——外壳错/孤儿/Abort/输入层，席非壳之错，D-40）：
+//     只落 seat_err 事件行（壳名＋退码＋日志尾摘要）即返——不进 failSet、
+//     不调 NextHealth。空输入/外壳错记到壳头上＝冤标好壳（0007 三壳秒死
+//     误标实证），真故障时无壳可信。
+//   - 壳级/机器级照旧：任何失败都进本票 failSet（换壳＝排除，票级重做）；
+//     ②a/②b 按表迁健康态并发必报事件（①机器级不标壳）。
+func (g *Gateway) reportShell(ctx context.Context, ticketID, role string, at route.Attempt, class adapter.ExitClass, st *runState) {
+	code := seat.ExitSpawnFail // spawn 同步失败：无进程退码，按①机器级记
+	var logPath string
+	if st != nil {
+		st.mu.Lock()
+		if st.failReported {
+			st.mu.Unlock()
+			return
+		}
+		st.failReported = true
+		code, logPath = st.exitCode, st.run.LogPath
+		st.mu.Unlock()
+	}
+	// 对抗性锚提名行：席位级早退分支——删则 ExitSeatErr/ExitInputErr 又进
+	// failSet 冤标好壳。
+	if class == adapter.ExitWrapper {
+		note := fmt.Sprintf("%s 席位级死因 exit=%d", shellLabel(at), code)
+		if tl := logTail(logPath, 300); tl != "" {
+			note += " tail=" + strings.ReplaceAll(tl, "\n", " | ")
+		}
+		_ = g.database.AppendEvent(ctx, ticketID, "seat_err", db.Event{
+			Actor: "gateway", Note: note})
+		g.emit(Event{Kind: "seat_err", TicketID: ticketID, Role: role, Note: note})
+		return
+	}
 	row := db.Shell{Name: at.Shell, Model: at.Model, Role: role}
 	g.mu.Lock()
 	if g.failSet[ticketID] == nil {
@@ -352,6 +405,41 @@ func (g *Gateway) reportShell(ctx context.Context, ticketID, role string, at rou
 	}[next]
 	_ = g.database.AppendEvent(ctx, ticketID, kind, db.Event{Actor: "gateway", Note: shellLabel(at)})
 	g.emit(Event{Kind: kind, TicketID: ticketID, Role: role, Note: shellLabel(at)})
+}
+
+// promptFileEmpty 空提示机械判（D-40）：路径空→空；文件读不出→错（调用方
+// 同径拒起）；内容全空白（含零字节）→空。席位提示一律文件径（决策13④）。
+func promptFileEmpty(path string) (bool, error) {
+	if path == "" {
+		return true, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(b)) == "", nil
+}
+
+// logTail 读席位日志尾 n 字节（seat_err 摘要输入；读不到/空回 ""——尽力径）。
+func logTail(path string, n int64) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	off := fi.Size() - n
+	if off < 0 {
+		off = 0
+	}
+	b := make([]byte, fi.Size()-off)
+	if _, err := f.ReadAt(b, off); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // shellsExhausted 全壳耗尽：事件→CEO（§8.1 必报）。
