@@ -1,0 +1,14 @@
+{
+ "schema_version": "ATIF-v1.7",
+ "agent": {
+  "name": "devin",
+  "version": "3000.11.234",
+  "model_name": "SWE-2 High"
+ },
+ "final_metrics": {
+  "total_prompt_tokens": 12876,
+  "total_completion_tokens": 32,
+  "total_cached_tokens": 11840,
+  "total_steps": 10
+ }
+}

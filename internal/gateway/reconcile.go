@@ -19,6 +19,12 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 		return
 	}
 	for _, t := range tickets {
+		if t.BudgetFrozen { // 冻票无活性：不收养不回队不补 spawn（§5.5 D8）
+			g.mu.Lock()
+			g.frozen[t.ID] = true
+			g.mu.Unlock()
+			continue
+		}
 		switch t.Phase {
 		case db.PhaseAssigned, db.PhaseReview, db.PhaseToDeploy:
 			// 无行动者等 spawn：补发下一步 spawn 事件。
@@ -29,8 +35,8 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
 		case db.PhaseWorking, db.PhaseDesigning, db.PhaseAuditing, db.PhaseDeploying:
 			g.reconcileActor(ctx, t)
-		default:
-			// 已立：等 CTO-A 唤起，亦属补发径。
+		case db.PhaseCreated:
+			// 已立（§5.3 钦定行）：等 CTO-A 唤起，补发 spawn 事件。
 			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
 				Actor: "gateway", Note: "对账补发: CTO",
 			})
@@ -57,7 +63,8 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	run, _ := g.database.ActiveRunForTicket(ctx, t.ID)
 	if run != nil && g.tryAdopt(ctx, run) {
 		_ = g.database.MarkAdopted(ctx, run.RunID)
-		st := &runState{run: run, adopted: true}
+		st := newRunState(run)
+		st.adopted = true
 		g.mu.Lock()
 		g.runs[run.RunID] = st
 		g.mu.Unlock()

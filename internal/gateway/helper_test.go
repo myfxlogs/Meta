@@ -284,7 +284,7 @@ func waitEvent(t *testing.T, g *Gateway, kind, ticketID string, timeout time.Dur
 			t.Fatalf("等事件 %s[%s] 超时 %v", kind, ticketID, timeout)
 		}
 		select {
-		case e := <-g.Events():
+		case e := <-g.EventCh():
 			if e.Kind == kind && (ticketID == "" || e.TicketID == ticketID) {
 				return e
 			}
@@ -300,7 +300,7 @@ func collectEvents(g *Gateway, dur time.Duration) []Event {
 	end := time.After(dur)
 	for {
 		select {
-		case e := <-g.Events():
+		case e := <-g.EventCh():
 			out = append(out, e)
 		case <-end:
 			return out

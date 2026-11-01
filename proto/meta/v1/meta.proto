@@ -15,6 +15,19 @@ service SeatAdopt {
   rpc Adopt(AdoptAuth) returns (AdoptAck);
 }
 
+// 管理面：同 unix socket 上的管理与只读导出口（阶段 1 手工径/smoke 用）。
+// 一切写径仍经网关——CLI 不直连 DB（禁区#6 唯一写者）。
+service AdminGateway {
+  rpc CreateTicket(NewTicket) returns (Ack);
+  rpc Dispatch(DispatchReq) returns (Ack);   // 派席位：票面起点→走到已派→壳路由 spawn
+  rpc SetBudget(BudgetReq) returns (Ack);
+  rpc Budget(TicketRef) returns (BudgetMsg);
+  rpc Phase(TicketRef) returns (PhaseMsg);
+  rpc Events(TicketRef) returns (EventList); // 判决史/事件审计径
+  rpc Runs(TicketRef) returns (RunList);     // seat_run 取证径
+  rpc Observe(Empty) returns (stream ObsEvent); // 事件观察口导出
+}
+
 message SeatMsg {
   oneof body {
     RunAuth auth = 1;
@@ -35,6 +48,7 @@ message GatewayMsg {
     Abort abort = 3;
     Extend extend = 4;
     SecretResp secret_resp = 5;
+    Ack ack = 6; // Deliver 回执：席位等执再退，防尾帧丢在传输缓冲
   }
 }
 
@@ -107,3 +121,89 @@ message AdoptAck {
   bool accepted = 1;
   string ticket_id = 2;
 }
+
+// ---------- 管理面 ----------
+
+message NewTicket {
+  string id = 1;
+  string title = 2;
+  bytes spec = 3;
+  int64 attempt_cap = 4; // 每次尝试内 token 上限（§5.5）；0=不设
+  int64 hard_cap = 5;    // 票级累计硬顶；0=不设
+}
+
+message DispatchReq {
+  string ticket_id = 1;
+  string role = 2;
+  string prompt_file = 3;  // 席位提示词文件（一律文件径，不内联）
+  string work_dir = 4;
+  string prefer_shell = 5; // 非空＝该壳尝试提首（smoke 指定径）
+}
+
+message BudgetReq {
+  string ticket_id = 1;
+  int64 attempt_cap = 2;
+  int64 hard_cap = 3;
+}
+
+message TicketRef {
+  string id = 1;
+}
+
+message Ack {
+  bool ok = 1;
+  string note = 2;
+}
+
+message PhaseMsg {
+  string phase = 1;
+  bool budget_frozen = 2;
+}
+
+message BudgetMsg {
+  int64 cap = 1;        // 尝试内上限
+  int64 used = 2;       // 本次尝试已计
+  int64 hard_cap = 3;   // 票级硬顶
+  int64 used_total = 4; // 票级累计（单调递增）
+}
+
+message EventItem {
+  int64 id = 1;
+  string kind = 2;
+  string from_phase = 3;
+  string to_phase = 4;
+  string actor = 5;
+  string note = 6;
+  int64 at_unix_nano = 7;
+}
+
+message EventList {
+  repeated EventItem items = 1;
+}
+
+message RunItem {
+  string run_id = 1;
+  string role = 2;
+  string shell = 3;
+  int32 pid = 4;
+  int32 exit_code = 5;
+  bool dead = 6;
+  bool attached = 7;
+  bool adopted = 8;
+  int64 started_at = 9;
+  int64 exited_at = 10;
+}
+
+message RunList {
+  repeated RunItem items = 1;
+}
+
+message ObsEvent {
+  string kind = 1;
+  string ticket_id = 2;
+  string run_id = 3;
+  string role = 4;
+  string note = 5;
+}
+
+message Empty {}

@@ -176,12 +176,12 @@ func (d *DB) Events(ctx context.Context, ticketID string) ([]*Event, error) {
 }
 
 // LastActivityAt 票上最近一次活性事件的墙上时间——闹钟 deadline 由此重算（§5.3 A4）。
-// 活性事件＝进度帧或领票；都没有则回退票 updated_at。
+// 活性事件＝进度帧/用量帧/领票；都没有则回退票 updated_at。
 func (d *DB) LastActivityAt(ctx context.Context, ticketID string) (time.Time, error) {
 	var ts sql.NullInt64
 	if err := d.db.QueryRowContext(ctx,
 		`SELECT MAX(created_at) FROM ticket_event
-		 WHERE ticket_id=? AND kind IN ('progress','claim')`, ticketID).Scan(&ts); err != nil {
+		 WHERE ticket_id=? AND kind IN ('progress','usage','claim')`, ticketID).Scan(&ts); err != nil {
 		return time.Time{}, err
 	}
 	if ts.Valid {
