@@ -11,18 +11,26 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 
 	"meta/internal/db"
 	"meta/internal/gateway"
+	"meta/internal/inject"
 	pbv1 "meta/internal/pb/metav1"
 	"meta/internal/seat"
+	"meta/internal/supervise"
+	"meta/internal/upgrade"
 )
+
+// buildStamp 构建戳（-ldflags -X main.buildStamp=...）；version/升级预检用。
+var buildStamp = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -52,6 +60,12 @@ func main() {
 		err = budgetCmd(os.Args[2:])
 	case "observe":
 		err = observeCmd(os.Args[2:])
+	case "supervise":
+		err = superviseCmd(os.Args[2:])
+	case "upgrade":
+		err = upgradeCmd(os.Args[2:])
+	case "version":
+		fmt.Println("meta", buildStamp)
 	default:
 		usage()
 		os.Exit(2)
@@ -65,33 +79,88 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, `用法:
   meta serve  --db run/meta.db --socket run/meta.sock --rundir run
+              [--inject-root <repo> --inject-recipe <f[,f2]>]   (注入机：无 --prompt-file 时机械组装席位前缀)
   meta secret put --db run/meta.db --key run/vault.key [--acl 角色1,角色2] <name>   (值读 stdin)
-  meta ticket new --socket <sock> --id <id> --title <t> [--attempt-cap N] [--hard-cap N]
-  meta dispatch --socket <sock> --ticket <id> --role <角色> --prompt-file <f> --workdir <d> [--prefer <壳>]
+  meta ticket new --socket <sock> --id <id> --title <t> [--spec-file <票面.md>] [--attempt-cap N] [--hard-cap N]
+  meta dispatch --socket <sock> --ticket <id> --role <角色> [--prompt-file <f> 覆盖径] --workdir <d> [--prefer <壳>]
   meta phase --socket <sock> --ticket <id>
   meta events --socket <sock> --ticket <id>
   meta runs --socket <sock> --ticket <id>
   meta budget --socket <sock> --ticket <id> [--attempt-cap N] [--hard-cap N]
-  meta observe --socket <sock>`)
+  meta observe --socket <sock>
+  meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
+  meta upgrade --new <bin> --install <path> [--prev <p>] [--restart-cmd "<cmd>"] [--check-socket <sock>]
+  meta version`)
+}
+
+// serveFlags serve/supervise 共用的参数面（supervise 原样透传给 serve 子进程）。
+type serveFlags struct {
+	db, sock, runDir, injectRoot, injectRecipe *string
+	progressTimeout, stagger                  *time.Duration
+}
+
+func bindServeFlags(fs *flag.FlagSet) serveFlags {
+	return serveFlags{
+		db:              fs.String("db", "run/meta.db", "SQLite 库路径"),
+		sock:            fs.String("socket", "run/meta.sock", "席位面 unix socket"),
+		runDir:          fs.String("rundir", "run", "run 目录（seats/logs/vault.key）"),
+		progressTimeout: fs.Duration("progress-timeout", 30*time.Minute, "进度帧闹钟"),
+		stagger:         fs.Duration("stagger", 10*time.Second, "②a 限流错峰时延"),
+		injectRoot:      fs.String("inject-root", "", "注入机源根（roles/+docs/两库所在；空＝注入机关）"),
+		injectRecipe:    fs.String("inject-recipe", "", "项目配方/纪律文档（相对 inject-root，逗号分隔多件）"),
+	}
+}
+
+// serveArgs 参数面→serve argv（supervise 透传用）。路径绝对化（D-23）：
+// 相对 socket 会被 gRPC 误析为 URL scheme，席位 env 也要求绝对路径。
+func (f serveFlags) serveArgs() []string {
+	a := []string{"serve",
+		"--db", absOr(f.db, "run/meta.db"),
+		"--socket", absOr(f.sock, "run/meta.sock"),
+		"--rundir", absOr(f.runDir, "run"),
+		"--progress-timeout", f.progressTimeout.String(),
+		"--stagger", f.stagger.String()}
+	if *f.injectRoot != "" {
+		a = append(a, "--inject-root", absOr(f.injectRoot, ""))
+	}
+	if *f.injectRecipe != "" {
+		a = append(a, "--inject-recipe", *f.injectRecipe)
+	}
+	return a
+}
+
+func absOr(p *string, def string) string {
+	v := def
+	if p != nil && *p != "" {
+		v = *p
+	}
+	if abs, err := filepath.Abs(v); err == nil {
+		return abs
+	}
+	return v
 }
 
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	dbPath := fs.String("db", "run/meta.db", "SQLite 库路径")
-	sock := fs.String("socket", "run/meta.sock", "席位面 unix socket")
-	runDir := fs.String("rundir", "run", "run 目录（seats/logs/vault.key）")
-	progressTimeout := fs.Duration("progress-timeout", 30*time.Minute, "进度帧闹钟")
-	stagger := fs.Duration("stagger", 10*time.Second, "②a 限流错峰时延")
+	f := bindServeFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	// 路径归一（D-23）：相对 socket 会被 gRPC 误析为 URL scheme；
+	// 席位 env（META_*）与注入文件路径跨 cwd 引用，必须绝对。
+	*f.db, *f.sock, *f.runDir = absOr(f.db, ""), absOr(f.sock, ""), absOr(f.runDir, "")
+	if *f.injectRoot != "" {
+		*f.injectRoot = absOr(f.injectRoot, "")
+	}
 
 	g, err := gateway.New(gateway.Config{
-		DBPath:          *dbPath,
-		RunDir:          *runDir,
-		SocketPath:      *sock,
-		ProgressTimeout: *progressTimeout,
-		Stagger:         *stagger,
+		DBPath:          *f.db,
+		RunDir:          *f.runDir,
+		SocketPath:      *f.sock,
+		ProgressTimeout: *f.progressTimeout,
+		Stagger:         *f.stagger,
+		InjectRoot:      *f.injectRoot,
+		InjectRecipes:   splitCSV(*f.injectRecipe),
 	})
 	if err != nil {
 		return err
@@ -110,6 +179,71 @@ func serve(args []string) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
+// superviseCmd 守护径（B4）：前台拉起 <bin> serve，连崩熔断自动回退 prev。
+func superviseCmd(args []string) error {
+	fs := flag.NewFlagSet("supervise", flag.ContinueOnError)
+	f := bindServeFlags(fs)
+	bin := fs.String("bin", "", "被守护二进制路径（必；D-24 可配缝）")
+	prev := fs.String("prev", "", "回滚源（缺省 <bin>.prev）")
+	burst := fs.Int("burst", 5, "连崩熔断阈值")
+	stable := fs.Duration("stable", 60*time.Second, "子进程稳态时长（归零连崩计数）")
+	backoff := fs.Duration("backoff", 3*time.Second, "重起间隔")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *bin == "" {
+		return fmt.Errorf("--bin 必填")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	code := supervise.Run(ctx, supervise.Config{
+		Bin:     *bin,
+		Prev:    *prev,
+		Args:    f.serveArgs(),
+		Burst:   *burst,
+		Stable:  *stable,
+		Backoff: *backoff,
+		Out:     os.Stderr,
+	})
+	if code != 0 {
+		return fmt.Errorf("supervise 熔断停机 exit=%d", code)
+	}
+	return nil
+}
+
+// upgradeCmd 自升级径：换二进制＋restart＋健康自检，自检红回退 prev。
+func upgradeCmd(args []string) error {
+	fs := flag.NewFlagSet("upgrade", flag.ContinueOnError)
+	newBin := fs.String("new", "", "新二进制路径（必）")
+	install := fs.String("install", "", "安装目标路径（必，如 /opt/meta/bin/meta）")
+	prev := fs.String("prev", "", "回滚快照落点（缺省 <install>.prev）")
+	restartCmd := fs.String("restart-cmd", "", "重启命令（如 systemctl --user restart meta-gateway）")
+	checkSock := fs.String("check-socket", "", "健康自检 socket（空＝不自检）")
+	checkTimeout := fs.Duration("check-timeout", 15*time.Second, "自检上限")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *newBin == "" || *install == "" {
+		return fmt.Errorf("--new 与 --install 必填")
+	}
+	return upgrade.Do(upgrade.Config{
+		NewBin:       *newBin,
+		Install:      *install,
+		Prev:         *prev,
+		RestartCmd:   *restartCmd,
+		CheckSock:    *checkSock,
+		CheckTimeout: *checkTimeout,
+		Out:          os.Stderr,
+	})
 }
 
 func secret(args []string) error {
@@ -165,7 +299,7 @@ func secret(args []string) error {
 // ---------- 管理面 CLI（AdminGateway over unix socket） ----------
 
 func admin(sock string) (pbv1.AdminGatewayClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient("unix://"+sock,
+	conn, err := grpc.NewClient("unix://"+absOr(&sock, ""),
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, nil, err
@@ -181,6 +315,7 @@ func ticketCmd(args []string) error {
 	sock := fs.String("socket", "run/meta.sock", "")
 	id := fs.String("id", "", "")
 	title := fs.String("title", "", "")
+	specFile := fs.String("spec-file", "", "票面 markdown（八栏全量入库；缺一不立）")
 	acap := fs.Int64("attempt-cap", 0, "每次尝试内 token 上限")
 	hcap := fs.Int64("hard-cap", 0, "票级累计硬顶")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -189,13 +324,28 @@ func ticketCmd(args []string) error {
 	if *id == "" {
 		return fmt.Errorf("--id 必填")
 	}
+	var spec []byte
+	if *specFile != "" {
+		raw, err := os.ReadFile(*specFile)
+		if err != nil {
+			return err
+		}
+		ts, err := inject.ParseTicketMD(raw)
+		if err != nil {
+			return err
+		}
+		spec, err = proto.Marshal(ts)
+		if err != nil {
+			return err
+		}
+	}
 	c, conn, err := admin(*sock)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 	ack, err := c.CreateTicket(context.Background(), &pbv1.NewTicket{
-		Id: *id, Title: *title, AttemptCap: *acap, HardCap: *hcap})
+		Id: *id, Title: *title, Spec: spec, AttemptCap: *acap, HardCap: *hcap})
 	if err != nil {
 		return err
 	}
