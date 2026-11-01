@@ -11,7 +11,7 @@ Ubuntu（Linux 6.8），devin 3000.11.234
 
 ## 解法/绕法
 - 本次：不用 sandbox，走 dangerous＋worktree 隔离
-- 待办（需 sudo，**待业主裁**）：`sudo apt-get install bubblewrap`——装上后施工席可用 `--sandbox`，是 dangerous 之外真正的降险路径；阶段 1 前装上最划算
+- **已解决（2026-11-01 当日）**：业主 terminal 授权安装，`bubblewrap 0.9.0` 已就位——后续施工席起法升级为 `--sandbox`（自主档＋OS 隔离，exec 只许写 workspace）；票 0001 在席那次来不及换档，dangerous＋worktree 隔离跑完
 
 ## 引用
 日志 `~/meta-worktrees/t0001.devin.log`；ceo_memory 决策 4

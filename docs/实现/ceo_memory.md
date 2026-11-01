@@ -37,3 +37,10 @@
 - provenance：`terminal`
 - 执行：`docs/经验库/` 一坑一文即写即 commit；总设计 §4 与四张角色卡同步一条义务（〔令#E1〕）；首批三条（devin smart 哑退／sandbox 缺 bwrap／git identity）当日入库
 - 理由：席位无状态、实例会死——经验库是「项目仓文档记忆」的落点，与「记忆在 DB 与项目仓文档」钦定一致
+
+### 决策 6：装 bubblewrap，施工壳档位策略定格
+- 触发：业主 terminal「装，sudo 密码……」（授权经口头给出，密码不入任何档案）
+- provenance：`terminal`
+- 执行结果：`bubblewrap 0.9.0` 已装（`/usr/bin/bwrap`）
+- **定格**：施工/审计等无头席位起法＝`devin -p --sandbox`（自主档＋OS 隔离，exec 只许写 workspace）；仅当 sandbox 故障时降级 dangerous＋worktree 隔离，且须在当次记录降级原因
+- 附带决定：README「接手者按序读」补 `docs/经验库/` 与本文件——决定链对后续接手者可见（业主令：决定要记录，接手者要能知晓）
