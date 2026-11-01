@@ -107,20 +107,20 @@ type session struct {
 	sendq   chan *pbv1.SeatMsg
 	adopted chan struct{}
 
-	mu           sync.Mutex
-	stream       pbv1.SeatGateway_AttachClient
-	streamDead   bool
-	finishing    bool // Deliver 已发：流死不再走收养等
-	ackCh        chan struct{}
-	textSeen     int64
-	tail         string // 壳 stderr/stdout 尾，分级输入
-	tailLastUsage int64 // 流内已报用量（终值补差基准）
-	resultOK     bool   // 见到 FrameResult
-	verdict      string // META_VERDICT 哨兵捕到的审计判决（pass|reject）
-	verdictRef   string // 判决档 ref
-	deliverRef   string // META_DELIVER 哨兵捕到的交付 ref（D-32）
-	deliverSeen  bool   // META_DELIVER 哨兵已见（净退无哨兵→ExitSeatErr）
-	deployNote   string // META_DEPLOY:done|failed 哨兵原行（CTO-B 部署支，票0010）
+	mu            sync.Mutex
+	stream        pbv1.SeatGateway_AttachClient
+	streamDead    bool
+	finishing     bool // Deliver 已发：流死不再走收养等
+	ackCh         chan struct{}
+	textSeen      int64
+	tail          string // 壳 stderr/stdout 尾，分级输入
+	tailLastUsage int64  // 流内已报用量（终值补差基准）
+	resultOK      bool   // 见到 FrameResult
+	verdict       string // META_VERDICT 哨兵捕到的审计判决（pass|reject）
+	verdictRef    string // 判决档 ref
+	deliverRef    string // META_DELIVER 哨兵捕到的交付 ref（D-32）
+	deliverSeen   bool   // META_DELIVER 哨兵已见（净退无哨兵→ExitSeatErr）
+	deployNote    string // META_DEPLOY:done|failed 哨兵原行（CTO-B 部署支，票0010）
 }
 
 // adapterNew 注入缝（测试换伪适配器——哨兵闸的壳行为由 argv 脚本驱动）。

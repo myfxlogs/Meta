@@ -79,13 +79,13 @@ func TestAnchorC_MidDeath(t *testing.T) {
 // 重启按 §5.3 表逐相收养/回队/补 spawn。
 func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 	cases := []struct {
-		name       string
-		phase      db.Phase
-		actor      string // live|dead|none
-		seatMode   string // hold|worker|""（无席位）
-		wantPhase  db.Phase
-		wantEvent  string
-		wantRole   string // spawn_needed 时的角色
+		name      string
+		phase     db.Phase
+		actor     string // live|dead|none
+		seatMode  string // hold|worker|""（无席位）
+		wantPhase db.Phase
+		wantEvent string
+		wantRole  string // spawn_needed 时的角色
 	}{
 		{"设计中·活行动者·收养", db.PhaseDesigning, "live", "hold", db.PhaseDesigning, "adopted", ""},
 		{"设计中·死行动者·回已立", db.PhaseDesigning, "dead", "", db.PhaseCreated, "requeue", ""},

@@ -315,3 +315,6 @@ func TestRunChild_输入层(t *testing.T) {
 	}
 	s2 := &session{spec: spec{Spec: adapter.Spec{Shell: "devin"}}}
 	if code2, _ := s2.runChild(ad2); code2 != codeInputErr {
+		t.Fatalf("Build 失败 runChild=%d 预期 codeInputErr", code2)
+	}
+}

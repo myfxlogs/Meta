@@ -31,22 +31,22 @@ var Terminal = []Phase{PhaseDone, PhaseVoid}
 type EdgeKind string
 
 const (
-	EdgeDesignStart  EdgeKind = "design_start"   // 已立→设计中：CTO-A 起设计
-	EdgeDispatch     EdgeKind = "dispatch"       // 设计中→已派：派票
-	EdgeClaim        EdgeKind = "claim"          // 已派→施工中：席位领票（先连后领）
-	EdgeDeliver      EdgeKind = "deliver"        // 施工中→待审：交付
-	EdgeAuditStart   EdgeKind = "audit_start"    // 待审→审计中：起审计实例
-	EdgeAuditPass    EdgeKind = "audit_pass"     // 审计中→待部署：判决通过
-	EdgeDeployStart  EdgeKind = "deploy_start"   // 待部署→部署中：起部署实例
-	EdgeDeployDone   EdgeKind = "deploy_done"    // 部署中→完成：三锚全绿
-	EdgeRequeue      EdgeKind = "requeue"        // 施工中→已派：席死/卡死/换壳回队
-	EdgeReject       EdgeKind = "reject"         // 审计中→已派：驳回（同壳重做）
-	EdgeDesignDead   EdgeKind = "design_dead"    // 补边：设计中→已立（CTO 席死）
-	EdgeDeployFailed EdgeKind = "deploy_failed"  // 补边：部署中→待部署（失败+已回滚）
-	EdgeAuditDead    EdgeKind = "audit_dead"     // 补边：审计中→待审（审计席死，不计驳回）
-	EdgeYield        EdgeKind = "yield"          // 补边：施工中→已派（Yield，理由入判决史）
-	EdgeReqPending   EdgeKind = "req_pending"    // 补边：施工中→已立（CTO-A 需求待裁泊车，阶段3 唯一新增边）
-	EdgeVoid         EdgeKind = "void"           // 任一非终态→作废（CEO 令）
+	EdgeDesignStart  EdgeKind = "design_start"  // 已立→设计中：CTO-A 起设计
+	EdgeDispatch     EdgeKind = "dispatch"      // 设计中→已派：派票
+	EdgeClaim        EdgeKind = "claim"         // 已派→施工中：席位领票（先连后领）
+	EdgeDeliver      EdgeKind = "deliver"       // 施工中→待审：交付
+	EdgeAuditStart   EdgeKind = "audit_start"   // 待审→审计中：起审计实例
+	EdgeAuditPass    EdgeKind = "audit_pass"    // 审计中→待部署：判决通过
+	EdgeDeployStart  EdgeKind = "deploy_start"  // 待部署→部署中：起部署实例
+	EdgeDeployDone   EdgeKind = "deploy_done"   // 部署中→完成：三锚全绿
+	EdgeRequeue      EdgeKind = "requeue"       // 施工中→已派：席死/卡死/换壳回队
+	EdgeReject       EdgeKind = "reject"        // 审计中→已派：驳回（同壳重做）
+	EdgeDesignDead   EdgeKind = "design_dead"   // 补边：设计中→已立（CTO 席死）
+	EdgeDeployFailed EdgeKind = "deploy_failed" // 补边：部署中→待部署（失败+已回滚）
+	EdgeAuditDead    EdgeKind = "audit_dead"    // 补边：审计中→待审（审计席死，不计驳回）
+	EdgeYield        EdgeKind = "yield"         // 补边：施工中→已派（Yield，理由入判决史）
+	EdgeReqPending   EdgeKind = "req_pending"   // 补边：施工中→已立（CTO-A 需求待裁泊车，阶段3 唯一新增边）
+	EdgeVoid         EdgeKind = "void"          // 任一非终态→作废（CEO 令）
 )
 
 // Edge 相位边表一行。

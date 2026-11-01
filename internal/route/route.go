@@ -62,6 +62,7 @@ func Candidates(rows []db.Shell, exclude map[string]bool, stagger time.Duration)
 //   - ExitTransient（②a）→ limited；
 //   - ExitFatal（②b）→ dead；
 //   - ExitOK（跑成）→ ok（懒探恢复同径）。
+//
 // 返回 (新态, 是否变化)。
 func NextHealth(cur string, class adapter.ExitClass) (string, bool) {
 	if cur == "" {

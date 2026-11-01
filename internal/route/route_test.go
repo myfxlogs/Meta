@@ -68,7 +68,7 @@ func TestNextHealth(t *testing.T) {
 		want    string
 		changed bool
 	}{
-		{HealthOK, adapter.ExitSpawn, HealthOK, false},        // ① 不标
+		{HealthOK, adapter.ExitSpawn, HealthOK, false},         // ① 不标
 		{HealthOK, adapter.ExitTransient, HealthLimited, true}, // ②a
 		{HealthOK, adapter.ExitFatal, HealthDead, true},        // ②b
 		{HealthLimited, adapter.ExitFatal, HealthDead, true},   // ②a 恶化②b
