@@ -13,7 +13,7 @@
 2. `/opt/meta/docs/实现/ceo_memory.md`——决策账，从最新倒读
 3. `/opt/meta/roles/CEO.md`——角色卡（身份令#E16/职权/禁线/收口门/接手门）
 4. `/opt/meta/docs/接手者禁区.md`；`/opt/meta/docs/技能库/` 索引＋`docs/经验库/`；`/opt/meta/README.md` 状态区；`docs/实现/债务台账.md` 在账区
-5. 收口时（E10 三步门）**清除在岗标记**
+5. 收口时（E10/E19）：跑 `bash /opt/meta/scripts/close-audit.sh`，其输出即自证（禁自报数字）→**清除在岗标记**
 
 ## 系统实况（socket 一律绝对路径）
 ```
