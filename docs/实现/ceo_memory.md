@@ -65,3 +65,11 @@
   - **stopgap＝即刻**：`scripts/feishu-notify.sh` 单向通知——只出站、无守护、无轮询（调用点＝退出钩子/判决落档，事件驱动），凭证读迁移源 env（600 校验），JSON 止于该件（R3 适配层条款），阶段 3 随票退役
 - 已实测：首条通知 code:0 已送达业主会话
 - 后续 spawn（审计席等）的包装命令一律挂退出钩子：`...; rc=$?; scripts/feishu-notify.sh "<结果>" || true`
+
+### 决策 9：票 0001 施工交付核验＋审计席起法定格
+- 触发：施工席退出（EXIT=0）
+- provenance：`system_event`（进程退出＋日志/仓核验）
+- **交付核验**：支 `t/0001-gateway-skeleton` 已推 origin（`227eaa1`）；提交格式合规；范围零越界（internal/cmd/proto/scripts＋.gitignore）；席位自写 4 条经验库（E1 义务履行）
+- **机器记录**：CEO 机械代跑四命令全绿（build/vet/test/selfcheck，rc=0）——`~/meta-worktrees/t0001.machine-record.txt`＋`t0001.code.diff`（4557 行）已落档
+- **审计席起法定格**：claude CLI bypass 被 Claude Code 安全闸拦（授权未点名此席）→ 改 harness 原生子代理：默认权限、只读、判决出 stdout＋写 verdict 文件——**比 bypass 更贴合 D4**（读机器记录、不亲自跑）。经验库同日条目固化两席起法分工
+- 附：六项特别质询已注入审计（selfcheck 语义改动居首）
