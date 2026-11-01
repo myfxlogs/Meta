@@ -91,8 +91,14 @@ func waitRun(t *testing.T, g *Gateway, tid, role string) *db.Run {
 }
 
 // deploySpec CTO 部署派发参数：idle 壳不自动连——测试代驾帧。
-func deploySpec() SeatSpec {
-	return SeatSpec{PromptFile: "/dev/null", WorkDir: "/tmp",
+func deploySpec(t *testing.T) SeatSpec {
+	t.Helper()
+	// 非空提示文件（D-40 闸后 /dev/null 零字节＝空提示会被 spawn_blocked）。
+	pf := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(pf, []byte("# fixture 提示\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return SeatSpec{PromptFile: pf, WorkDir: "/tmp",
 		Env: []string{"GO_HELPER_SEAT=1", "SEAT_MODE=idle", "PATH=" + os.Getenv("PATH")}}
 }
 
@@ -156,16 +162,16 @@ func TestDeploy_Gates(t *testing.T) {
 		t.Fatal(err)
 	}
 	mkToDeploy(t, g, "tg", "P")
-	if err := g.DispatchSeat(ctx, "tg", "CTO", deploySpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "tg", "CTO", deploySpec(t)); err != nil {
 		t.Fatalf("待部署派 CTO 应放行: %v", err)
 	}
 	// 非待部署派 CTO 部署支→拒（已派/施工中/待审 皆非两支点）。
 	mkTicketAt(t, g, "tb", db.PhaseAssigned)
-	if err := g.DispatchSeat(ctx, "tb", "CTO", deploySpec()); err == nil {
+	if err := g.DispatchSeat(ctx, "tb", "CTO", deploySpec(t)); err == nil {
 		t.Fatal("已派票派 CTO 应拒")
 	}
 	mkTicketAt(t, g, "tr", db.PhaseReview)
-	if err := g.DispatchSeat(ctx, "tr", "CTO", deploySpec()); err == nil {
+	if err := g.DispatchSeat(ctx, "tr", "CTO", deploySpec(t)); err == nil {
 		t.Fatal("待审票派 CTO 应拒")
 	}
 
@@ -177,8 +183,12 @@ func TestDeploy_Gates(t *testing.T) {
 		t.Fatalf("非部署中 exec 应拒: %+v", r)
 	}
 	// adjunct 席发 exec→拒：在部署中票上起 CTO adjunct。
+	adjPf := filepath.Join(t.TempDir(), "adj-prompt.md")
+	if err := os.WriteFile(adjPf, []byte("# adjunct 提示\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := g.DispatchSeat(ctx, "tg", "CTO", SeatSpec{
-		Adjunct: true, PromptFile: "/dev/null",
+		Adjunct: true, PromptFile: adjPf,
 		Env: []string{"GO_HELPER_SEAT=1", "SEAT_MODE=hold", "PATH=" + os.Getenv("PATH")}}); err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +233,7 @@ func TestDeploy_FourGreen(t *testing.T) {
 		t.Fatal(err)
 	}
 	mkToDeploy(t, g, "td", "P")
-	if err := g.DispatchSeat(ctx, "td", "CTO", deploySpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "td", "CTO", deploySpec(t)); err != nil {
 		t.Fatal(err)
 	}
 	run := waitRun(t, g, "td", "CTO")
@@ -278,7 +288,7 @@ func TestDeploy_RedRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	mkToDeploy(t, g, "tf", "P")
-	if err := g.DispatchSeat(ctx, "tf", "CTO", deploySpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "tf", "CTO", deploySpec(t)); err != nil {
 		t.Fatal(err)
 	}
 	run := waitRun(t, g, "tf", "CTO")
@@ -337,10 +347,10 @@ func TestDeploy_ProjectLocks(t *testing.T) {
 	}
 	mkToDeploy(t, g, "ta", "P")
 	mkToDeploy(t, g, "tb2", "P")
-	if err := g.DispatchSeat(ctx, "ta", "CTO", deploySpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "ta", "CTO", deploySpec(t)); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.DispatchSeat(ctx, "tb2", "CTO", deploySpec()); err == nil {
+	if err := g.DispatchSeat(ctx, "tb2", "CTO", deploySpec(t)); err == nil {
 		t.Fatal("同项目二部署应锁拒（对抗锚 c）")
 	}
 	var blocked bool
@@ -379,7 +389,7 @@ func TestDeploy_LockRebuildDB(t *testing.T) {
 	}
 	// 造 部署中 票＋活 run（worker 席可被收养）。
 	mkToDeploy(t, g, "tr", "P")
-	wspec := deploySpec()
+	wspec := deploySpec(t)
 	wspec.Env = []string{"GO_HELPER_SEAT=1", "SEAT_MODE=worker", "META_ADOPT_GRACE=60",
 		"PATH=" + os.Getenv("PATH")}
 	if err := g.DispatchSeat(ctx, "tr", "CTO", wspec); err != nil {
@@ -404,7 +414,7 @@ func TestDeploy_LockRebuildDB(t *testing.T) {
 	defer g2.Close()
 	waitPhase(t, g2, "tr", db.PhaseDeploying, 10*time.Second)
 	mkToDeploy(t, g2, "tq", "P")
-	if err := g2.DispatchSeat(ctx, "tq", "CTO", deploySpec()); err == nil {
+	if err := g2.DispatchSeat(ctx, "tq", "CTO", deploySpec(t)); err == nil {
 		t.Fatal("重启后部署锁未重建——同项目二部署漏放")
 	}
 }
@@ -425,7 +435,7 @@ func TestDeploy_RunAs(t *testing.T) {
 		t.Fatal(err)
 	}
 	mkToDeploy(t, g, "ts", "P")
-	if err := g.DispatchSeat(ctx, "ts", "CTO", deploySpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "ts", "CTO", deploySpec(t)); err != nil {
 		t.Fatal(err)
 	}
 	run := waitRun(t, g, "ts", "CTO")
@@ -467,7 +477,7 @@ func TestDeploy_RunAs(t *testing.T) {
 		t.Fatal(err)
 	}
 	mkToDeploy(t, g2, "tx", "P")
-	if err := g2.DispatchSeat(ctx, "tx", "CTO", deploySpec()); err != nil {
+	if err := g2.DispatchSeat(ctx, "tx", "CTO", deploySpec(t)); err != nil {
 		t.Fatal(err)
 	}
 	run2 := waitRun(t, g2, "tx", "CTO")
@@ -507,7 +517,7 @@ func TestDeploy_SeatDeadD2(t *testing.T) {
 	}
 	mkToDeploy(t, g, "tk", "P")
 	mkToDeploy(t, g, "tk2", "P")
-	wspec := deploySpec()
+	wspec := deploySpec(t)
 	wspec.Env = []string{"GO_HELPER_SEAT=1", "SEAT_MODE=worker", "META_ADOPT_GRACE=30",
 		"PATH=" + os.Getenv("PATH")}
 	if err := g.DispatchSeat(ctx, "tk", "CTO", wspec); err != nil {
@@ -530,7 +540,7 @@ func TestDeploy_SeatDeadD2(t *testing.T) {
 		t.Fatalf("D-2 note 缺线索: %q", note)
 	}
 	// 锁已释：同项目他票可再派（spawn_needed 补发行应有）。
-	if err := g.DispatchSeat(ctx, "tk2", "CTO", deploySpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "tk2", "CTO", deploySpec(t)); err != nil {
 		t.Fatalf("锁未释: %v", err)
 	}
 }
