@@ -105,3 +105,17 @@
 - **定向**：① 适配器接口先钉四件（起/流/用量/退码），壳差异止于 adapter/ ② 用量读不到＝如实「不可得」，禁估算（O 诚实纪律）③ live 冒烟与单测严格分离，默认测试零真调用 ④ 壳调用一律 `--prompt-file`（经验库）；三壳无头档位实测结论各写经验库 ⑤ 决策 10 遗留三项并入本票（锚 4 措辞／已立对账行／armAlarm 竞态）
 - **降级记录**：施工席起法＝devin `-p --permission-mode dangerous`（非 sandbox）——t0001 审计实证 sandbox 下 exec 全废（bwrap 每命令失败），施工离不开 exec；业主对施工席 dangerous 有点名授权（决策 4），worktree 隔离照旧
 - 设计引用钉：本 commit；票面＝`docs/实现/票-0002-壳适配器与路由.md`
+
+### 决策 14：零暗债规则（令#E6）＋债务台账立账
+- 触发：业主 terminal「是否有留债务是否要进审计门槛？」
+- provenance：`terminal`
+- **裁决：门槛审「瞒报」不审「无债」**——无债不现实（备注/遗留是工程常态），可审判的是隐瞒；债的处置权在 CEO/CTO（拆票时消化），不在审计
+- 四条规则：施工全量申报（漏报＝驳回，瞒报重于缺陷）／审计暗债对账（对不上＝驳回，对得上＝判决债项节）／CEO 判决债项入账＋派票前过账（再延须理由）／无定时巡账，检查点＝派票事件（R2）
+- 落点：`docs/实现/债务台账.md`（种子 8 条：票 0001 正审备注 5＋质询 1＋决策 10 激活延后＋凭证迁移）；三卡各一句（施工申报/审计对账/CEO 过账）
+
+### 决策 15：devin sandbox exec 全废——根因确证，三方案待业主明示
+- 触发：业主问「sandbox 下 exec 全废如何解？是否有影响？」
+- provenance：`terminal`
+- **根因**（已实测）：Ubuntu 24.04 `kernel.apparmor_restrict_unprivileged_userns=1` → bwrap `setting up uid map: Permission denied` → devin sandbox 内 exec 逐条失败
+- **方案**：A 系统级放开（快/面宽，恢复旧默认态）｜B 仅 devin/bwrap 建 AppArmor profile（慢/面窄，官方推荐）｜C 维持现状（审计席只读＋stdout——D4 本就禁跑命令，exec 废对审计席是完美形态；施工席 dangerous＋worktree 已授权）。CEO 试 A 被分类器拦（Security Weaken 未被业主点名——拦得对），**动系统级缓解须业主明示**，CEO 建议：现阶段 C 已受控，阶段 2 网关统一 spawn 席位时按「沙箱形制」一并定型（届时 B 最符合无人值守的最小权限）
+- **影响评估**：在飞票 0002 无扰（施工 dangerous）；对审计无实质影响（只读设计）；风险仅在于 dangerous 档施工的 OS 级隔离缺位——由 worktree＋非 root＋网络留通的三层残余承担，已知悉已记档
