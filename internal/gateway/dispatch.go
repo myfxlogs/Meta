@@ -23,6 +23,7 @@ type SeatSpec struct {
 	Env         []string
 	PreferShell string // 非空＝该壳尝试提首（smoke 指定径；不换优先序语义）
 	Adjunct     bool   // 辅助席（裁决/诊断，§1.3）：不占相位、必给 prompt_file
+	Provenance  string // D9 盖戳源：派发方透传触发事件行/父 run 的戳
 }
 
 // specKey specs 表键（§15.1）：(票,角色) 共键——审计派发不覆写施工派发参数，
@@ -45,6 +46,11 @@ type spawnReq struct {
 //   - 其余 role：机械走边到已派→入 spawn 队列→壳路由。
 // 共同：冻票拒派（§5.5）；同角色活席去重（§15.1——焊死 已派 重派双席并存洞）。
 func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec SeatSpec) error {
+	// 禁区#10 机械码位：CEO 只经内部唤起（ensureCEO），一切派发径硬拒——
+	// admin 帧/caster/CLI 三路共用此闸。
+	if role == "CEO" {
+		return fmt.Errorf("dispatch: role=CEO 永拒（禁区#10：CEO 只经内部唤起）")
+	}
 	t, err := g.database.GetTicket(ctx, ticketID)
 	if err != nil {
 		return err
@@ -78,6 +84,16 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 		} else if r != nil {
 			return fmt.Errorf("dispatch: 票 %s 该角色 %s 已有活席 %s", ticketID, role, r.RunID)
 		}
+		// B1 项目设计锁（§1.8）：role=CTO && 已立 派发起设计——同项目一票
+		// 在 设计中 即拒第二票起设计（锁释放事件补发 spawn_needed 解排队）。
+		if role == "CTO" && t.Phase == db.PhaseCreated && t.Project != "" {
+			g.mu.Lock()
+			holder := g.designLocks[t.Project]
+			g.mu.Unlock()
+			if holder != "" && holder != ticketID {
+				return fmt.Errorf("dispatch: 项目 %s 设计锁由票 %s 持有", t.Project, holder)
+			}
+		}
 		if role != "审计" {
 			// 机械走边到已派：已立→设计中→已派（阶段 1 手工径无 CTO，网关直行）。
 			for t.Phase != db.PhaseAssigned {
@@ -95,6 +111,12 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 					return err
 				}
 				t.Phase = to
+				// 进设计中即挂项目设计锁（transition 内离开 设计中 时释放）。
+				if to == db.PhaseDesigning && t.Project != "" {
+					g.mu.Lock()
+					g.designLocks[t.Project] = ticketID
+					g.mu.Unlock()
+				}
 			}
 		}
 	}
@@ -237,7 +259,11 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 		if !spec.Adjunct {
 			// 该行 attempt_cap>0＝本行尝试帽覆盖角色缺省（§7 opencode 低帽落点）。
 			if cap, ok := g.attemptCaps[db.Shell{Name: at.Shell, Model: at.Model, Role: req.role}.ShellKey()]; ok {
-				b, _ := g.database.GetBudget(ctx, req.ticketID)
+				// D-36：帽取不到不静默落 0——库瞬时错时硬顶会被盖掉。
+				b, err := g.budgetOf(ctx, req.ticketID)
+				if err != nil {
+					return
+				}
 				_ = g.database.SetBudgetCaps(ctx, req.ticketID, cap, b.HardCap)
 			}
 			if err := g.database.ResetAttemptUsage(ctx, req.ticketID); err != nil {
@@ -274,6 +300,7 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 	run := g.newRun(req.ticketID, req.role, at.Shell)
 	run.Shell = shellLabel(at)
 	run.Adjunct = spec.Adjunct
+	run.Provenance = spec.Provenance // D9：spawn 方盖戳——触发事件行的 provenance 透传
 	artDir := filepath.Join(g.cfg.RunDir, "artifacts")
 	_ = os.MkdirAll(artDir, 0o700)
 	artDir = filepath.Join(artDir, run.RunID)

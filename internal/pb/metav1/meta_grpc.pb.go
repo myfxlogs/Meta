@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v3.21.12
-// source: proto/meta/v1/meta.proto
+// source: meta/v1/meta.proto
 
 package metav1
 
@@ -115,7 +115,7 @@ var SeatGateway_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
 }
 
 const (
@@ -223,20 +223,21 @@ var SeatAdopt_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
 }
 
 const (
-	AdminGateway_CreateTicket_FullMethodName = "/meta.v1.AdminGateway/CreateTicket"
-	AdminGateway_Dispatch_FullMethodName     = "/meta.v1.AdminGateway/Dispatch"
-	AdminGateway_SetBudget_FullMethodName    = "/meta.v1.AdminGateway/SetBudget"
-	AdminGateway_Budget_FullMethodName       = "/meta.v1.AdminGateway/Budget"
-	AdminGateway_Phase_FullMethodName        = "/meta.v1.AdminGateway/Phase"
-	AdminGateway_Events_FullMethodName       = "/meta.v1.AdminGateway/Events"
-	AdminGateway_EventsAfter_FullMethodName  = "/meta.v1.AdminGateway/EventsAfter"
-	AdminGateway_Runs_FullMethodName         = "/meta.v1.AdminGateway/Runs"
-	AdminGateway_Observe_FullMethodName      = "/meta.v1.AdminGateway/Observe"
-	AdminGateway_RetroVerdict_FullMethodName = "/meta.v1.AdminGateway/RetroVerdict"
+	AdminGateway_CreateTicket_FullMethodName  = "/meta.v1.AdminGateway/CreateTicket"
+	AdminGateway_Dispatch_FullMethodName      = "/meta.v1.AdminGateway/Dispatch"
+	AdminGateway_SetBudget_FullMethodName     = "/meta.v1.AdminGateway/SetBudget"
+	AdminGateway_Budget_FullMethodName        = "/meta.v1.AdminGateway/Budget"
+	AdminGateway_Phase_FullMethodName         = "/meta.v1.AdminGateway/Phase"
+	AdminGateway_Events_FullMethodName        = "/meta.v1.AdminGateway/Events"
+	AdminGateway_EventsAfter_FullMethodName   = "/meta.v1.AdminGateway/EventsAfter"
+	AdminGateway_Runs_FullMethodName          = "/meta.v1.AdminGateway/Runs"
+	AdminGateway_Observe_FullMethodName       = "/meta.v1.AdminGateway/Observe"
+	AdminGateway_RetroVerdict_FullMethodName  = "/meta.v1.AdminGateway/RetroVerdict"
+	AdminGateway_IssueCeoToken_FullMethodName = "/meta.v1.AdminGateway/IssueCeoToken"
 )
 
 // AdminGatewayClient is the client API for AdminGateway service.
@@ -256,6 +257,7 @@ type AdminGatewayClient interface {
 	Runs(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*RunList, error)
 	Observe(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ObsEvent], error)
 	RetroVerdict(ctx context.Context, in *RetroReq, opts ...grpc.CallOption) (*Ack, error)
+	IssueCeoToken(ctx context.Context, in *CeoTokenReq, opts ...grpc.CallOption) (*CeoTokenResp, error)
 }
 
 type adminGatewayClient struct {
@@ -375,6 +377,16 @@ func (c *adminGatewayClient) RetroVerdict(ctx context.Context, in *RetroReq, opt
 	return out, nil
 }
 
+func (c *adminGatewayClient) IssueCeoToken(ctx context.Context, in *CeoTokenReq, opts ...grpc.CallOption) (*CeoTokenResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CeoTokenResp)
+	err := c.cc.Invoke(ctx, AdminGateway_IssueCeoToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminGatewayServer is the server API for AdminGateway service.
 // All implementations must embed UnimplementedAdminGatewayServer
 // for forward compatibility.
@@ -392,6 +404,7 @@ type AdminGatewayServer interface {
 	Runs(context.Context, *TicketRef) (*RunList, error)
 	Observe(*Empty, grpc.ServerStreamingServer[ObsEvent]) error
 	RetroVerdict(context.Context, *RetroReq) (*Ack, error)
+	IssueCeoToken(context.Context, *CeoTokenReq) (*CeoTokenResp, error)
 	mustEmbedUnimplementedAdminGatewayServer()
 }
 
@@ -431,6 +444,9 @@ func (UnimplementedAdminGatewayServer) Observe(*Empty, grpc.ServerStreamingServe
 }
 func (UnimplementedAdminGatewayServer) RetroVerdict(context.Context, *RetroReq) (*Ack, error) {
 	return nil, status.Error(codes.Unimplemented, "method RetroVerdict not implemented")
+}
+func (UnimplementedAdminGatewayServer) IssueCeoToken(context.Context, *CeoTokenReq) (*CeoTokenResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method IssueCeoToken not implemented")
 }
 func (UnimplementedAdminGatewayServer) mustEmbedUnimplementedAdminGatewayServer() {}
 func (UnimplementedAdminGatewayServer) testEmbeddedByValue()                      {}
@@ -626,6 +642,24 @@ func _AdminGateway_RetroVerdict_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminGateway_IssueCeoToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CeoTokenReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).IssueCeoToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_IssueCeoToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).IssueCeoToken(ctx, req.(*CeoTokenReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminGateway_ServiceDesc is the grpc.ServiceDesc for AdminGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -669,6 +703,10 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "RetroVerdict",
 			Handler:    _AdminGateway_RetroVerdict_Handler,
 		},
+		{
+			MethodName: "IssueCeoToken",
+			Handler:    _AdminGateway_IssueCeoToken_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -677,5 +715,263 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
+}
+
+const (
+	CeoGateway_Events_FullMethodName            = "/meta.v1.CeoGateway/Events"
+	CeoGateway_SubmitRequirement_FullMethodName = "/meta.v1.CeoGateway/SubmitRequirement"
+	CeoGateway_Rule_FullMethodName              = "/meta.v1.CeoGateway/Rule"
+	CeoGateway_Inquire_FullMethodName           = "/meta.v1.CeoGateway/Inquire"
+	CeoGateway_Memory_FullMethodName            = "/meta.v1.CeoGateway/Memory"
+)
+
+// CeoGatewayClient is the client API for CeoGateway service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// CEO 面（总设计 §12 钦定五 RPC）。一切请求带 run_token——首验 role=CEO 活 run；
+// provenance 一律盖自 run 行，请求自报不认（D9 机械牙）。
+type CeoGatewayClient interface {
+	Events(ctx context.Context, in *Subscribe, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventItem], error)
+	SubmitRequirement(ctx context.Context, in *Requirement, opts ...grpc.CallOption) (*TicketRef, error)
+	Rule(ctx context.Context, in *Ruling, opts ...grpc.CallOption) (*RuleAck, error)
+	Inquire(ctx context.Context, in *Inquiry, opts ...grpc.CallOption) (*Ack, error)
+	Memory(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[MemoryOp, MemoryOp], error)
+}
+
+type ceoGatewayClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewCeoGatewayClient(cc grpc.ClientConnInterface) CeoGatewayClient {
+	return &ceoGatewayClient{cc}
+}
+
+func (c *ceoGatewayClient) Events(ctx context.Context, in *Subscribe, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EventItem], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &CeoGateway_ServiceDesc.Streams[0], CeoGateway_Events_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[Subscribe, EventItem]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CeoGateway_EventsClient = grpc.ServerStreamingClient[EventItem]
+
+func (c *ceoGatewayClient) SubmitRequirement(ctx context.Context, in *Requirement, opts ...grpc.CallOption) (*TicketRef, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TicketRef)
+	err := c.cc.Invoke(ctx, CeoGateway_SubmitRequirement_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ceoGatewayClient) Rule(ctx context.Context, in *Ruling, opts ...grpc.CallOption) (*RuleAck, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RuleAck)
+	err := c.cc.Invoke(ctx, CeoGateway_Rule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ceoGatewayClient) Inquire(ctx context.Context, in *Inquiry, opts ...grpc.CallOption) (*Ack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, CeoGateway_Inquire_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ceoGatewayClient) Memory(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[MemoryOp, MemoryOp], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &CeoGateway_ServiceDesc.Streams[1], CeoGateway_Memory_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[MemoryOp, MemoryOp]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CeoGateway_MemoryClient = grpc.BidiStreamingClient[MemoryOp, MemoryOp]
+
+// CeoGatewayServer is the server API for CeoGateway service.
+// All implementations must embed UnimplementedCeoGatewayServer
+// for forward compatibility.
+//
+// CEO 面（总设计 §12 钦定五 RPC）。一切请求带 run_token——首验 role=CEO 活 run；
+// provenance 一律盖自 run 行，请求自报不认（D9 机械牙）。
+type CeoGatewayServer interface {
+	Events(*Subscribe, grpc.ServerStreamingServer[EventItem]) error
+	SubmitRequirement(context.Context, *Requirement) (*TicketRef, error)
+	Rule(context.Context, *Ruling) (*RuleAck, error)
+	Inquire(context.Context, *Inquiry) (*Ack, error)
+	Memory(grpc.BidiStreamingServer[MemoryOp, MemoryOp]) error
+	mustEmbedUnimplementedCeoGatewayServer()
+}
+
+// UnimplementedCeoGatewayServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedCeoGatewayServer struct{}
+
+func (UnimplementedCeoGatewayServer) Events(*Subscribe, grpc.ServerStreamingServer[EventItem]) error {
+	return status.Error(codes.Unimplemented, "method Events not implemented")
+}
+func (UnimplementedCeoGatewayServer) SubmitRequirement(context.Context, *Requirement) (*TicketRef, error) {
+	return nil, status.Error(codes.Unimplemented, "method SubmitRequirement not implemented")
+}
+func (UnimplementedCeoGatewayServer) Rule(context.Context, *Ruling) (*RuleAck, error) {
+	return nil, status.Error(codes.Unimplemented, "method Rule not implemented")
+}
+func (UnimplementedCeoGatewayServer) Inquire(context.Context, *Inquiry) (*Ack, error) {
+	return nil, status.Error(codes.Unimplemented, "method Inquire not implemented")
+}
+func (UnimplementedCeoGatewayServer) Memory(grpc.BidiStreamingServer[MemoryOp, MemoryOp]) error {
+	return status.Error(codes.Unimplemented, "method Memory not implemented")
+}
+func (UnimplementedCeoGatewayServer) mustEmbedUnimplementedCeoGatewayServer() {}
+func (UnimplementedCeoGatewayServer) testEmbeddedByValue()                    {}
+
+// UnsafeCeoGatewayServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to CeoGatewayServer will
+// result in compilation errors.
+type UnsafeCeoGatewayServer interface {
+	mustEmbedUnimplementedCeoGatewayServer()
+}
+
+func RegisterCeoGatewayServer(s grpc.ServiceRegistrar, srv CeoGatewayServer) {
+	// If the following call panics, it indicates UnimplementedCeoGatewayServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&CeoGateway_ServiceDesc, srv)
+}
+
+func _CeoGateway_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Subscribe)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(CeoGatewayServer).Events(m, &grpc.GenericServerStream[Subscribe, EventItem]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CeoGateway_EventsServer = grpc.ServerStreamingServer[EventItem]
+
+func _CeoGateway_SubmitRequirement_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Requirement)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CeoGatewayServer).SubmitRequirement(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CeoGateway_SubmitRequirement_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CeoGatewayServer).SubmitRequirement(ctx, req.(*Requirement))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CeoGateway_Rule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Ruling)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CeoGatewayServer).Rule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CeoGateway_Rule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CeoGatewayServer).Rule(ctx, req.(*Ruling))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CeoGateway_Inquire_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Inquiry)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CeoGatewayServer).Inquire(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CeoGateway_Inquire_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CeoGatewayServer).Inquire(ctx, req.(*Inquiry))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CeoGateway_Memory_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(CeoGatewayServer).Memory(&grpc.GenericServerStream[MemoryOp, MemoryOp]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CeoGateway_MemoryServer = grpc.BidiStreamingServer[MemoryOp, MemoryOp]
+
+// CeoGateway_ServiceDesc is the grpc.ServiceDesc for CeoGateway service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var CeoGateway_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "meta.v1.CeoGateway",
+	HandlerType: (*CeoGatewayServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SubmitRequirement",
+			Handler:    _CeoGateway_SubmitRequirement_Handler,
+		},
+		{
+			MethodName: "Rule",
+			Handler:    _CeoGateway_Rule_Handler,
+		},
+		{
+			MethodName: "Inquire",
+			Handler:    _CeoGateway_Inquire_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Events",
+			Handler:       _CeoGateway_Events_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Memory",
+			Handler:       _CeoGateway_Memory_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
+	Metadata: "meta/v1/meta.proto",
 }

@@ -84,3 +84,50 @@ func TestAdmin_相对socket(t *testing.T) {
 		t.Fatal("serve 相对路径未落 cwd")
 	}
 }
+
+// TestCLI_GlueE2E 债 D-38 缺口二（CLI 胶水端到端）：真网关 socket 上跑
+// ticket new → dispatch → phase → events 全链——胶水函数非单测即集成。
+func TestCLI_GlueE2E(t *testing.T) {
+	d := t.TempDir()
+	sock := filepath.Join(d, "run", "meta.sock")
+	g, err := gateway.New(gateway.Config{
+		DBPath: filepath.Join(d, "meta.db"), RunDir: filepath.Join(d, "run"),
+		SocketPath: sock, SeatArgv: []string{"/bin/true"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go g.Serve()
+	defer g.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket 未起")
+		}
+		<-time.After(20 * time.Millisecond)
+	}
+	if err := ticketCmd([]string{"new", "--socket", sock, "--id", "tcli", "--title", "cli 票"}); err != nil {
+		t.Fatal("ticket new:", err)
+	}
+	if err := dispatchCmd([]string{"--socket", sock, "--ticket", "tcli", "--role", "施工", "--workdir", "/tmp"}); err != nil {
+		t.Fatal("dispatch:", err)
+	}
+	if err := phaseCmd([]string{"--socket", sock, "--ticket", "tcli"}); err != nil {
+		t.Fatal("phase:", err)
+	}
+	c, conn, err := admin(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	p, err := c.Phase(context.Background(), &pbv1.TicketRef{Id: "tcli"})
+	if err != nil || p.Phase != "已派" {
+		t.Fatalf("相位应 已派: %v %v", p, err)
+	}
+	if err := eventsCmd([]string{"--socket", sock, "--ticket", "tcli"}); err != nil {
+		t.Fatal("events:", err)
+	}
+}

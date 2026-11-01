@@ -119,6 +119,8 @@ func (g *Gateway) handleSeatMsg(ctx context.Context, st *runState, stream pbv1.S
 		return g.handleSecret(ctx, st, stream, b.SecretReq)
 	case *pbv1.SeatMsg_Rule:
 		return g.handleRule(ctx, st, b.Rule)
+	case *pbv1.SeatMsg_Admin:
+		return g.handleAdmin(ctx, st, stream, b.Admin)
 	case *pbv1.SeatMsg_Auth:
 		return status.Error(codes.InvalidArgument, "重复 RunAuth")
 	default:
@@ -131,6 +133,9 @@ func (g *Gateway) handleSeatMsg(ctx context.Context, st *runState, stream pbv1.S
 // 对抗性锚 b：删本支裁决席把票推离施工中）但重挂票闹钟；审计席走
 // audit_start→审计中（幂等相位＝审计中，收养重领放行）；其余照旧 claim→施工中。
 func (g *Gateway) handleClaim(ctx context.Context, st *runState, c *pbv1.Claim) error {
+	if st.run.TicketID == "" {
+		return status.Error(codes.InvalidArgument, "无票 run（CEO 面）不可领票")
+	}
 	if c.TicketId != st.run.TicketID {
 		return status.Errorf(codes.PermissionDenied, "票 %s 非本 run 所派", c.TicketId)
 	}
@@ -220,9 +225,10 @@ func (g *Gateway) handleUsage(ctx context.Context, st *runState, u *pbv1.Usage) 
 func (g *Gateway) budgetStop(ctx context.Context, st *runState) {
 	st.killByGW = true
 	st.noRespawn = true
-	g.emit(Event{Kind: "budget_stop", TicketID: st.run.TicketID, RunID: st.run.RunID})
+	// D-34：先落行后 emit（对齐其余七处——emit 是门铃不是真源）。
 	_ = g.database.AppendEvent(ctx, st.run.TicketID, "budget_stop", db.Event{
 		Actor: "gateway", Note: "尝试内用量达 100% 硬顶"})
+	g.emit(Event{Kind: "budget_stop", TicketID: st.run.TicketID, RunID: st.run.RunID})
 	g.killRun(st)
 }
 
@@ -248,9 +254,10 @@ func (g *Gateway) freezeTicket(ctx context.Context, ticketID string, st *runStat
 	g.frozen[ticketID] = true
 	g.mu.Unlock()
 	g.cancelAlarm(ticketID) // 取消未决闹钟；排队 spawn 事件由 dispatcher/emit 判弃
-	g.emit(Event{Kind: "budget_frozen", TicketID: ticketID})
+	// D-34：先落行后 emit。
 	_ = g.database.AppendEvent(ctx, ticketID, "budget_frozen", db.Event{
 		Actor: "gateway", Note: "票级累计硬顶到达：先杀后冻"})
+	g.emit(Event{Kind: "budget_frozen", TicketID: ticketID})
 }
 
 // handleDeliver 交付/判决（§15.5 码位表）：
@@ -329,7 +336,13 @@ func (g *Gateway) handleYield(ctx context.Context, st *runState, y *pbv1.Yield) 
 			Role: st.run.Role})
 		return nil
 	}
-	if err := g.transition(ctx, st.run.TicketID, db.PhaseAssigned, db.EdgeYield,
+	// CTO-A Yield＝需求待裁（§1.4）：泊车边 施工中→已立（req_pending 行＝泊车标，
+	// 对账抑制补派）；其余角色照旧 施工中→已派。
+	to, kind := db.PhaseAssigned, db.EdgeYield
+	if st.run.Role == "CTO" {
+		to, kind = db.PhaseCreated, db.EdgeReqPending
+	}
+	if err := g.transition(ctx, st.run.TicketID, to, kind,
 		st.run.RunID, note); err != nil {
 		var ille *db.ErrIllegalEdge
 		if errors.As(err, &ille) {
@@ -416,6 +429,12 @@ func (g *Gateway) onRunDead(st *runState) {
 		return
 	}
 	g.emit(Event{Kind: "seat_dead", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
+
+	if st.run.Role == "CEO" {
+		// D-22 收口比对（判死点）：派发给它的事件数 vs ceo_memory 写数。
+		g.ceoDeadHook(ctx, st)
+		return
+	}
 
 	if st.attempt.Shell != "" && !st.killByGW {
 		// 中途死＝①机器级（含外部 SIGKILL）：不标健康，进本票 failSet 换下一壳。

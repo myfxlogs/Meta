@@ -43,6 +43,11 @@ type Config struct {
 	// 注入机（票0003，§4）：Root 空＝注入机关，dispatch 无 --prompt-file 即缺径。
 	InjectRoot    string   // 注入源根：roles/ 与 docs/经验库|技能库 所在
 	InjectRecipes []string // 项目配方/纪律文档（相对 InjectRoot，序即拼）
+
+	// CEO 面（票0011）：事件泵放行/无头唤起 kind 列与化身提示模板（决策54/E16）。
+	CeoEvents     map[string]bool // Events 流放行 kind 集
+	CeoSpawnKinds map[string]bool // 需 CEO 事件 kind 集（无订阅→pending+ensureCEO）
+	CeoPrompt     string          // 无头席提示模板（{{kind}}/{{ticket_id}}/{{note}}/{{run_dir}}/{{gateway_sock}}）
 }
 
 // ShellSeed 壳登记表种子一行（配置行→DB 活态行；attempt_cap 驻内存不持久化——
@@ -139,6 +144,15 @@ type Gateway struct {
 	spawnQ    chan spawnReq
 	done      chan struct{}
 	closed    bool
+
+	// CEO 面（票0011）：锁＝连接登记非 DB 旗（禁区#10/B8）。
+	ceoSub        chan Event     // 活跃 Events 订阅的派发道；nil＝无订阅
+	ceoSubRunID   string         // 当前订阅属哪条 run（D-22 计数分账）
+	ceoPending    []Event        // 无订阅期排队的需 CEO 事件（切换不丢，§8）
+	ceoFails      int            // 无头唤起连败计数（3→ceo_last_resort）
+	ceoDispatched map[string]int // run_id → 已派发给该 run 的事件数（D-22）
+	designLocks   map[string]string // project → 持设计锁的票（B1 三锁之一，§1.8）
+	budgetOf      func(ctx context.Context, ticketID string) (db.Budget, error) // D-36 变异注入缝
 }
 
 // New 建仓：开库 → 建 run 目录 → 主 socket → 全相位启动对账。
@@ -163,6 +177,9 @@ func New(cfg Config) (*Gateway, error) {
 		active:    map[string]int{},
 		spawnQ:    make(chan spawnReq, 64),
 		done:      make(chan struct{}),
+
+		ceoDispatched: map[string]int{},
+		designLocks:   map[string]string{},
 	}
 	for _, dir := range []string{
 		filepath.Join(cfg.RunDir, "seats"),
@@ -192,6 +209,8 @@ func New(cfg Config) (*Gateway, error) {
 	g.srv = grpc.NewServer()
 	pbv1.RegisterSeatGatewayServer(g.srv, g)
 	pbv1.RegisterAdminGatewayServer(g.srv, g)
+	pbv1.RegisterCeoGatewayServer(g.srv, &ceoAPI{g: g})
+	g.budgetOf = d.GetBudget
 
 	// 壳行尝试帽索引：ShellKey→cap（§7 attempt_cap>0 行覆盖角色缺省的落点）。
 	g.attemptCaps = map[string]int64{}
@@ -203,6 +222,7 @@ func New(cfg Config) (*Gateway, error) {
 
 	g.Reconcile(context.Background()) // §5.3 全相位对账，启动一次非周期
 	go g.dispatcher()                  // spawn 调度器：事件驱动，非周期
+	go g.ceoPump(g.subscribe())        // CEO 事件泵：先订阅后起泵，不丢首事件
 	return g, nil
 }
 
@@ -331,10 +351,17 @@ func (g *Gateway) onStall(ticketID string) {
 // 事件行＋emit。先落行后门铃——门铃先于落行的窗口会被下一 poke 补回，
 // 但严格因果更省一次迟延。
 func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, kind db.EdgeKind, actor, note string) error {
+	from, ferr := g.database.PhaseOf(ctx, ticketID)
 	if _, err := g.database.Transition(ctx, ticketID, to, kind, actor, note); err != nil {
 		return err
 	}
 	g.emit(Event{Kind: "phase:" + string(kind), TicketID: ticketID})
+	if ferr == nil && from == db.PhaseDesigning {
+		g.releaseDesignLock(ctx, ticketID) // 离开设计中→放项目设计锁（B1）
+	}
+	if to == db.PhaseDone || to == db.PhaseVoid {
+		g.onTerminal(ticketID) // D-15：终态即删进程级内存键
+	}
 	if kind == db.EdgeReject {
 		if t, err := g.database.GetTicket(ctx, ticketID); err == nil && t.RejectCount >= 3 {
 			_ = g.database.AppendEvent(ctx, ticketID, "reject_limit", db.Event{

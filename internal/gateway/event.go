@@ -4,9 +4,10 @@ package gateway
 // 持久日志在 ticket_event）。Kind 取值：attach / spawn_needed / adopted /
 // adopt_failed / seat_dead / requeue / stall_suspect / phase:<EdgeKind>。
 type Event struct {
-	Kind     string
-	TicketID string
-	RunID    string
-	Role     string
-	Note     string
+	Kind       string
+	TicketID   string
+	RunID      string
+	Role       string
+	Note       string
+	Provenance string // D9 来源标透传（CEO 链事件盖戳；其余空）
 }
