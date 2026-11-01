@@ -26,3 +26,14 @@
 - 施工日志＝`~/meta-worktrees/t0001.devin.log`（全量 stdout/stderr，CTO 裁决与事后取证用）
 - 用量账＝`--export ATIF` 落 `~/meta-worktrees/t0001.atif.json`（网关立起后补录 `budget`）
 - 交付＝推支 `t/0001-gateway-skeleton` → `origin`（github.com:myfxlogs/Meta）＋业主会话验收（票面交付形制原样）
+
+### 决策 4：施工壳权限档＝dangerous（bypass）
+- 触发：业主 terminal 明示「使用 bypass 更好」——在前置事实（smart 档实测哑退、sandbox 缺 bubblewrap 不可用）之后给出
+- provenance：`terminal`
+- 理由：devin `-p` 无头径实测 smart 档拒一切需确认工具调用；无交互席位要能干活只剩 dangerous。隔离残余＝worktree＋非 root 用户＋网络留通；OS 级沙箱待 bubblewrap（已列待业主裁）
+
+### 决策 5：设经验库（业主令）
+- 触发：业主 terminal「项目需要 1 个经验库，存放所有遇到的坑和经验，遇到就写，不要等统一归纳」
+- provenance：`terminal`
+- 执行：`docs/经验库/` 一坑一文即写即 commit；总设计 §4 与四张角色卡同步一条义务（〔令#E1〕）；首批三条（devin smart 哑退／sandbox 缺 bwrap／git identity）当日入库
+- 理由：席位无状态、实例会死——经验库是「项目仓文档记忆」的落点，与「记忆在 DB 与项目仓文档」钦定一致
