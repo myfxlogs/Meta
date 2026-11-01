@@ -14,4 +14,4 @@ case "$LINE" in
   *)        if [ "$STAGE" = "施工" ]; then RESULT="干完了（$RCN），接下来安排查验"; else RESULT="结果没出来（$RCN），正在处理，下一条通知为准"; fi;;
 esac
 
-/opt/meta/scripts/feishu-notify.sh "【公司】${TICKET}：${RESULT}。详情看电脑，不用你操作。"
+/opt/meta/scripts/feishu-notify.sh "【Meta】${TICKET}：${RESULT}。"
