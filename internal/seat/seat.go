@@ -507,7 +507,7 @@ func (s *session) scanSentinel(l []byte) bool {
 // adminSentinel META_ADMIN:<动作>|<args> → SeatAdmin 帧（§1.5：CTO-A 写径
 // 随席位流走）。fill_spec/create_ticket 的 spec 均为票面 markdown 文件路径。
 func (s *session) adminSentinel(rest string) bool {
-	parts := strings.SplitN(rest, "|", 4)
+	parts := strings.SplitN(rest, "|", 5) // 5＝create_ticket 可选第 5 段 project（票0015）
 	send := func(a *pbv1.SeatAdmin) {
 		s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Admin{Admin: a}})
 	}
@@ -524,7 +524,8 @@ func (s *session) adminSentinel(rest string) bool {
 		send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_FillSpec{
 			FillSpec: &pbv1.FillSpec{TicketId: s.spec.TicketID, SpecMd: b}}})
 	case "create_ticket":
-		// META_ADMIN:create_ticket|<id>|<title>|<spec.md>
+		// META_ADMIN:create_ticket|<id>|<title>|<spec.md>[|<project>]
+		// 第 5 段可选；空/缺＝网关侧继承本票 project（票0015）。
 		if len(parts) < 4 {
 			return false
 		}
@@ -534,7 +535,18 @@ func (s *session) adminSentinel(rest string) bool {
 				nt.Spec, _ = proto.Marshal(ts)
 			}
 		}
+		if len(parts) > 4 {
+			nt.Project = parts[4]
+		}
 		send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_CreateTicket{CreateTicket: nt}})
+	case "set_project":
+		// META_ADMIN:set_project|<project>——限本票（TicketId 取本票；
+		// 网关越票判＋施工中相位闸兜底，票0015）。
+		if len(parts) < 2 {
+			return false
+		}
+		send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_SetProject{
+			SetProject: &pbv1.SetProject{TicketId: s.spec.TicketID, Project: parts[1]}}})
 	case "dispatch":
 		// META_ADMIN:dispatch|<ticket>|<role>|[promptfile]|[workdir]
 		if len(parts) < 3 {
