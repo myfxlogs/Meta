@@ -24,3 +24,25 @@ shell { name: "opencode" role: "审计" priority: 30 attempt_cap: 8000000 }
 shell { name: "devin"    model: "swe-2-max" role: "CTO" priority: 10 }
 shell { name: "claude"   role: "CTO" priority: 20 }
 shell { name: "opencode" role: "CTO" priority: 30 attempt_cap: 8000000 }
+
+# 项目配方种子（票0010 部署闸）：meta 自举首个被部署项目。
+# run_as 诚实妥协（设计-0007 §1.8/§11）：check 步跑票代码＝不可信→metaseat；
+# integrate/deploy/probe/rollback 是仓内固定件（git/换装/socket）→按步覆盖 mluser。
+project {
+  id: "meta"
+  repo_url: "/opt/meta"
+  default_branch: "master"
+  integrate_cmd: "git -C /opt/meta merge --ff-only \"$META_EXEC_REF\""
+  check_cmd: "go build ./... && go vet ./... && go test -count=1 ./..."
+  deploy_cmd: "bash scripts/meta-deploy.sh"
+  probe_cmd: "bash scripts/meta-probe.sh"
+  rollback_cmd: "set -x; if [ -f /opt/meta/bin/meta.prev ]; then install -m 755 /opt/meta/bin/meta.prev /opt/meta/bin/meta && systemctl --user restart meta-gateway || true; fi; git -C /opt/meta reset --hard ORIG_HEAD || true"
+  sandbox {
+    run_as: "metaseat"
+    step_run_as { key: "integrate" value: "mluser" }
+    step_run_as { key: "deploy"    value: "mluser" }
+    step_run_as { key: "probe"     value: "mluser" }
+    step_run_as { key: "rollback"  value: "mluser" }
+    exec_timeout { seconds: 900 }
+  }
+}

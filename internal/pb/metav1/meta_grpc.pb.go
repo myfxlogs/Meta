@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v3.21.12
-// source: proto/meta/v1/meta.proto
+// source: meta/v1/meta.proto
 
 package metav1
 
@@ -115,7 +115,7 @@ var SeatGateway_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
 }
 
 const (
@@ -223,7 +223,7 @@ var SeatAdopt_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
 }
 
 const (
@@ -237,6 +237,7 @@ const (
 	AdminGateway_Runs_FullMethodName         = "/meta.v1.AdminGateway/Runs"
 	AdminGateway_Observe_FullMethodName      = "/meta.v1.AdminGateway/Observe"
 	AdminGateway_RetroVerdict_FullMethodName = "/meta.v1.AdminGateway/RetroVerdict"
+	AdminGateway_Ping_FullMethodName         = "/meta.v1.AdminGateway/Ping"
 )
 
 // AdminGatewayClient is the client API for AdminGateway service.
@@ -256,6 +257,7 @@ type AdminGatewayClient interface {
 	Runs(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*RunList, error)
 	Observe(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ObsEvent], error)
 	RetroVerdict(ctx context.Context, in *RetroReq, opts ...grpc.CallOption) (*Ack, error)
+	Ping(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Ack, error)
 }
 
 type adminGatewayClient struct {
@@ -375,6 +377,16 @@ func (c *adminGatewayClient) RetroVerdict(ctx context.Context, in *RetroReq, opt
 	return out, nil
 }
 
+func (c *adminGatewayClient) Ping(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Ack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, AdminGateway_Ping_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminGatewayServer is the server API for AdminGateway service.
 // All implementations must embed UnimplementedAdminGatewayServer
 // for forward compatibility.
@@ -392,6 +404,7 @@ type AdminGatewayServer interface {
 	Runs(context.Context, *TicketRef) (*RunList, error)
 	Observe(*Empty, grpc.ServerStreamingServer[ObsEvent]) error
 	RetroVerdict(context.Context, *RetroReq) (*Ack, error)
+	Ping(context.Context, *Empty) (*Ack, error)
 	mustEmbedUnimplementedAdminGatewayServer()
 }
 
@@ -431,6 +444,9 @@ func (UnimplementedAdminGatewayServer) Observe(*Empty, grpc.ServerStreamingServe
 }
 func (UnimplementedAdminGatewayServer) RetroVerdict(context.Context, *RetroReq) (*Ack, error) {
 	return nil, status.Error(codes.Unimplemented, "method RetroVerdict not implemented")
+}
+func (UnimplementedAdminGatewayServer) Ping(context.Context, *Empty) (*Ack, error) {
+	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
 }
 func (UnimplementedAdminGatewayServer) mustEmbedUnimplementedAdminGatewayServer() {}
 func (UnimplementedAdminGatewayServer) testEmbeddedByValue()                      {}
@@ -626,6 +642,24 @@ func _AdminGateway_RetroVerdict_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminGateway_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Ping(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Ping_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Ping(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminGateway_ServiceDesc is the grpc.ServiceDesc for AdminGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -669,6 +703,10 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "RetroVerdict",
 			Handler:    _AdminGateway_RetroVerdict_Handler,
 		},
+		{
+			MethodName: "Ping",
+			Handler:    _AdminGateway_Ping_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -677,5 +715,5 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
 }

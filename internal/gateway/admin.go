@@ -158,6 +158,12 @@ func (g *Gateway) RetroVerdict(ctx context.Context, r *pbv1.RetroReq) (*pbv1.Ack
 	return &pbv1.Ack{Ok: true, Note: "回翻完成→" + string(to)}, nil
 }
 
+// Ping 健康核验径（票0010）：拨通＝活——meta ping / scripts/meta-probe.sh
+// 的部署后健康探针落点。
+func (g *Gateway) Ping(_ context.Context, _ *pbv1.Empty) (*pbv1.Ack, error) {
+	return &pbv1.Ack{Ok: true, Note: "pong"}, nil
+}
+
 func (g *Gateway) Runs(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.RunList, error) {
 	runs, err := g.database.RunsForTicket(ctx, ref.Id)
 	if err != nil {

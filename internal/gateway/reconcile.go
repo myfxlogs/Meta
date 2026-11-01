@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"google.golang.org/grpc"
@@ -92,7 +93,17 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	case db.PhaseDeploying:
 		to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
 	}
-	if err := g.transition(ctx, t.ID, to, kind, "gateway", "对账：行动者无响应"); err != nil {
+	note := "对账：行动者无响应"
+	if t.Phase == db.PhaseDeploying {
+		// D-2：部署中对账死＝部署失败（回滚态未核）——note 留取证线索。
+		logPath := ""
+		if run != nil {
+			logPath = " log=" + run.LogPath
+		}
+		note = fmt.Sprintf("对账：行动者无响应——先核回滚态 run=%s%s",
+			runIDOf(run), logPath)
+	}
+	if err := g.transition(ctx, t.ID, to, kind, "gateway", note); err != nil {
 		return
 	}
 	runID := ""
@@ -100,7 +111,11 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 		runID = run.RunID
 	}
 	g.emit(Event{Kind: "requeue", TicketID: t.ID, RunID: runID, Note: "对账回队→" + string(to)})
-	// 回队后新相位落入无行动者集，补 spawn 事件。
+	// 回队后新相位落入无行动者集，补 spawn 事件。deploy_failed 本票
+	// 不补——回 待部署 归 CEO 裁（锁已由 transition 释放侧放掉）。
+	if kind == db.EdgeDeployFailed {
+		return
+	}
 	role := roleForPhase(to)
 	if role != "" {
 		_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
@@ -108,6 +123,13 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 		})
 		g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
 	}
+}
+
+func runIDOf(r *db.Run) string {
+	if r == nil {
+		return ""
+	}
+	return r.RunID
 }
 
 // rearmAlarm deadline 取自 ticket_event 最近活性帧（§5.3 闹钟重算）：

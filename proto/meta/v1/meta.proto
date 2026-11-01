@@ -30,6 +30,7 @@ service AdminGateway {
   rpc Runs(TicketRef) returns (RunList);     // seat_run 取证径
   rpc Observe(Empty) returns (stream ObsEvent); // 事件观察口导出
   rpc RetroVerdict(RetroReq) returns (Ack);  // 回翻件：滞留待审票一次性机械补录
+  rpc Ping(Empty) returns (Ack);             // 健康核验径（meta ping / meta-probe.sh）
 }
 
 message SeatMsg {
@@ -43,6 +44,7 @@ message SeatMsg {
     Yield yield = 7;
     SecretReq secret_req = 8;
     Rule rule = 9; // 裁决回流帧（adjunct 裁决席专用，§1.4）
+    ExecReq exec_req = 10; // 命令代跑请求（部署闸：role=CTO+票相位=部署中+非 adjunct，缺一即拒）
   }
 }
 
@@ -54,6 +56,7 @@ message GatewayMsg {
     Extend extend = 4;
     SecretResp secret_resp = 5;
     Ack ack = 6; // Deliver 回执：席位等执再退，防尾帧丢在传输缓冲
+    ExecResp exec_resp = 7; // 代跑回执：退码+输出路径+尾段（cmd_run 同文）
   }
 }
 
@@ -84,6 +87,23 @@ message Deliver {
 message Rule {
   string action = 1; // kill_requeue|defer
   string note = 2;   // 裁决理由
+}
+
+// ExecReq 命令代跑（票0010 §10/B2/D1）：席→网关。step 是项目配方步名
+// （integrate|check|deploy|probe|rollback），配方外步名不得代跑。
+message ExecReq {
+  string step = 1;
+  string ref = 2; // 交付 ref（支/commit）；空＝网关自取该票最近 deliver 事件 ref
+}
+
+// ExecResp 代跑回执（网关→席）：与 cmd_run 行同文。exit_code<0＝
+// 闸拒/起不来/超时杀（note 带因），非命令退码。
+message ExecResp {
+  string step = 1;
+  int32 exit_code = 2;
+  string out_path = 3; // 输出全文落盘（run/exec/）；tail 是尾段
+  string tail = 4;
+  string note = 5;
 }
 
 message PermissionReply {
@@ -292,6 +312,30 @@ message GatewayConfig {
   int64 ticket_hard_cap = 8;                       // 票级累计硬顶缺省（毛值）
   repeated RoleBudget role_budget = 9;
   repeated ShellRow shell = 10;
+  repeated ProjectSeed project = 11;               // 项目配方种子（缺 id 行才落，DB 行是活态）
+}
+
+// SandboxSpec 沙箱形制（§11）：代跑执行身份——run_as 缺省＋按步覆盖。
+// D1 禁网关自身用户；meta 配方的诚实妥协＝不可信码只进 check 步（metaseat），
+// integrate/deploy/probe/rollback 为仓内固定脚本按步覆盖 run_as=mluser。
+message SandboxSpec {
+  string run_as = 1;                        // 代跑缺省用户
+  map<string,string> step_run_as = 2;       // 按步覆盖（step→用户）
+  google.protobuf.Duration exec_timeout = 3; // 单步超时（一次性闹钟杀）；空＝网关缺省
+}
+
+// ProjectSeed 项目配方种行（§11 子集——本票消费列）：
+// 仓址/默认支/五步命令/沙箱形制；种入 project 表（已存在 id 行不动）。
+message ProjectSeed {
+  string id = 1;
+  string repo_url = 2;          // clone 源（本机路径或远端；空＝无仓址，cwd=干净空目录）
+  string default_branch = 3;
+  string integrate_cmd = 4;     // 集成交付支（meta=merge 交付支）
+  string check_cmd = 5;         // 检查命令（不可信票码唯一落点——run_as 必须降权）
+  string deploy_cmd = 6;
+  string probe_cmd = 7;
+  string rollback_cmd = 8;
+  SandboxSpec sandbox = 9;
 }
 
 message RoleBudget {
