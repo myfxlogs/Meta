@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v3.21.12
-// source: meta/v1/meta.proto
+// source: proto/meta/v1/meta.proto
 
 package metav1
 
@@ -115,7 +115,7 @@ var SeatGateway_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "meta/v1/meta.proto",
+	Metadata: "proto/meta/v1/meta.proto",
 }
 
 const (
@@ -223,5 +223,383 @@ var SeatAdopt_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "meta/v1/meta.proto",
+	Metadata: "proto/meta/v1/meta.proto",
+}
+
+const (
+	AdminGateway_CreateTicket_FullMethodName = "/meta.v1.AdminGateway/CreateTicket"
+	AdminGateway_Dispatch_FullMethodName     = "/meta.v1.AdminGateway/Dispatch"
+	AdminGateway_SetBudget_FullMethodName    = "/meta.v1.AdminGateway/SetBudget"
+	AdminGateway_Budget_FullMethodName       = "/meta.v1.AdminGateway/Budget"
+	AdminGateway_Phase_FullMethodName        = "/meta.v1.AdminGateway/Phase"
+	AdminGateway_Events_FullMethodName       = "/meta.v1.AdminGateway/Events"
+	AdminGateway_Runs_FullMethodName         = "/meta.v1.AdminGateway/Runs"
+	AdminGateway_Observe_FullMethodName      = "/meta.v1.AdminGateway/Observe"
+)
+
+// AdminGatewayClient is the client API for AdminGateway service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// 管理面：同 unix socket 上的管理与只读导出口（阶段 1 手工径/smoke 用）。
+// 一切写径仍经网关——CLI 不直连 DB（禁区#6 唯一写者）。
+type AdminGatewayClient interface {
+	CreateTicket(ctx context.Context, in *NewTicket, opts ...grpc.CallOption) (*Ack, error)
+	Dispatch(ctx context.Context, in *DispatchReq, opts ...grpc.CallOption) (*Ack, error)
+	SetBudget(ctx context.Context, in *BudgetReq, opts ...grpc.CallOption) (*Ack, error)
+	Budget(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*BudgetMsg, error)
+	Phase(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*PhaseMsg, error)
+	Events(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*EventList, error)
+	Runs(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*RunList, error)
+	Observe(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ObsEvent], error)
+}
+
+type adminGatewayClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAdminGatewayClient(cc grpc.ClientConnInterface) AdminGatewayClient {
+	return &adminGatewayClient{cc}
+}
+
+func (c *adminGatewayClient) CreateTicket(ctx context.Context, in *NewTicket, opts ...grpc.CallOption) (*Ack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, AdminGateway_CreateTicket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminGatewayClient) Dispatch(ctx context.Context, in *DispatchReq, opts ...grpc.CallOption) (*Ack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, AdminGateway_Dispatch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminGatewayClient) SetBudget(ctx context.Context, in *BudgetReq, opts ...grpc.CallOption) (*Ack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, AdminGateway_SetBudget_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminGatewayClient) Budget(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*BudgetMsg, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BudgetMsg)
+	err := c.cc.Invoke(ctx, AdminGateway_Budget_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminGatewayClient) Phase(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*PhaseMsg, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PhaseMsg)
+	err := c.cc.Invoke(ctx, AdminGateway_Phase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminGatewayClient) Events(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*EventList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EventList)
+	err := c.cc.Invoke(ctx, AdminGateway_Events_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminGatewayClient) Runs(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*RunList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunList)
+	err := c.cc.Invoke(ctx, AdminGateway_Runs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminGatewayClient) Observe(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ObsEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AdminGateway_ServiceDesc.Streams[0], AdminGateway_Observe_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[Empty, ObsEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminGateway_ObserveClient = grpc.ServerStreamingClient[ObsEvent]
+
+// AdminGatewayServer is the server API for AdminGateway service.
+// All implementations must embed UnimplementedAdminGatewayServer
+// for forward compatibility.
+//
+// 管理面：同 unix socket 上的管理与只读导出口（阶段 1 手工径/smoke 用）。
+// 一切写径仍经网关——CLI 不直连 DB（禁区#6 唯一写者）。
+type AdminGatewayServer interface {
+	CreateTicket(context.Context, *NewTicket) (*Ack, error)
+	Dispatch(context.Context, *DispatchReq) (*Ack, error)
+	SetBudget(context.Context, *BudgetReq) (*Ack, error)
+	Budget(context.Context, *TicketRef) (*BudgetMsg, error)
+	Phase(context.Context, *TicketRef) (*PhaseMsg, error)
+	Events(context.Context, *TicketRef) (*EventList, error)
+	Runs(context.Context, *TicketRef) (*RunList, error)
+	Observe(*Empty, grpc.ServerStreamingServer[ObsEvent]) error
+	mustEmbedUnimplementedAdminGatewayServer()
+}
+
+// UnimplementedAdminGatewayServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAdminGatewayServer struct{}
+
+func (UnimplementedAdminGatewayServer) CreateTicket(context.Context, *NewTicket) (*Ack, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateTicket not implemented")
+}
+func (UnimplementedAdminGatewayServer) Dispatch(context.Context, *DispatchReq) (*Ack, error) {
+	return nil, status.Error(codes.Unimplemented, "method Dispatch not implemented")
+}
+func (UnimplementedAdminGatewayServer) SetBudget(context.Context, *BudgetReq) (*Ack, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetBudget not implemented")
+}
+func (UnimplementedAdminGatewayServer) Budget(context.Context, *TicketRef) (*BudgetMsg, error) {
+	return nil, status.Error(codes.Unimplemented, "method Budget not implemented")
+}
+func (UnimplementedAdminGatewayServer) Phase(context.Context, *TicketRef) (*PhaseMsg, error) {
+	return nil, status.Error(codes.Unimplemented, "method Phase not implemented")
+}
+func (UnimplementedAdminGatewayServer) Events(context.Context, *TicketRef) (*EventList, error) {
+	return nil, status.Error(codes.Unimplemented, "method Events not implemented")
+}
+func (UnimplementedAdminGatewayServer) Runs(context.Context, *TicketRef) (*RunList, error) {
+	return nil, status.Error(codes.Unimplemented, "method Runs not implemented")
+}
+func (UnimplementedAdminGatewayServer) Observe(*Empty, grpc.ServerStreamingServer[ObsEvent]) error {
+	return status.Error(codes.Unimplemented, "method Observe not implemented")
+}
+func (UnimplementedAdminGatewayServer) mustEmbedUnimplementedAdminGatewayServer() {}
+func (UnimplementedAdminGatewayServer) testEmbeddedByValue()                      {}
+
+// UnsafeAdminGatewayServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AdminGatewayServer will
+// result in compilation errors.
+type UnsafeAdminGatewayServer interface {
+	mustEmbedUnimplementedAdminGatewayServer()
+}
+
+func RegisterAdminGatewayServer(s grpc.ServiceRegistrar, srv AdminGatewayServer) {
+	// If the following call panics, it indicates UnimplementedAdminGatewayServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AdminGateway_ServiceDesc, srv)
+}
+
+func _AdminGateway_CreateTicket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NewTicket)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).CreateTicket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_CreateTicket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).CreateTicket(ctx, req.(*NewTicket))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminGateway_Dispatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DispatchReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Dispatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Dispatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Dispatch(ctx, req.(*DispatchReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminGateway_SetBudget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BudgetReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).SetBudget(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_SetBudget_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).SetBudget(ctx, req.(*BudgetReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminGateway_Budget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TicketRef)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Budget(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Budget_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Budget(ctx, req.(*TicketRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminGateway_Phase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TicketRef)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Phase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Phase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Phase(ctx, req.(*TicketRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminGateway_Events_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TicketRef)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Events(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Events_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Events(ctx, req.(*TicketRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminGateway_Runs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TicketRef)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Runs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Runs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Runs(ctx, req.(*TicketRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminGateway_Observe_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AdminGatewayServer).Observe(m, &grpc.GenericServerStream[Empty, ObsEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AdminGateway_ObserveServer = grpc.ServerStreamingServer[ObsEvent]
+
+// AdminGateway_ServiceDesc is the grpc.ServiceDesc for AdminGateway service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AdminGateway_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "meta.v1.AdminGateway",
+	HandlerType: (*AdminGatewayServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateTicket",
+			Handler:    _AdminGateway_CreateTicket_Handler,
+		},
+		{
+			MethodName: "Dispatch",
+			Handler:    _AdminGateway_Dispatch_Handler,
+		},
+		{
+			MethodName: "SetBudget",
+			Handler:    _AdminGateway_SetBudget_Handler,
+		},
+		{
+			MethodName: "Budget",
+			Handler:    _AdminGateway_Budget_Handler,
+		},
+		{
+			MethodName: "Phase",
+			Handler:    _AdminGateway_Phase_Handler,
+		},
+		{
+			MethodName: "Events",
+			Handler:    _AdminGateway_Events_Handler,
+		},
+		{
+			MethodName: "Runs",
+			Handler:    _AdminGateway_Runs_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Observe",
+			Handler:       _AdminGateway_Observe_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "proto/meta/v1/meta.proto",
 }

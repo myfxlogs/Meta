@@ -18,29 +18,41 @@ import (
 // 席位约定环境变量：META_GATEWAY_SOCK / META_SEAT_SOCK / META_RUN_TOKEN /
 // META_TICKET_ID / META_RUN_ID。
 func (g *Gateway) Spawn(ctx context.Context, ticketID, role, shell string, argv []string, env []string) (*db.Run, error) {
-	if len(argv) == 0 {
-		return nil, fmt.Errorf("spawn: 空 argv")
+	run := g.newRun(ticketID, role, shell)
+	if err := g.startRun(ctx, run, argv, env); err != nil {
+		return nil, err
 	}
-	run := &db.Run{
-		RunID:      randHex(8),
+	return run, nil
+}
+
+// newRun 分配 run 身份与落点（socket/log 路径、token）。
+func (g *Gateway) newRun(ticketID, role, shell string) *db.Run {
+	id := randHex(8)
+	return &db.Run{
+		RunID:      id,
 		TicketID:   ticketID,
 		Role:       role,
 		Shell:      shell,
 		RunToken:   randHex(16),
-		SocketPath: filepath.Join(g.cfg.RunDir, "seats", ""),
-		LogPath:    filepath.Join(g.cfg.RunDir, "logs", ""),
+		SocketPath: filepath.Join(g.cfg.RunDir, "seats", id+".sock"),
+		LogPath:    filepath.Join(g.cfg.RunDir, "logs", id+".log"),
 	}
-	run.SocketPath += run.RunID + ".sock"
-	run.LogPath += run.RunID + ".log"
+}
 
+// startRun 登记 run 行并前台 exec（B5：禁 daemonize——SIGCHLD/EOF 双源靠它）。
+// 子进程独立进程组（Setpgid）——killRun 负 pid 整组杀，外壳+壳子进程同灭。
+func (g *Gateway) startRun(ctx context.Context, run *db.Run, argv []string, env []string) error {
+	if len(argv) == 0 {
+		return fmt.Errorf("spawn: 空 argv")
+	}
 	logf, err := os.OpenFile(run.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("spawn log: %w", err)
+		return fmt.Errorf("spawn log: %w", err)
 	}
 	defer logf.Close()
 
 	if err := g.database.CreateRun(ctx, run); err != nil {
-		return nil, err
+		return err
 	}
 
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
@@ -50,18 +62,20 @@ func (g *Gateway) Spawn(ctx context.Context, ticketID, role, shell string, argv 
 		"META_RUN_TOKEN="+run.RunToken,
 		"META_SEAT_SOCK="+run.SocketPath,
 		"META_GATEWAY_SOCK="+g.cfg.SocketPath,
-		"META_TICKET_ID="+ticketID,
+		"META_TICKET_ID="+run.TicketID,
 	)
 	cmd.Stdout, cmd.Stderr = logf, logf
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
 		_ = g.database.MarkDead(ctx, run.RunID)
-		return nil, fmt.Errorf("spawn %s: %w", shell, err) // ①级：同步返回，调用方换壳
+		return fmt.Errorf("spawn %s: %w", run.Shell, err) // ①级：同步返回，调用方换壳
 	}
 	run.PID = cmd.Process.Pid
 	_ = g.database.UpdatePID(ctx, run.RunID, run.PID)
 
-	st := &runState{run: run, cmd: cmd.Process}
+	st := newRunState(run)
+	st.cmd = cmd.Process
 	g.mu.Lock()
 	g.runs[run.RunID] = st
 	g.mu.Unlock()
@@ -77,10 +91,11 @@ func (g *Gateway) Spawn(ctx context.Context, ticketID, role, shell string, argv 
 		st.mu.Lock()
 		st.exited, st.exitCode = true, code
 		st.mu.Unlock()
+		close(st.exitCh)
 		_ = g.database.MarkExited(context.Background(), run.RunID, code)
 		g.maybeDeclareDead(st)
 	}()
-	return run, nil
+	return nil
 }
 
 // processAlive kill(pid,0) 一次性核实——只在 EOF/对账等事件点上调用，非探活。

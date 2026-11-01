@@ -1,0 +1,130 @@
+package gateway
+
+import (
+	"context"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	pbv1 "meta/internal/pb/metav1"
+)
+
+// AdminGateway 管理/只读导出面（§12 外手工径件：smoke/CLI/审计取证）。
+// 一切写径经这里进网关——CLI 不直连 DB（禁区#6）。
+
+func (g *Gateway) CreateTicket(ctx context.Context, nt *pbv1.NewTicket) (*pbv1.Ack, error) {
+	if nt.Id == "" {
+		return nil, status.Error(codes.InvalidArgument, "id 空")
+	}
+	if err := g.database.CreateTicket(ctx, nt.Id, nt.Title, nt.Spec); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if nt.AttemptCap > 0 || nt.HardCap > 0 {
+		if err := g.database.SetBudgetCaps(ctx, nt.Id, nt.AttemptCap, nt.HardCap); err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+	}
+	return &pbv1.Ack{Ok: true}, nil
+}
+
+func (g *Gateway) Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv1.Ack, error) {
+	if req.TicketId == "" || req.Role == "" {
+		return nil, status.Error(codes.InvalidArgument, "ticket_id/role 空")
+	}
+	err := g.DispatchSeat(ctx, req.TicketId, req.Role, SeatSpec{
+		PromptFile:  req.PromptFile,
+		WorkDir:     req.WorkDir,
+		PreferShell: req.PreferShell,
+	})
+	if err != nil {
+		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
+	}
+	return &pbv1.Ack{Ok: true}, nil
+}
+
+func (g *Gateway) SetBudget(ctx context.Context, req *pbv1.BudgetReq) (*pbv1.Ack, error) {
+	if err := g.database.SetBudgetCaps(ctx, req.TicketId, req.AttemptCap, req.HardCap); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	// 追加预算复活＝抬帽不清零：仅当新帽确实高于累计用量才解冻
+	// （降低帽不解冻——frozen 是止血态不是可绕过闸）。
+	if b, err := g.database.GetBudget(ctx, req.TicketId); err == nil &&
+		(b.HardCap == 0 || b.UsedTotal < b.HardCap) {
+		g.mu.Lock()
+		delete(g.frozen, req.TicketId)
+		g.mu.Unlock()
+		_ = g.database.SetBudgetFrozen(ctx, req.TicketId, false)
+	}
+	return &pbv1.Ack{Ok: true}, nil
+}
+
+func (g *Gateway) Budget(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.BudgetMsg, error) {
+	b, err := g.database.GetBudget(ctx, ref.Id)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pbv1.BudgetMsg{Cap: b.Cap, Used: b.Used, HardCap: b.HardCap, UsedTotal: b.UsedTotal}, nil
+}
+
+func (g *Gateway) Phase(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.PhaseMsg, error) {
+	t, err := g.database.GetTicket(ctx, ref.Id)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if t == nil {
+		return nil, status.Error(codes.NotFound, "票不存在")
+	}
+	return &pbv1.PhaseMsg{Phase: string(t.Phase), BudgetFrozen: t.BudgetFrozen}, nil
+}
+
+func (g *Gateway) Events(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.EventList, error) {
+	evs, err := g.database.Events(ctx, ref.Id)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &pbv1.EventList{}
+	for _, e := range evs {
+		out.Items = append(out.Items, &pbv1.EventItem{
+			Id: e.ID, Kind: e.Kind, FromPhase: string(e.FromPhase), ToPhase: string(e.ToPhase),
+			Actor: e.Actor, Note: e.Note, AtUnixNano: e.CreatedAt.UnixNano(),
+		})
+	}
+	return out, nil
+}
+
+func (g *Gateway) Runs(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.RunList, error) {
+	runs, err := g.database.RunsForTicket(ctx, ref.Id)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &pbv1.RunList{}
+	for _, r := range runs {
+		out.Items = append(out.Items, &pbv1.RunItem{
+			RunId: r.RunID, Role: r.Role, Shell: r.Shell, Pid: int32(r.PID),
+			ExitCode: int32(r.ExitCode), Dead: r.Dead,
+			Attached: !r.AttachedAt.IsZero(), Adopted: !r.AdoptedAt.IsZero(),
+			StartedAt: r.StartedAt.UnixNano(), ExitedAt: r.ExitedAt.UnixNano(),
+		})
+	}
+	return out, nil
+}
+
+// Observe 事件观察口导出：订阅进程内事件源（socket 断＝订户走，无清理负担）。
+func (g *Gateway) Observe(_ *pbv1.Empty, stream pbv1.AdminGateway_ObserveServer) error {
+	ch := g.subscribe()
+	defer g.unsubscribe(ch)
+	for {
+		select {
+		case e := <-ch:
+			if err := stream.Send(&pbv1.ObsEvent{
+				Kind: e.Kind, TicketId: e.TicketID, RunId: e.RunID, Role: e.Role, Note: e.Note,
+			}); err != nil {
+				return err
+			}
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case <-g.done:
+			return nil
+		}
+	}
+}
