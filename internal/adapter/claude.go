@@ -56,7 +56,7 @@ type claudeLine struct {
 func (c *claude) Parse(line []byte) []Frame {
 	var m claudeLine
 	if err := json.Unmarshal(line, &m); err != nil {
-		return []Frame{{Kind: FrameText, Note: preview(string(line), 200)}}
+		return []Frame{{Kind: FrameText, Note: preview(string(line), 200), Text: string(line)}}
 	}
 	switch m.Type {
 	case "system":
@@ -66,7 +66,7 @@ func (c *claude) Parse(line []byte) []Frame {
 	case "assistant":
 		for _, p := range m.Message.Content {
 			if p.Type == "text" && p.Text != "" {
-				return []Frame{{Kind: FrameText, Note: preview(p.Text, 200)}}
+				return []Frame{{Kind: FrameText, Note: preview(p.Text, 200), Text: p.Text}}
 			}
 			if p.Type == "tool_use" {
 				return []Frame{{Kind: FrameText, Stage: "工具", Note: p.Name}}
@@ -78,9 +78,9 @@ func (c *claude) Parse(line []byte) []Frame {
 		c.tokens = m.Usage.InputTokens + m.Usage.OutputTokens
 		c.costUSD = m.TotalCostUSD
 		if m.IsError {
-			return []Frame{{Kind: FrameError, Note: preview(m.Result, 200)}}
+			return []Frame{{Kind: FrameError, Note: preview(m.Result, 200), Text: m.Result}}
 		}
-		return []Frame{{Kind: FrameResult, Note: preview(m.Result, 200),
+		return []Frame{{Kind: FrameResult, Note: preview(m.Result, 200), Text: m.Result,
 			Tokens: c.tokens, CostUSD: c.costUSD}}
 	}
 	return nil

@@ -16,6 +16,10 @@
    `META_ADMIN:dispatch|<id>|<role>|<promptfile~workdir>`
 6. Deliver 本票→待审（设计票审＝核设计档在、子票立、派发真）。
 
+**哨兵双发**（D-42）：以上每条 `META_ADMIN:` 行与收尾
+`META_DELIVER:<ref>` 均须 stdout 独占一行＋同一行原文追加
+`$META_ART_DIR/sentinel.log`——外壳两径都扫，任一命中即算。
+
 ## 需求待裁出口
 
 动钱/范围外/票面歧义 → `Yield`（本票回 已立 泊车 req_pending，

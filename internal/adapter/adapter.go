@@ -45,6 +45,7 @@ type Frame struct {
 	Kind    FrameKind
 	Stage   string  // 阶段语义（可空）
 	Note    string  // 原文预览
+	Text    string  // 全量解码文本（可多行）——D-42 哨兵扫描面；Note 仍 ≤200 预览
 	Tokens  int64   // Usage/Result 帧：累计 token
 	CostUSD float64 // 可读到则填，读不到为 0
 }

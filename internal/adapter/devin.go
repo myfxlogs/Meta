@@ -48,9 +48,9 @@ func (d *devin) Parse(line []byte) []Frame {
 		return nil
 	}
 	if reDevinErr.MatchString(strings.TrimSpace(s)) {
-		return []Frame{{Kind: FrameError, Note: preview(s, 200)}}
+		return []Frame{{Kind: FrameError, Note: preview(s, 200), Text: s}}
 	}
-	return []Frame{{Kind: FrameText, Note: preview(s, 200)}}
+	return []Frame{{Kind: FrameText, Note: preview(s, 200), Text: s}}
 }
 
 func (d *devin) Tokens() int64 { return d.tokens }

@@ -134,7 +134,9 @@ func Assemble(in Input) (string, error) {
 	// D-32 交付哨兵机械末行（令#E15 首个适用——完工没喊交货＝席死径）：
 	// 本行是注入模板钦定末行，改/删＝票面级变更（验收锚：末行断言）。
 	b.WriteString("## 七、交付哨兵（机械强制——净退无此行外壳按席死计，不交付）\n\n")
-	b.WriteString("完工的最后一行必须**单独一行**输出哨兵，`<ref>`＝交付 commit/支名：\n\n")
+	b.WriteString("完工的最后一行必须**单独一行**输出哨兵（`<ref>`＝交付 commit/支名），")
+	b.WriteString("并把**同一行原文追加一行**到 `$META_ART_DIR/sentinel.log`——哨兵双发")
+	b.WriteString("（D-42：外壳同时扫 stdout 文本流与该文件，任一命中即算；追加写后继续输出，不等回执）。\n\n")
 	b.WriteString("META_DELIVER:<ref>\n")
 	out := b.String()
 	if strings.TrimSpace(out) == "" {
