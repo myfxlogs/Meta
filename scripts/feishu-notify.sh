@@ -24,7 +24,8 @@ TOKEN=$(curl -s -m 10 https://open.feishu.cn/open-apis/auth/v3/tenant_access_tok
 [ -n "$TOKEN" ] || { echo "token 获取失败" >&2; exit 3; }
 
 BODY=$(python3 -c 'import json,sys
-print(json.dumps({"receive_id":sys.argv[1],"msg_type":"text","content":json.dumps({"text":sys.argv[2]},ensure_ascii=False)},ensure_ascii=False))' "$CHAT_ID" "$MSG")
+s=sys.argv[2].encode("utf-8","replace").decode("utf-8","replace")
+print(json.dumps({"receive_id":sys.argv[1],"msg_type":"text","content":json.dumps({"text":s},ensure_ascii=False)},ensure_ascii=False))' "$CHAT_ID" "$MSG")
 [ -n "${META_NOTIFY_DEBUG:-}" ] && printf '%s' "$BODY" > /tmp/notify-body.json
 curl -s -m 10 "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
