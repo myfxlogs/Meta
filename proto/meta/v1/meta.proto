@@ -17,6 +17,14 @@ service SeatAdopt {
   rpc Adopt(AdoptAuth) returns (AdoptAck);
 }
 
+// 前端面：席位板（总设计 §9/§12，票0012）——业主眼前的一面。
+// 接入即一帧全态，此后只推变化帧；不存历史不查过去（历史归 DB 审计面）。
+// 同一实现在两处暴露：board_listen TCP 走 Connect 二进制（浏览器径），
+// unix socket 走 gRPC 注册（meta board --socket 验收径）。
+service Board {
+  rpc SeatBoard(BoardReq) returns (stream BoardFrame);
+}
+
 // 管理面：同 unix socket 上的管理与只读导出口（阶段 1 手工径/smoke 用）。
 // 一切写径仍经网关——CLI 不直连 DB（禁区#6 唯一写者）。
 service AdminGateway {
@@ -249,6 +257,63 @@ message ObsEvent {
   string note = 5;
 }
 
+// ---------- 前端面：席位板消息（票0012） ----------
+
+// BoardReq 接入请求：token 对 secret.board.token——行缺/不符一律
+// Unauthenticated（fail closed，§3.4 前端面 token 闸）。
+message BoardReq {
+  string token = 1;
+}
+
+// BoardFrame 一帧：首帧恒为 full（全态投影），此后只推变化帧。
+// 变化帧内容恒为 DB 现态重读投影——幂等重放安全（事件丢了重发不脏板）。
+message BoardFrame {
+  oneof body {
+    BoardFull full = 1;
+    SeatRow seat_upsert = 2;
+    SeatGone seat_gone = 3;
+    TicketRow ticket_upsert = 4;
+  }
+}
+
+message BoardFull {
+  repeated SeatRow seats = 1;     // 全部活 run（dead=0）
+  repeated TicketRow tickets = 2; // 全部非终态票
+}
+
+// SeatRow 一席现态（§9：角色/壳/模型/所领票/当前 stage/预算用量）。
+message SeatRow {
+  string run_id = 1;
+  string role = 2;
+  string shell = 3;     // 壳名
+  string model = 4;     // 壳模型（登记表 label 第二段；无则空）
+  string ticket_id = 5;
+  string stage = 6;     // 最近进度帧 stage（无则空）
+  string note = 7;      // 最近进度帧附言
+  int64 used = 8;       // 尝试内已用（毛值 token）
+  int64 cap = 9;        // 尝试内帽
+  int64 used_total = 10; // 票级累计
+  int64 hard_cap = 11;  // 票级硬顶
+  bool attached = 12;
+  bool adjunct = 13;
+  int64 started_at_unix_nano = 14;
+}
+
+message SeatGone {
+  string run_id = 1;
+}
+
+// TicketRow 一票现态投影（含终态相位 upsert——板只上行不删行，
+// 终态由前端滤；票无副本，一切读 DB）。
+message TicketRow {
+  string id = 1;
+  string title = 2;
+  string phase = 3;
+  bool budget_frozen = 4;
+  int64 used_total = 5;
+  int64 hard_cap = 6;
+}
+
 message Empty {}
 
 // ---------- 播报员路由表（D-26/令#E13：事件→动作电话簿，判断永不进播报员） ----------
@@ -292,6 +357,7 @@ message GatewayConfig {
   int64 ticket_hard_cap = 8;                       // 票级累计硬顶缺省（毛值）
   repeated RoleBudget role_budget = 9;
   repeated ShellRow shell = 10;
+  string board_listen = 11; // 前端面 TCP 监听（127.0.0.1:<port>；空=不挂板）
 }
 
 message RoleBudget {

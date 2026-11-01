@@ -203,6 +203,28 @@ func (d *DB) EventsAfter(ctx context.Context, sinceID int64, limit int) ([]*Even
 	return scanEvents(rows)
 }
 
+// LatestStages 每票最近一条 progress 事件的 note（板「当前 stage」列输入，
+// 全态帧一次取全）。note 形「<stage> <附言>」，无进度帧的票不在图里。
+func (d *DB) LatestStages(ctx context.Context) (map[string]string, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT e.ticket_id, e.note FROM ticket_event e
+		 JOIN (SELECT ticket_id, MAX(id) mid FROM ticket_event
+		       WHERE kind='progress' GROUP BY ticket_id) m ON m.mid=e.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var tid, note string
+		if err := rows.Scan(&tid, &note); err != nil {
+			return nil, err
+		}
+		out[tid] = note
+	}
+	return out, rows.Err()
+}
+
 // LastActivityAt 票上最近一次活性事件的墙上时间——闹钟 deadline 由此重算（§5.3 A4）。
 // 活性事件＝进度帧/用量帧/领票；都没有则回退票 updated_at。
 func (d *DB) LastActivityAt(ctx context.Context, ticketID string) (time.Time, error) {
