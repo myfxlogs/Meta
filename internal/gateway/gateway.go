@@ -16,8 +16,8 @@ import (
 
 	"meta/internal/clock"
 	"meta/internal/db"
-	"meta/internal/route"
 	pbv1 "meta/internal/pb/metav1"
+	"meta/internal/route"
 )
 
 // Config 网关运行配置。
@@ -130,28 +130,28 @@ type Gateway struct {
 	ln       net.Listener
 	vaultKey []byte // secret 表主密钥；缺载时 Secret RPC 全拒
 
-	mu        sync.Mutex
-	runs      map[string]*runState
-	alarms    map[string]*clock.Alarm
-	events    chan Event
-	observers map[chan Event]struct{} // Observe 面订户（管理面导出）
-	specs     map[specKey]SeatSpec   // (tid,role) → 派发参数（内存；重启缺→spawn_blocked）
-	failSet   map[string]map[string]bool // tid → 本票已失败壳行键（换壳＝排除）
-	warned    map[string]bool         // tid → 本尝试 80% 警已发（边沿触发）
-	frozen    map[string]bool         // budget_frozen 票集（冻票无活性）
-	active    map[string]int          // 壳名 → 活跃 run 数（provider 并发闸）
-	attemptCaps map[string]int64     // ShellKey → 该行尝试帽覆盖（§7）
-	spawnQ    chan spawnReq
-	done      chan struct{}
-	closed    bool
+	mu          sync.Mutex
+	runs        map[string]*runState
+	alarms      map[string]*clock.Alarm
+	events      chan Event
+	observers   map[chan Event]struct{}    // Observe 面订户（管理面导出）
+	specs       map[specKey]SeatSpec       // (tid,role) → 派发参数（内存；重启缺→spawn_blocked）
+	failSet     map[string]map[string]bool // tid → 本票已失败壳行键（换壳＝排除）
+	warned      map[string]bool            // tid → 本尝试 80% 警已发（边沿触发）
+	frozen      map[string]bool            // budget_frozen 票集（冻票无活性）
+	active      map[string]int             // 壳名 → 活跃 run 数（provider 并发闸）
+	attemptCaps map[string]int64           // ShellKey → 该行尝试帽覆盖（§7）
+	spawnQ      chan spawnReq
+	done        chan struct{}
+	closed      bool
 
 	// CEO 面（票0011）：锁＝连接登记非 DB 旗（禁区#10/B8）。
-	ceoSub        chan Event     // 活跃 Events 订阅的派发道；nil＝无订阅
-	ceoSubRunID   string         // 当前订阅属哪条 run（D-22 计数分账）
-	ceoPending    []Event        // 无订阅期排队的需 CEO 事件（切换不丢，§8）
-	ceoFails      int            // 无头唤起连败计数（3→ceo_last_resort）
-	ceoDispatched map[string]int // run_id → 已派发给该 run 的事件数（D-22）
-	designLocks   map[string]string // project → 持设计锁的票（B1 三锁之一，§1.8）
+	ceoSub        chan Event                                                    // 活跃 Events 订阅的派发道；nil＝无订阅
+	ceoSubRunID   string                                                        // 当前订阅属哪条 run（D-22 计数分账）
+	ceoPending    []Event                                                       // 无订阅期排队的需 CEO 事件（切换不丢，§8）
+	ceoFails      int                                                           // 无头唤起连败计数（3→ceo_last_resort）
+	ceoDispatched map[string]int                                                // run_id → 已派发给该 run 的事件数（D-22）
+	designLocks   map[string]string                                             // project → 持设计锁的票（B1 三锁之一，§1.8）
 	budgetOf      func(ctx context.Context, ticketID string) (db.Budget, error) // D-36 变异注入缝
 }
 
@@ -221,8 +221,8 @@ func New(cfg Config) (*Gateway, error) {
 	}
 
 	g.Reconcile(context.Background()) // §5.3 全相位对账，启动一次非周期
-	go g.dispatcher()                  // spawn 调度器：事件驱动，非周期
-	go g.ceoPump(g.subscribe())        // CEO 事件泵：先订阅后起泵，不丢首事件
+	go g.dispatcher()                 // spawn 调度器：事件驱动，非周期
+	go g.ceoPump(g.subscribe())       // CEO 事件泵：先订阅后起泵，不丢首事件
 	return g, nil
 }
 
@@ -356,8 +356,10 @@ func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, 
 		return err
 	}
 	g.emit(Event{Kind: "phase:" + string(kind), TicketID: ticketID})
-	if ferr == nil && from == db.PhaseDesigning {
-		g.releaseDesignLock(ctx, ticketID) // 离开设计中→放项目设计锁（B1）
+	// B1 设计锁释放点＝持锁票离开施工中（交付/泊车/回队）或入终态——
+	// releaseDesignLock 内 holder 核对使非持锁票过此为无操作。
+	if ferr == nil && (from == db.PhaseWorking || to == db.PhaseDone || to == db.PhaseVoid) {
+		g.releaseDesignLock(ctx, ticketID)
 	}
 	if to == db.PhaseDone || to == db.PhaseVoid {
 		g.onTerminal(ticketID) // D-15：终态即删进程级内存键

@@ -230,6 +230,15 @@ func (d *DB) UpdateSpec(ctx context.Context, ticketID string, spec []byte) error
 	return err
 }
 
+// SetProject 票归项目（B1 三把项目锁的锁族键；NewTicket.project 面
+// 落成前的写径）。
+func (d *DB) SetProject(ctx context.Context, ticketID, project string) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE ticket SET project=?, updated_at=? WHERE id=?`,
+		project, d.now().UnixNano(), ticketID)
+	return err
+}
+
 // TicketsByProjectPhase 项目×相位查票（design 锁释放后补发 spawn_needed 的
 // 查表径；project 空串票不入锁族）。
 func (d *DB) TicketsByProjectPhase(ctx context.Context, project string, phase Phase) ([]string, error) {

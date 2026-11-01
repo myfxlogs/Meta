@@ -11,8 +11,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"meta/internal/db"
-	"meta/internal/seat"
 	pbv1 "meta/internal/pb/metav1"
+	"meta/internal/seat"
 )
 
 // Attach 席位面双向流（§12）。首帧必为 RunAuth——验不过断流（§3.4 A7）。

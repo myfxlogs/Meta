@@ -44,6 +44,7 @@ type spawnReq struct {
 //   - 审计支（role=="审计"）：闸＝相位==待审；不步行已派——相位推进让位给
 //     claim→audit_start（无连接即无审计中）。
 //   - 其余 role：机械走边到已派→入 spawn 队列→壳路由。
+//
 // 共同：冻票拒派（§5.5）；同角色活席去重（§15.1——焊死 已派 重派双席并存洞）。
 func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec SeatSpec) error {
 	// 禁区#10 机械码位：CEO 只经内部唤起（ensureCEO），一切派发径硬拒——
@@ -85,10 +86,15 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 			return fmt.Errorf("dispatch: 票 %s 该角色 %s 已有活席 %s", ticketID, role, r.RunID)
 		}
 		// B1 项目设计锁（§1.8）：role=CTO && 已立 派发起设计——同项目一票
-		// 在 设计中 即拒第二票起设计（锁释放事件补发 spawn_needed 解排队）。
+		// 在设计链上（派发→施工中→交付/泊车）即拒第二票起设计。锁在本点
+		// 取、持到本票离开施工中/入终态（transition 释放＋spawn_needed 解
+		// 排队，事件驱动零定时）——派发走边只借道 设计中，不作持锁窗。
 		if role == "CTO" && t.Phase == db.PhaseCreated && t.Project != "" {
 			g.mu.Lock()
 			holder := g.designLocks[t.Project]
+			if holder == "" || holder == ticketID {
+				g.designLocks[t.Project] = ticketID
+			}
 			g.mu.Unlock()
 			if holder != "" && holder != ticketID {
 				return fmt.Errorf("dispatch: 项目 %s 设计锁由票 %s 持有", t.Project, holder)
@@ -111,12 +117,6 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 					return err
 				}
 				t.Phase = to
-				// 进设计中即挂项目设计锁（transition 内离开 设计中 时释放）。
-				if to == db.PhaseDesigning && t.Project != "" {
-					g.mu.Lock()
-					g.designLocks[t.Project] = ticketID
-					g.mu.Unlock()
-				}
 			}
 		}
 	}
