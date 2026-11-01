@@ -104,6 +104,7 @@ type runState struct {
 	exitCode     int
 	dead         bool
 	adopted      bool
+	failReported bool // 失效已报账（reportShell 原子置位——同一死双径只记一次）
 }
 
 func newRunState(run *db.Run) *runState {

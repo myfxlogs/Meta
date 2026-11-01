@@ -57,6 +57,7 @@ const (
 	ExitSpawn                      // ① 起不来/秒退/外部杀死——机器级，不标壳
 	ExitTransient                  // ②a 限流/瞬态 API 错——标 limited，错峰懒探
 	ExitFatal                      // ②b 配额尽/授权过期/持续 API 错——标 dead，换壳懒探
+	ExitWrapper                    // 席位级死因（外壳错/孤儿/Abort/输入层）——席非壳之错，禁标壳（D-40）
 )
 
 // Adapter 统一适配器接口（决策13①四件）。实例与一次会话一一对应：
