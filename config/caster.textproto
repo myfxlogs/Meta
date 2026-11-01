@@ -5,7 +5,7 @@
 routes {
   kind: "stall_suspect"
   note: "疑似卡死→通知+派 CTO 裁决席（清 D-16）"
-  actions { notify  { template: "【Meta】⚠️{{role}}:疑似卡死[{{ticket_id}}]，裁决席已拉起" } }
+  actions { notify  { template: "【Meta】⚠️{{role}}:疑似卡死[{{ticket_id}}]——裁决席已拉起" } }
   actions { dispatch { role: "CTO" adjunct: true
                        prompt_template: "caster/stall-ruling.md"
                        work_dir: "/opt/meta" } }
@@ -13,28 +13,28 @@ routes {
 routes {
   kind: "budget_frozen"
   note: "票级硬顶止血→通知；CEO 面预留（阶段 3 加 dispatch role=CEO）"
-  actions { notify  { template: "【Meta】⚠️预算冻结[{{ticket_id}}]，等你发落" } }
+  actions { notify  { template: "【Meta】⚠️预算冻结[{{ticket_id}}]——CEO 已接手" } }
 }
 routes {
   kind: "reject_limit"
   note: "驳回达 3→通知；同上预留 CEO 面"
-  actions { notify  { template: "【Meta】⚠️连驳三次[{{ticket_id}}]，等你发落" } }
+  actions { notify  { template: "【Meta】⚠️连驳三次[{{ticket_id}}]——CEO 已接手" } }
 }
-routes { kind: "defer_limit" note: "延期帽尽→通知" actions { notify { template: "【Meta】⚠️卡死裁决延期已尽[{{ticket_id}}]，等你发落" } } }
+routes { kind: "defer_limit" note: "延期帽尽→通知" actions { notify { template: "【Meta】⚠️卡死裁决延期已尽[{{ticket_id}}]——CEO 已接手" } } }
 # ——审计派发径（决策40，设计 §15 落点）——
 routes { kind: "deliver" note: "交付→通知＋起审计席（prefer claude——devin 只读形态四死弃用，决策39/40）"
-  actions { notify { template: "【Meta】{{role}}:完工转交[{{ticket_id}}]，转查验" } }
+  actions { notify { template: "【Meta】{{role}}:完工转交[{{ticket_id}}]" } }
   actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
-routes { kind: "audit_start" note: "审计拉起（决策34 缺口补）" actions { notify { template: "【Meta】审计:接单[{{ticket_id}}]，开始审计" } } }
-routes { kind: "audit_pass" note: "判决通过→待部署（部署闸票再接 dispatch CTO-B）" actions { notify { template: "【Meta】审计:完成转交[{{ticket_id}}]，待部署" } } }
+routes { kind: "audit_start" note: "审计拉起（决策34 缺口补）" actions { notify { template: "【Meta】审计:接单[{{ticket_id}}]" } } }
+routes { kind: "audit_pass" note: "判决通过→待部署（部署闸票再接 dispatch CTO-B）" actions { notify { template: "【Meta】审计:完成转交[{{ticket_id}}]" } } }
 routes { kind: "reject" note: "驳回→通知＋自动重派施工（判决史随注入累积）"
-  actions { notify { template: "【Meta】审计:驳回转交[{{ticket_id}}]，退回返工" } }
+  actions { notify { template: "【Meta】审计:驳回转交[{{ticket_id}}]" } }
   actions { dispatch { role: "施工" work_dir: "/opt/meta" } } }
 routes { kind: "audit_dead" note: "审计席死→重起审计（不计驳回）" actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
 routes { kind: "spawn_needed" note_contains: "审计" note: "对账补发消费端：待审滞留→派审计" actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
 routes { kind: "spawn_needed" note_contains: "施工" note: "对账补发消费端：已派滞留→派施工" actions { dispatch { role: "施工" work_dir: "/opt/meta" } } }
 # ——通知面（决策41 新格式）——
-routes { kind: "claim"             actions { notify { template: "【Meta】{{role}}:接单[{{ticket_id}}]，开始干活" } } }
-routes { kind: "shells_exhausted"  actions { notify { template: "【Meta】⚠️全壳耗尽[{{ticket_id}}]，换班链走完仍失败" } } }
+routes { kind: "claim"             actions { notify { template: "【Meta】{{role}}:接单[{{ticket_id}}]" } } }
+routes { kind: "shells_exhausted"  actions { notify { template: "【Meta】⚠️全壳耗尽[{{ticket_id}}]——换班链走完仍失败" } } }
 routes { kind: "dispatch"          actions { notify { template: "【Meta】系统:派单[{{ticket_id}}]" } } }
 routes { kind: "ruling"            actions { notify { template: "【Meta】{{role}}:裁决完毕[{{ticket_id}}]" } } }

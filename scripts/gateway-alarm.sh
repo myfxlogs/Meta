@@ -11,4 +11,4 @@ TAIL=$(journalctl --user -u $U --no-pager -n 4 2>/dev/null | tail -3 | cut -c1-6
 ■ 发生：${TS}——短时间连崩已超限，停止自动重启（累计重启 ${RESTARTS} 次，终态=${RESULT} 退出码=${STATUS}）
 ■ 线索（机器日志末 3 行）：${TAIL:-无输出}
 ■ 影响：新派单/查验暂停；在跑的干活席位不受影响（各自独立存活）；账本数据无损（已落盘）
-■ 要你动吗：无需操作——下次打开电脑 CEO 会话即接手处理；急则看：journalctl --user -u meta-gateway"
+■ 需要你：无（CEO 自动接手）。急看：journalctl --user -u meta-gateway"
