@@ -69,7 +69,7 @@ func TestDispatch_Inject(t *testing.T) {
 	}
 	waitPhase(t, g, "ti", db.PhaseWorking, 10*time.Second)
 
-	pf := filepath.Join(dir, "run", "inject", "ti.md")
+	pf := filepath.Join(dir, "run", "inject", "ti-施工.md")
 	waitFile(t, pf, 3*time.Second)
 	out, _ := os.ReadFile(pf)
 	for _, s := range []string{
@@ -121,7 +121,7 @@ func TestDispatch_PromptFile覆盖(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitPhase(t, g, "to", db.PhaseWorking, 10*time.Second)
-	if _, err := os.Stat(filepath.Join(dir, "run", "inject", "to.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "run", "inject", "to-施工.md")); !os.IsNotExist(err) {
 		t.Fatal("覆盖径不该产出注入文件")
 	}
 }

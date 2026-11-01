@@ -31,6 +31,7 @@ type Event struct {
 	FromPhase  Phase
 	ToPhase    Phase
 	Actor      string
+	Role       string // actor 为 run_id 时经 seat_run 映射带出（决策41），否则空
 	Note       string
 	Provenance string
 	CreatedAt  time.Time
@@ -84,34 +85,43 @@ func (d *DB) PhaseOf(ctx context.Context, id string) (Phase, error) {
 
 // Transition 相位迁移：边表核对 → 单事务内改相位＋记 ticket_event。
 // 越边即拒（ErrIllegalEdge）。驳回累 reject_count；Yield/驳回理由入事件（判决史）。
-func (d *DB) Transition(ctx context.Context, id string, to Phase, kind EdgeKind, actor, note string) error {
+// 返回迁移事件行 id（播报员水位游标以 ticket_event.id 为全序基准）。
+func (d *DB) Transition(ctx context.Context, id string, to Phase, kind EdgeKind, actor, note string) (int64, error) {
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 
 	var from string
 	if err := tx.QueryRowContext(ctx, `SELECT phase FROM ticket WHERE id=?`, id).Scan(&from); err != nil {
-		return fmt.Errorf("transition read: %w", err)
+		return 0, fmt.Errorf("transition read: %w", err)
 	}
 	if !Can(Phase(from), to, kind) {
-		return &ErrIllegalEdge{From: Phase(from), To: to, Kind: kind}
+		return 0, &ErrIllegalEdge{From: Phase(from), To: to, Kind: kind}
 	}
 	now := d.now().UnixNano()
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE ticket SET phase=?, updated_at=?,
 		 reject_count = reject_count + ? WHERE id=?`,
 		string(to), now, boolInt(kind == EdgeReject), id); err != nil {
-		return err
+		return 0, err
 	}
-	if _, err := tx.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO ticket_event (ticket_id, kind, from_phase, to_phase, actor, note, created_at)
 		 VALUES (?,?,?,?,?,?,?)`,
-		id, string(kind), from, string(to), actor, note, now); err != nil {
-		return err
+		id, string(kind), from, string(to), actor, note, now)
+	if err != nil {
+		return 0, err
 	}
-	return tx.Commit()
+	rowID, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return rowID, nil
 }
 
 // NonTerminalTickets 全部非终态票（启动对账输入）。
@@ -167,8 +177,25 @@ func (d *DB) appendEvent(ctx context.Context, ticketID, kind string, from, to Ph
 // Events 取票的全部事件（判决史/输出流审计径）。
 func (d *DB) Events(ctx context.Context, ticketID string) ([]*Event, error) {
 	rows, err := d.db.QueryContext(ctx,
-		`SELECT id, ticket_id, kind, from_phase, to_phase, actor, note, provenance, created_at
-		 FROM ticket_event WHERE ticket_id=? ORDER BY id`, ticketID)
+		`SELECT e.id, e.ticket_id, e.kind, e.from_phase, e.to_phase, e.actor, e.note, e.provenance, e.created_at,
+		        COALESCE(r.role,'')
+		 FROM ticket_event e LEFT JOIN seat_run r ON r.run_id = e.actor
+		 WHERE e.ticket_id=? ORDER BY e.id`, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEvents(rows)
+}
+
+// EventsAfter 水位游标回读（D-25）：跨票全序 id>sinceID 的事件页——
+// 播报员断线补报的唯一径（同码径覆盖启动对账与流断重连）。
+func (d *DB) EventsAfter(ctx context.Context, sinceID int64, limit int) ([]*Event, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT e.id, e.ticket_id, e.kind, e.from_phase, e.to_phase, e.actor, e.note, e.provenance, e.created_at,
+		        COALESCE(r.role,'')
+		 FROM ticket_event e LEFT JOIN seat_run r ON r.run_id = e.actor
+		 WHERE e.id>? ORDER BY e.id LIMIT ?`, sinceID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +230,7 @@ func scanEvents(rows *sql.Rows) ([]*Event, error) {
 		var from, to string
 		var created int64
 		if err := rows.Scan(&e.ID, &e.TicketID, &e.Kind, &from, &to,
-			&e.Actor, &e.Note, &e.Provenance, &created); err != nil {
+			&e.Actor, &e.Note, &e.Provenance, &created, &e.Role); err != nil {
 			return nil, err
 		}
 		e.FromPhase, e.ToPhase = Phase(from), Phase(to)

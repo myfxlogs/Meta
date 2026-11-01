@@ -24,6 +24,7 @@ func dispatchCfg(dir string) Config {
 		QuickExit:        3 * time.Second,
 		Stagger:          20 * time.Millisecond,
 		SeatArgv:         []string{os.Args[0], "-test.run=TestHelperProcess", "-test.v=false"},
+		ShellRows:        testShellRows(),
 	}
 }
 

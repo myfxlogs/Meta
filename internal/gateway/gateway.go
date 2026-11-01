@@ -34,10 +34,27 @@ type Config struct {
 	QuickExit        time.Duration // ①秒退判定窗口（attach 或死于此窗口内），缺省 20s
 	MaxPerShell      int           // provider 并发闸：同名壳并行席位上限，0=不限
 
+	// 预算/壳登记配置化（D-9/D-27，票0004）：出 config/gateway.textproto。
+	DefaultAttemptCap int64            // 角色行未配时的尝试内帽（毛值 token）
+	TicketHardCap     int64            // 票级累计硬顶缺省（毛值）
+	RoleCaps          map[string]int64 // 角色 → 尝试内帽缺省
+	ShellRows         []ShellSeed      // 壳登记表种子（角色行空才落，DB 行是活态）
+
 	// 注入机（票0003，§4）：Root 空＝注入机关，dispatch 无 --prompt-file 即缺径。
 	InjectRoot    string   // 注入源根：roles/ 与 docs/经验库|技能库 所在
 	InjectRecipes []string // 项目配方/纪律文档（相对 InjectRoot，序即拼）
 }
+
+// ShellSeed 壳登记表种子一行（配置行→DB 活态行；attempt_cap 驻内存不持久化——
+// 它是「该行尝试帽」的派发生命期参数，不是登记表状态）。
+type ShellSeed struct {
+	Name, Model, Role string
+	Priority          int
+	AttemptCap        int64
+}
+
+// deferCap 延期帽 K（§5.2 A5）：裁决 defer 可重挂闹钟的次数上限。
+const deferCap = 2
 
 func (c *Config) withDefaults() {
 	// D-23 类坑反向：路径全量绝对化——席位 env（socket/注入文件）跨 cwd 引用。
@@ -113,11 +130,12 @@ type Gateway struct {
 	alarms    map[string]*clock.Alarm
 	events    chan Event
 	observers map[chan Event]struct{} // Observe 面订户（管理面导出）
-	specs     map[string]SeatSpec     // tid → 派发参数（内存；重启缺→spawn_blocked）
+	specs     map[specKey]SeatSpec   // (tid,role) → 派发参数（内存；重启缺→spawn_blocked）
 	failSet   map[string]map[string]bool // tid → 本票已失败壳行键（换壳＝排除）
 	warned    map[string]bool         // tid → 本尝试 80% 警已发（边沿触发）
 	frozen    map[string]bool         // budget_frozen 票集（冻票无活性）
 	active    map[string]int          // 壳名 → 活跃 run 数（provider 并发闸）
+	attemptCaps map[string]int64     // ShellKey → 该行尝试帽覆盖（§7）
 	spawnQ    chan spawnReq
 	done      chan struct{}
 	closed    bool
@@ -138,7 +156,7 @@ func New(cfg Config) (*Gateway, error) {
 		alarms:    map[string]*clock.Alarm{},
 		events:    make(chan Event, 256),
 		observers: map[chan Event]struct{}{},
-		specs:     map[string]SeatSpec{},
+		specs:     map[specKey]SeatSpec{},
 		failSet:   map[string]map[string]bool{},
 		warned:    map[string]bool{},
 		frozen:    map[string]bool{},
@@ -174,6 +192,14 @@ func New(cfg Config) (*Gateway, error) {
 	g.srv = grpc.NewServer()
 	pbv1.RegisterSeatGatewayServer(g.srv, g)
 	pbv1.RegisterAdminGatewayServer(g.srv, g)
+
+	// 壳行尝试帽索引：ShellKey→cap（§7 attempt_cap>0 行覆盖角色缺省的落点）。
+	g.attemptCaps = map[string]int64{}
+	for _, s := range cfg.ShellRows {
+		if s.AttemptCap > 0 {
+			g.attemptCaps[db.Shell{Name: s.Name, Model: s.Model, Role: s.Role}.ShellKey()] = s.AttemptCap
+		}
+	}
 
 	g.Reconcile(context.Background()) // §5.3 全相位对账，启动一次非周期
 	go g.dispatcher()                  // spawn 调度器：事件驱动，非周期
@@ -285,10 +311,37 @@ func (g *Gateway) cancelAlarm(ticketID string) {
 }
 
 // onStall 进度闹钟响：不杀——发「疑似卡死」事件归 CTO 裁（§5.2）。
+// note 带 run=<最新活 non-adjunct runid>：路由表把行喂给裁决席提示模板（§5 时序1）。
 func (g *Gateway) onStall(ticketID string) {
 	ctx := context.Background()
+	note := "进度帧超时未至"
+	runID := ""
+	if run, _ := g.database.ActiveRunForTicket(ctx, ticketID); run != nil {
+		runID = run.RunID
+		note += " run=" + run.RunID
+	}
 	_ = g.database.AppendEvent(ctx, ticketID, "stall_suspect", db.Event{
-		Actor: "gateway", Note: "进度帧超时未至",
+		Actor: "gateway", Note: note,
 	})
-	g.emit(Event{Kind: "stall_suspect", TicketID: ticketID})
+	g.emit(Event{Kind: "stall_suspect", TicketID: ticketID, RunID: runID})
+}
+
+// transition 全相位迁移收口（票0004 §6）：迁移成功后发 phase:<edge> 门铃
+// （补 dispatch 边一直缺的 poke）；EdgeReject 达 §6.2 三驳→reject_limit
+// 事件行＋emit。先落行后门铃——门铃先于落行的窗口会被下一 poke 补回，
+// 但严格因果更省一次迟延。
+func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, kind db.EdgeKind, actor, note string) error {
+	if _, err := g.database.Transition(ctx, ticketID, to, kind, actor, note); err != nil {
+		return err
+	}
+	g.emit(Event{Kind: "phase:" + string(kind), TicketID: ticketID})
+	if kind == db.EdgeReject {
+		if t, err := g.database.GetTicket(ctx, ticketID); err == nil && t.RejectCount >= 3 {
+			_ = g.database.AppendEvent(ctx, ticketID, "reject_limit", db.Event{
+				Actor: "gateway", Note: "驳回达 3，等你发落",
+			})
+			g.emit(Event{Kind: "reject_limit", TicketID: ticketID})
+		}
+	}
+	return nil
 }

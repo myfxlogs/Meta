@@ -1,0 +1,39 @@
+# 播报员路由表（令#E13/D-26）：事件→动作电话簿；表外事件不动作（铁律②）。
+# 改表走票；部署同步 /opt/meta/config/。模板相对本文件目录（配置根）解。
+
+routes {
+  kind: "stall_suspect"
+  note: "疑似卡死→通知+派 CTO 裁决席（清 D-16）"
+  actions { notify  { template: "【公司】票务动态（第{{ticket_id}}号票）：⚠️ 疑似卡死，裁决席已拉起。不用你操作。" } }
+  actions { dispatch { role: "CTO" adjunct: true
+                       prompt_template: "caster/stall-ruling.md"
+                       work_dir: "/opt/meta" } }
+}
+routes {
+  kind: "budget_frozen"
+  note: "票级硬顶止血→通知；CEO 面预留（阶段 3 加 dispatch role=CEO）"
+  actions { notify  { template: "【公司】票务动态（第{{ticket_id}}号票）：⚠️ 预算冻结止血，等你发落。不用你操作。" } }
+}
+routes {
+  kind: "reject_limit"
+  note: "驳回达 3→通知；同上预留 CEO 面"
+  actions { notify  { template: "【公司】票务动态（第{{ticket_id}}号票）：⚠️ 连驳三次，等你发落。不用你操作。" } }
+}
+routes { kind: "defer_limit" note: "延期帽尽→通知" actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：⚠️ 卡死裁决延期已尽，等你发落。不用你操作。" } } }
+# ——审计派发径（决策40，设计 §15 落点）——
+routes { kind: "deliver" note: "交付→通知＋起审计席（prefer claude——devin 只读形态四死弃用，决策39/40）"
+  actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：完工，交付待查验。不用你操作。" } }
+  actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
+routes { kind: "audit_start" note: "审计拉起（决策34 缺口补）" actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：审计已开工，正在查验交付。不用你操作。" } } }
+routes { kind: "audit_pass" note: "判决通过→待部署（部署闸票再接 dispatch CTO-B）" actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：查验通过，等部署。不用你操作。" } } }
+routes { kind: "reject" note: "驳回→通知＋自动重派施工（判决史随注入累积）"
+  actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：查验驳回，已退回返工。不用你操作。" } }
+  actions { dispatch { role: "施工" work_dir: "/opt/meta" } } }
+routes { kind: "audit_dead" note: "审计席死→重起审计（不计驳回）" actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
+routes { kind: "spawn_needed" note_contains: "审计" note: "对账补发消费端：待审滞留→派审计" actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" } } }
+routes { kind: "spawn_needed" note_contains: "施工" note: "对账补发消费端：已派滞留→派施工" actions { dispatch { role: "施工" work_dir: "/opt/meta" } } }
+# ——以下为现行脚本通知面的平移（不断档）——
+routes { kind: "claim"             actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：开工，席位已领票。不用你操作。" } } }
+routes { kind: "shells_exhausted"  actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：⚠️ 换壳链走完仍失败（全壳耗尽）。不用你操作。" } } }
+routes { kind: "dispatch"          actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：已派单。不用你操作。" } } }
+routes { kind: "ruling"            actions { notify { template: "【公司】票务动态（第{{ticket_id}}号票）：卡死已裁决。不用你操作。" } } }

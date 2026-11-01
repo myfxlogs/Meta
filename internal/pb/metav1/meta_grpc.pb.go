@@ -233,8 +233,10 @@ const (
 	AdminGateway_Budget_FullMethodName       = "/meta.v1.AdminGateway/Budget"
 	AdminGateway_Phase_FullMethodName        = "/meta.v1.AdminGateway/Phase"
 	AdminGateway_Events_FullMethodName       = "/meta.v1.AdminGateway/Events"
+	AdminGateway_EventsAfter_FullMethodName  = "/meta.v1.AdminGateway/EventsAfter"
 	AdminGateway_Runs_FullMethodName         = "/meta.v1.AdminGateway/Runs"
 	AdminGateway_Observe_FullMethodName      = "/meta.v1.AdminGateway/Observe"
+	AdminGateway_RetroVerdict_FullMethodName = "/meta.v1.AdminGateway/RetroVerdict"
 )
 
 // AdminGatewayClient is the client API for AdminGateway service.
@@ -250,8 +252,10 @@ type AdminGatewayClient interface {
 	Budget(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*BudgetMsg, error)
 	Phase(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*PhaseMsg, error)
 	Events(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*EventList, error)
+	EventsAfter(ctx context.Context, in *EventCursor, opts ...grpc.CallOption) (*EventList, error)
 	Runs(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*RunList, error)
 	Observe(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ObsEvent], error)
+	RetroVerdict(ctx context.Context, in *RetroReq, opts ...grpc.CallOption) (*Ack, error)
 }
 
 type adminGatewayClient struct {
@@ -322,6 +326,16 @@ func (c *adminGatewayClient) Events(ctx context.Context, in *TicketRef, opts ...
 	return out, nil
 }
 
+func (c *adminGatewayClient) EventsAfter(ctx context.Context, in *EventCursor, opts ...grpc.CallOption) (*EventList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EventList)
+	err := c.cc.Invoke(ctx, AdminGateway_EventsAfter_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminGatewayClient) Runs(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*RunList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RunList)
@@ -351,6 +365,16 @@ func (c *adminGatewayClient) Observe(ctx context.Context, in *Empty, opts ...grp
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminGateway_ObserveClient = grpc.ServerStreamingClient[ObsEvent]
 
+func (c *adminGatewayClient) RetroVerdict(ctx context.Context, in *RetroReq, opts ...grpc.CallOption) (*Ack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, AdminGateway_RetroVerdict_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminGatewayServer is the server API for AdminGateway service.
 // All implementations must embed UnimplementedAdminGatewayServer
 // for forward compatibility.
@@ -364,8 +388,10 @@ type AdminGatewayServer interface {
 	Budget(context.Context, *TicketRef) (*BudgetMsg, error)
 	Phase(context.Context, *TicketRef) (*PhaseMsg, error)
 	Events(context.Context, *TicketRef) (*EventList, error)
+	EventsAfter(context.Context, *EventCursor) (*EventList, error)
 	Runs(context.Context, *TicketRef) (*RunList, error)
 	Observe(*Empty, grpc.ServerStreamingServer[ObsEvent]) error
+	RetroVerdict(context.Context, *RetroReq) (*Ack, error)
 	mustEmbedUnimplementedAdminGatewayServer()
 }
 
@@ -394,11 +420,17 @@ func (UnimplementedAdminGatewayServer) Phase(context.Context, *TicketRef) (*Phas
 func (UnimplementedAdminGatewayServer) Events(context.Context, *TicketRef) (*EventList, error) {
 	return nil, status.Error(codes.Unimplemented, "method Events not implemented")
 }
+func (UnimplementedAdminGatewayServer) EventsAfter(context.Context, *EventCursor) (*EventList, error) {
+	return nil, status.Error(codes.Unimplemented, "method EventsAfter not implemented")
+}
 func (UnimplementedAdminGatewayServer) Runs(context.Context, *TicketRef) (*RunList, error) {
 	return nil, status.Error(codes.Unimplemented, "method Runs not implemented")
 }
 func (UnimplementedAdminGatewayServer) Observe(*Empty, grpc.ServerStreamingServer[ObsEvent]) error {
 	return status.Error(codes.Unimplemented, "method Observe not implemented")
+}
+func (UnimplementedAdminGatewayServer) RetroVerdict(context.Context, *RetroReq) (*Ack, error) {
+	return nil, status.Error(codes.Unimplemented, "method RetroVerdict not implemented")
 }
 func (UnimplementedAdminGatewayServer) mustEmbedUnimplementedAdminGatewayServer() {}
 func (UnimplementedAdminGatewayServer) testEmbeddedByValue()                      {}
@@ -529,6 +561,24 @@ func _AdminGateway_Events_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminGateway_EventsAfter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EventCursor)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).EventsAfter(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_EventsAfter_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).EventsAfter(ctx, req.(*EventCursor))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminGateway_Runs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TicketRef)
 	if err := dec(in); err != nil {
@@ -557,6 +607,24 @@ func _AdminGateway_Observe_Handler(srv interface{}, stream grpc.ServerStream) er
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AdminGateway_ObserveServer = grpc.ServerStreamingServer[ObsEvent]
+
+func _AdminGateway_RetroVerdict_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetroReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).RetroVerdict(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_RetroVerdict_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).RetroVerdict(ctx, req.(*RetroReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 // AdminGateway_ServiceDesc is the grpc.ServiceDesc for AdminGateway service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -590,8 +658,16 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AdminGateway_Events_Handler,
 		},
 		{
+			MethodName: "EventsAfter",
+			Handler:    _AdminGateway_EventsAfter_Handler,
+		},
+		{
 			MethodName: "Runs",
 			Handler:    _AdminGateway_Runs_Handler,
+		},
+		{
+			MethodName: "RetroVerdict",
+			Handler:    _AdminGateway_RetroVerdict_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

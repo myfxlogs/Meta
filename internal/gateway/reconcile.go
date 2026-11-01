@@ -28,6 +28,8 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 		switch t.Phase {
 		case db.PhaseAssigned, db.PhaseReview, db.PhaseToDeploy:
 			// 无行动者等 spawn：补发下一步 spawn 事件。
+			// 半结构约定（防漂，§14）：note「对账补发: <role>」是播报员路由表
+			// spawn_needed+note_contains 行的消费契约——改文案必须同步改表。
 			role := roleForPhase(t.Phase)
 			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
 				Actor: "gateway", Note: "对账补发: " + role,
@@ -90,7 +92,7 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	case db.PhaseDeploying:
 		to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
 	}
-	if err := g.database.Transition(ctx, t.ID, to, kind, "gateway", "对账：行动者无响应"); err != nil {
+	if err := g.transition(ctx, t.ID, to, kind, "gateway", "对账：行动者无响应"); err != nil {
 		return
 	}
 	runID := ""

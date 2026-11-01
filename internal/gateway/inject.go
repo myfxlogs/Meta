@@ -55,7 +55,8 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	p := filepath.Join(dir, ticketID+".md")
+	// D-28：落盘按角色——同票施工+审计/多角色并发派发不互相覆写。
+	p := filepath.Join(dir, ticketID+"-"+role+".md")
 	if err := os.WriteFile(p, []byte(out), 0o600); err != nil {
 		return "", err
 	}
