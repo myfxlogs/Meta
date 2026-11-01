@@ -20,10 +20,13 @@ import (
 )
 
 // AdminClient 引擎对管理面的最小依赖（伪实现注入测试径）。
+// D-35：每轮连接生命周期结束必须 Close——重连循环不关 ClientConn
+// 是 FD 缓慢累积面（0006 判决 N2）。
 type AdminClient interface {
 	EventsAfter(ctx context.Context, sinceID int64, limit int32) (*pbv1.EventList, error)
 	Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv1.Ack, error)
 	Observe(ctx context.Context) (pbv1.AdminGateway_ObserveClient, error)
+	Close() error
 }
 
 // Config 引擎参数（meta caster 子命令旗标面）。
@@ -129,6 +132,7 @@ func (e *Engine) Once(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = cli.Close() }() // D-35
 	return e.resync(ctx, cli)
 }
 
@@ -160,11 +164,13 @@ func (e *Engine) Run(ctx context.Context) error {
 }
 
 // cycle 一轮连接生命周期；返回流/连接错误由外层退避续订。
+// D-35 锚6 提名行：defer Close 删则每轮流断漏一 FD（伪 conn 计次数锚红）。
 func (e *Engine) cycle(ctx context.Context) error {
 	cli, err := e.cfg.Dial(ctx)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = cli.Close() }()
 	obs, err := cli.Observe(ctx)
 	if err != nil {
 		return err

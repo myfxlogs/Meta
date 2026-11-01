@@ -47,6 +47,17 @@ routes { kind: "audit_dead" note: "审计席死→重起审计（不计驳回）
 routes { kind: "spawn_needed" note_contains: "审计" note: "对账补发消费端：待审滞留→派审计" actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
 routes { kind: "spawn_needed" note_contains: "CTO" note: "补发消费端：已立/待部署滞留或部署锁释补发→派 CTO" actions { dispatch { role: "CTO" work_dir: "/opt/meta" prompt_template: "caster/cto-deploy.md" } } }
 routes { kind: "spawn_needed" note_contains: "施工" note: "对账补发消费端：已派滞留→派施工" actions { dispatch { role: "施工" work_dir: "/opt/meta" prompt_template: "caster/build-seat.md" } } }
+# ——飞书通道知行（票0013 通知面；dispatch CEO 行不写——消费径走 CeoGateway 泵/通道自身出站）——
+routes { kind: "feishu_cred_bad" note: "凭证行缺/坏→通道不启（fail loud；需业主重打包 secret.feishu.app）"
+  actions { notify { template: "【Meta】⚠️飞书凭证坏：通道未起——需重打包 secret.feishu.app" } } }
+routes { kind: "feishu_inbound" note: "飞书业主来话入泵（通道已发机械回执，此为文本兜底）"
+  actions { notify { template: "【Meta】飞书:来话入泵——{{note}}" } } }
+routes { kind: "ceo_say" note: "CEO 出站（通道发 owner chat，此为文本兜底与历史流）"
+  actions { notify { template: "【Meta】CEO说：{{note}}" } } }
+routes { kind: "ceo_gap" note: "CEO run 收口零写（D-22 比对）"
+  actions { notify { template: "【Meta】⚠️CEO收口零写：{{note}}" } } }
+routes { kind: "ceo_last_resort" note: "无头唤起连败呼救（D3 径；通道亦直推 owner）"
+  actions { notify { template: "【Meta】⚠️CEO呼救：{{note}}" } } }
 # ——通知面（决策41 新格式）——
 routes { kind: "claim"             actions { notify { template: "【Meta】{{role}}:接单[{{ticket_id}}]" } } }
 routes { kind: "shells_exhausted"  actions { notify { template: "【Meta】⚠️全壳耗尽[{{ticket_id}}]——换班链走完仍失败" } } }

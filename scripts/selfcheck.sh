@@ -22,8 +22,9 @@ GREPEXCL="--exclude-dir=.git --exclude-dir=.gomodcache --exclude-dir=.gopath --e
 hit "time.Ticker/time.Tick" "$(grep -rn $GREPEXCL --include='*.go' -E 'time\.(NewTicker|Ticker|Tick\()' . || true)"
 hit "time.Sleep/无界等待" "$(grep -rn $GREPEXCL --include='*.go' -E 'time\.Sleep' . || true)"
 
-# R3：禁 JSON 进 meta 内部——encoding/json 只允许 adapter/ 包（壳 CLI JSON 止于适配层）。
-hit "encoding/json" "$(grep -rn $GREPEXCL --exclude-dir=adapter --include='*.go' -E '"encoding/json"' . || true)"
+# R3：禁 JSON 进 meta 内部——encoding/json 只允许 adapter/ 包（壳 CLI JSON 止于适配层）
+# 与 internal/feishu（lark API JSON 边界包，票0013 钦定豁免面——设计-0007 §10 R3）。
+hit "encoding/json" "$(grep -rn $GREPEXCL --exclude-dir=adapter --exclude-dir=feishu --include='*.go' -E '"encoding/json"' . || true)"
 
 # 无界 for{...sleep} 巡检由上面的 time.Sleep 全禁条覆盖（全仓含测试零 Sleep）。
 exit $fail
