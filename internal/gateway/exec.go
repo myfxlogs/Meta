@@ -41,8 +41,6 @@ func (g *Gateway) rebuildProjectLocks(ctx context.Context) {
 	defer g.mu.Unlock()
 	for _, t := range tickets {
 		switch t.Phase {
-		case db.PhaseDesigning:
-			g.projectLocks[t.Project] = map[string]bool{lockDesign: true}
 		case db.PhaseDeploying:
 			g.projectLocks[t.Project] = map[string]bool{lockIntegrate: true, lockDeploy: true}
 		}

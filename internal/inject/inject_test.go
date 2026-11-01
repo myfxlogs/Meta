@@ -39,17 +39,17 @@ func TestAssemble_Content(t *testing.T) {
 	}
 	must := []string{
 		"你是一个**施工实例**，被派来完成一张票", // 角色卡关键行
-		"fixture 目标行",                       // 栏1
-		"fixture 为什么行",                     // 栏2
-		"fixture 范围甲",                       // 栏3
-		"fixture 禁线行",                       // 栏4
-		"fixture/引用.md",                      // 栏5
-		"fixture 锚一",                         // 栏6
-		"fixture check --all",                 // 栏7
-		"t/9999-fixture",                      // 栏8
-		"预算：fixture",                        // 附
-		"检查命令：go test ./...",               // 配方
-		"2026-11-01-坑甲.md",                   // 经验库索引
+		"fixture 目标行",         // 栏1
+		"fixture 为什么行",        // 栏2
+		"fixture 范围甲",         // 栏3
+		"fixture 禁线行",         // 栏4
+		"fixture/引用.md",       // 栏5
+		"fixture 锚一",          // 栏6
+		"fixture check --all", // 栏7
+		"t/9999-fixture",      // 栏8
+		"预算：fixture",          // 附
+		"检查命令：go test ./...",  // 配方
+		"2026-11-01-坑甲.md",    // 经验库索引
 		"2026-11-01-坑乙.md",
 		"技甲.md", // 技能库索引
 	}
@@ -126,5 +126,19 @@ func TestParseTicketMD_真票(t *testing.T) {
 	}
 	if !strings.Contains(spec.Goal, "注入机") || !strings.Contains(spec.Verify, "upgrade-drill") {
 		t.Fatalf("真票栏值漂移: goal=%q verify=%q", spec.Goal, spec.Verify)
+	}
+}
+
+// TestAssemble_DeliverSentinelLastLine D-32：注入产出末行硬行
+// `META_DELIVER:<ref>`——净退无哨兵→席死径的模板侧锚（令#E15）。
+func TestAssemble_DeliverSentinelLastLine(t *testing.T) {
+	out, err := Assemble(fixtureInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	last := lines[len(lines)-1]
+	if last != "META_DELIVER:<ref>" {
+		t.Fatalf("注入末行应为哨兵契约行 META_DELIVER:<ref>: %q", last)
 	}
 }

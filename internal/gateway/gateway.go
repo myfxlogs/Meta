@@ -17,8 +17,8 @@ import (
 
 	"meta/internal/clock"
 	"meta/internal/db"
-	"meta/internal/route"
 	pbv1 "meta/internal/pb/metav1"
+	"meta/internal/route"
 )
 
 // Config 网关运行配置。
@@ -49,6 +49,11 @@ type Config struct {
 	Projects    []*pbv1.ProjectSeed // 项目配方种子（同 id 行已存在不动——DB 行是活态）
 	SudoBin     string              // 代跑 sudo 路径；缺省 "sudo"
 	ExecTimeout time.Duration       // 单步超时缺省（配方沙箱未声明时），缺省 15m
+
+	// CEO 面（票0011）：事件泵放行/无头唤起 kind 列与化身提示模板（决策54/E16）。
+	CeoEvents     map[string]bool // Events 流放行 kind 集
+	CeoSpawnKinds map[string]bool // 需 CEO 事件 kind 集（无订阅→pending+ensureCEO）
+	CeoPrompt     string          // 无头席提示模板（{{kind}}/{{ticket_id}}/{{note}}/{{run_dir}}/{{gateway_sock}}）
 }
 
 // ShellSeed 壳登记表种子一行（配置行→DB 活态行；attempt_cap 驻内存不持久化——
@@ -149,10 +154,19 @@ type Gateway struct {
 	frozen    map[string]bool         // budget_frozen 票集（冻票无活性）
 	active    map[string]int          // 壳名 → 活跃 run 数（provider 并发闸）
 	attemptCaps map[string]int64     // ShellKey → 该行尝试帽覆盖（§7）
-	projectLocks map[string]map[string]bool // 项目三锁：project → {design|integrate|deploy}（B1）
+	projectLocks map[string]map[string]bool // 项目部署锁：project → {integrate|deploy}（B1；设计锁＝designLocks）
 	spawnQ    chan spawnReq
 	done      chan struct{}
 	closed    bool
+
+	// CEO 面（票0011）：锁＝连接登记非 DB 旗（禁区#10/B8）。
+	ceoSub        chan Event                                                    // 活跃 Events 订阅的派发道；nil＝无订阅
+	ceoSubRunID   string                                                        // 当前订阅属哪条 run（D-22 计数分账）
+	ceoPending    []Event                                                       // 无订阅期排队的需 CEO 事件（切换不丢，§8）
+	ceoFails      int                                                           // 无头唤起连败计数（3→ceo_last_resort）
+	ceoDispatched map[string]int                                                // run_id → 已派发给该 run 的事件数（D-22）
+	designLocks   map[string]string                                             // project → 持设计锁的票（B1 三锁之一，§1.8）
+	budgetOf      func(ctx context.Context, ticketID string) (db.Budget, error) // D-36 变异注入缝
 }
 
 // New 建仓：开库 → 建 run 目录 → 主 socket → 全相位启动对账。
@@ -178,6 +192,9 @@ func New(cfg Config) (*Gateway, error) {
 		projectLocks: map[string]map[string]bool{},
 		spawnQ:    make(chan spawnReq, 64),
 		done:      make(chan struct{}),
+
+		ceoDispatched: map[string]int{},
+		designLocks:   map[string]string{},
 	}
 	for _, dir := range []string{
 		filepath.Join(cfg.RunDir, "seats"),
@@ -234,6 +251,8 @@ func New(cfg Config) (*Gateway, error) {
 	g.srv = grpc.NewServer()
 	pbv1.RegisterSeatGatewayServer(g.srv, g)
 	pbv1.RegisterAdminGatewayServer(g.srv, g)
+	pbv1.RegisterCeoGatewayServer(g.srv, &ceoAPI{g: g})
+	g.budgetOf = d.GetBudget
 
 	// 壳行尝试帽索引：ShellKey→cap（§7 attempt_cap>0 行覆盖角色缺省的落点）。
 	g.attemptCaps = map[string]int64{}
@@ -245,7 +264,8 @@ func New(cfg Config) (*Gateway, error) {
 
 	g.Reconcile(context.Background()) // §5.3 全相位对账，启动一次非周期
 	g.rebuildProjectLocks(context.Background()) // 项目锁按票相位重建（B1）
-	go g.dispatcher()                  // spawn 调度器：事件驱动，非周期
+	go g.dispatcher()                 // spawn 调度器：事件驱动，非周期
+	go g.ceoPump(g.subscribe())       // CEO 事件泵：先订阅后起泵，不丢首事件
 	return g, nil
 }
 
@@ -376,24 +396,30 @@ func (g *Gateway) onStall(ticketID string) {
 func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, kind db.EdgeKind, actor, note string) error {
 	var from db.Phase
 	var project string
+	found := false
 	if t, err := g.database.GetTicket(ctx, ticketID); err == nil && t != nil {
-		from, project = t.Phase, t.Project
+		from, project, found = t.Phase, t.Project, true
 	}
 	if _, err := g.database.Transition(ctx, ticketID, to, kind, actor, note); err != nil {
 		return err
 	}
 	g.emit(Event{Kind: "phase:" + string(kind), TicketID: ticketID})
-	// 项目锁随相位占用释放（B1）：出离 设计中 释 design；出离 部署中 释
-	// integrate+deploy。deploy_failed 的本票不补 spawn——回 待部署 归 CEO 裁。
-	switch from {
-	case db.PhaseDesigning:
-		g.releaseProjectLocks(ctx, project, "", true, lockDesign)
-	case db.PhaseDeploying:
+	// 项目部署锁随相位占用释放（B1）：出离 部署中 释 integrate+deploy。
+	// deploy_failed 的本票不补 spawn——回 待部署 归 CEO 裁。
+	if from == db.PhaseDeploying {
 		skip := ""
 		if kind == db.EdgeDeployFailed {
 			skip = ticketID
 		}
 		g.releaseProjectLocks(ctx, project, skip, true, lockIntegrate, lockDeploy)
+	}
+	// B1 设计锁（designLocks）释放点＝持锁票离开施工中（交付/泊车/回队）
+	// 或入终态——releaseDesignLock 内 holder 核对使非持锁票过此为无操作。
+	if found && (from == db.PhaseWorking || to == db.PhaseDone || to == db.PhaseVoid) {
+		g.releaseDesignLock(ctx, ticketID)
+	}
+	if to == db.PhaseDone || to == db.PhaseVoid {
+		g.onTerminal(ticketID) // D-15：终态即删进程级内存键
 	}
 	if kind == db.EdgeReject {
 		if t, err := g.database.GetTicket(ctx, ticketID); err == nil && t.RejectCount >= 3 {

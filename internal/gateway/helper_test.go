@@ -55,6 +55,8 @@ func runHelperSeat() {
 			code = v
 		}
 		os.Exit(code)
+	case "ceo":
+		ceoSeat() // CEO run：Attach+RunAuth 不 Claim（无票），守流散
 	default:
 		fmt.Fprintln(os.Stderr, "helper: 未知 SEAT_MODE")
 		os.Exit(1)
@@ -267,6 +269,32 @@ func verdictSeat() {
 	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{
 		Verdict: os.Getenv("SEAT_VERDICT"), Ref: os.Getenv("SEAT_REF")}}})
 	_, _ = stream.Recv() // 等 Ack 或断流
+}
+
+// ceoSeat CEO run 席位：Attach+RunAuth 守流——META_TICKET_ID 空串免 Claim
+// （真实 meta seat 同径，票0011 无头化身最小形态）。
+func ceoSeat() {
+	serveAdopt(nil)
+	conn, err := grpc.NewClient("unix://"+os.Getenv("META_GATEWAY_SOCK"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		os.Exit(1)
+	}
+	defer conn.Close()
+	stream, err := pbv1.NewSeatGatewayClient(conn).Attach(context.Background())
+	if err != nil {
+		os.Exit(1)
+	}
+	if err := stream.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{
+		Auth: &pbv1.RunAuth{RunToken: os.Getenv("META_RUN_TOKEN")},
+	}}); err != nil {
+		os.Exit(1)
+	}
+	for {
+		if _, err := stream.Recv(); err != nil {
+			os.Exit(0)
+		}
+	}
 }
 
 // ---------- 测试工具 ----------

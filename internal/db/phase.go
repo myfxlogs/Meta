@@ -45,6 +45,7 @@ const (
 	EdgeDeployFailed EdgeKind = "deploy_failed"  // 补边：部署中→待部署（失败+已回滚）
 	EdgeAuditDead    EdgeKind = "audit_dead"     // 补边：审计中→待审（审计席死，不计驳回）
 	EdgeYield        EdgeKind = "yield"          // 补边：施工中→已派（Yield，理由入判决史）
+	EdgeReqPending   EdgeKind = "req_pending"    // 补边：施工中→已立（CTO-A 需求待裁泊车，阶段3 唯一新增边）
 	EdgeVoid         EdgeKind = "void"           // 任一非终态→作废（CEO 令）
 )
 
@@ -71,6 +72,7 @@ var Edges = []Edge{
 	{PhaseDeploying, PhaseToDeploy, EdgeDeployFailed},
 	{PhaseAuditing, PhaseReview, EdgeAuditDead},
 	{PhaseWorking, PhaseAssigned, EdgeYield},
+	{PhaseWorking, PhaseCreated, EdgeReqPending},
 
 	{PhaseCreated, PhaseVoid, EdgeVoid},
 	{PhaseDesigning, PhaseVoid, EdgeVoid},

@@ -23,6 +23,7 @@ type SeatSpec struct {
 	Env         []string
 	PreferShell string // 非空＝该壳尝试提首（smoke 指定径；不换优先序语义）
 	Adjunct     bool   // 辅助席（裁决/诊断，§1.3）：不占相位、必给 prompt_file
+	Provenance  string // D9 盖戳源：派发方透传触发事件行/父 run 的戳
 }
 
 // specKey specs 表键（§15.1）：(票,角色) 共键——审计派发不覆写施工派发参数，
@@ -43,8 +44,14 @@ type spawnReq struct {
 //   - 审计支（role=="审计"）：闸＝相位==待审；不步行已派——相位推进让位给
 //     claim→audit_start（无连接即无审计中）。
 //   - 其余 role：机械走边到已派→入 spawn 队列→壳路由。
+//
 // 共同：冻票拒派（§5.5）；同角色活席去重（§15.1——焊死 已派 重派双席并存洞）。
 func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec SeatSpec) error {
+	// 禁区#10 机械码位：CEO 只经内部唤起（ensureCEO），一切派发径硬拒——
+	// admin 帧/caster/CLI 三路共用此闸。
+	if role == "CEO" {
+		return fmt.Errorf("dispatch: role=CEO 永拒（禁区#10：CEO 只经内部唤起）")
+	}
 	t, err := g.database.GetTicket(ctx, ticketID)
 	if err != nil {
 		return err
@@ -81,8 +88,8 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 		deployBranch := false
 		if role == "CTO" {
 			// CTO 两支路（票0010）：待部署→部署支（B1 双锁：integrate+deploy，
-			// 不走边——claim 时才 deploy_start→部署中）；已立→设计支（design 锁，
-			// 随后照旧走边）。其余相位不可派 CTO。
+			// 不走边——claim 时才 deploy_start→部署中）；已立→设计支（designLocks
+			// 持锁到票离施工中，随后照旧走边）。其余相位不可派 CTO。
 			lockGate := func(lockNames []string, what string) error {
 				if g.acquireProjectLocks(t.Project, lockNames...) {
 					return nil
@@ -100,8 +107,19 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 				}
 				deployBranch = true
 			case db.PhaseCreated:
-				if err := lockGate([]string{lockDesign}, "设计"); err != nil {
-					return err
+				// B1 项目设计锁（§1.8）：同项目一票在设计链上（派发→施工中→
+				// 交付/泊车）即拒第二票起设计。锁在本点取、持到本票离开施工中/
+				// 入终态（transition 释放＋spawn_needed 解排队，事件驱动零定时）。
+				if t.Project != "" {
+					g.mu.Lock()
+					holder := g.designLocks[t.Project]
+					if holder == "" || holder == ticketID {
+						g.designLocks[t.Project] = ticketID
+					}
+					g.mu.Unlock()
+					if holder != "" && holder != ticketID {
+						return fmt.Errorf("dispatch: 项目 %s 设计锁由票 %s 持有", t.Project, holder)
+					}
 				}
 			default:
 				return fmt.Errorf("dispatch: 相位 %s 不可派 CTO（设计支=已立 部署支=待部署）", t.Phase)
@@ -286,7 +304,11 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 		if !spec.Adjunct {
 			// 该行 attempt_cap>0＝本行尝试帽覆盖角色缺省（§7 opencode 低帽落点）。
 			if cap, ok := g.attemptCaps[db.Shell{Name: at.Shell, Model: at.Model, Role: req.role}.ShellKey()]; ok {
-				b, _ := g.database.GetBudget(ctx, req.ticketID)
+				// D-36：帽取不到不静默落 0——库瞬时错时硬顶会被盖掉。
+				b, err := g.budgetOf(ctx, req.ticketID)
+				if err != nil {
+					return
+				}
 				_ = g.database.SetBudgetCaps(ctx, req.ticketID, cap, b.HardCap)
 			}
 			if err := g.database.ResetAttemptUsage(ctx, req.ticketID); err != nil {
@@ -326,6 +348,7 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 	run := g.newRun(req.ticketID, req.role, at.Shell)
 	run.Shell = shellLabel(at)
 	run.Adjunct = spec.Adjunct
+	run.Provenance = spec.Provenance // D9：spawn 方盖戳——触发事件行的 provenance 透传
 	artDir := filepath.Join(g.cfg.RunDir, "artifacts")
 	_ = os.MkdirAll(artDir, 0o700)
 	artDir = filepath.Join(artDir, run.RunID)

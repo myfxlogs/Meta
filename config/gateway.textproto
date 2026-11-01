@@ -46,3 +46,27 @@ project {
     exec_timeout { seconds: 900 }
   }
 }
+
+# CEO 壳行＝业主写死（§7 登记表）：落种占位 claude——动此行需业主令。
+shell { name: "claude"   role: "CEO" priority: 10 note: "业主写死壳·落种占位" }
+
+# CEO 面（票0011）：spawn_kinds＝无头化身触发集（决策54/E16：三驳/冻结/耗尽/
+# 需求类事件→起无头化身）；ceo_events＝Events 流放行 kind 列；
+# ceo_prompt＝无头席提示模板（{{kind}}/{{ticket_id}}/{{note}}/{{run_dir}}/{{gateway_sock}}）。
+ceo_spawn_kinds: "reject_limit"
+ceo_spawn_kinds: "budget_frozen"
+ceo_spawn_kinds: "shells_exhausted"
+ceo_spawn_kinds: "defer_limit"
+ceo_spawn_kinds: "feishu_inbound"
+ceo_events: "reject_limit"
+ceo_events: "budget_frozen"
+ceo_events: "shells_exhausted"
+ceo_events: "defer_limit"
+ceo_events: "feishu_inbound"
+ceo_events: "requirement"
+ceo_events: "ruling"
+ceo_events: "ceo_say"
+ceo_events: "ceo_gap"
+ceo_events: "ceo_last_resort"
+ceo_events: "redirect"
+ceo_prompt: "config/caster/ceo-headless.md"

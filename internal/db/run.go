@@ -25,22 +25,23 @@ type Run struct {
 	ExitCode     int
 	StreamClosed bool
 	Dead         bool
-	Adjunct      bool // 辅助席（裁决/诊断）：不占相位、不收养（票0004 §1.3）
+	Adjunct      bool   // 辅助席（裁决/诊断）：不占相位、不收养（票0004 §1.3）
+	Provenance   string // spawn 方盖戳（D9）：terminal|feishu:<id>|system_event|auto
 }
 
 // CreateRun 登记一次 spawn。
 func (d *DB) CreateRun(ctx context.Context, r *Run) error {
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO seat_run (run_id, ticket_id, role, shell, pid, run_token, socket_path, log_path, started_at, adjunct)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO seat_run (run_id, ticket_id, role, shell, pid, run_token, socket_path, log_path, started_at, adjunct, provenance)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		r.RunID, r.TicketID, r.Role, r.Shell, r.PID, r.RunToken, r.SocketPath, r.LogPath,
-		d.now().UnixNano(), boolInt(r.Adjunct))
+		d.now().UnixNano(), boolInt(r.Adjunct), r.Provenance)
 	return err
 }
 
-// runCols seat_run 查询列序（scanRun/RunsForTicket 共用， adjunct 恒在末位）。
+// runCols seat_run 查询列序（scanRun/RunsForTicket 共用， adjunct/provenance 恒在末位）。
 const runCols = `run_id, seat_id, ticket_id, role, shell, pid, run_token, socket_path, log_path,
-       started_at, attached_at, adopted_at, exited_at, exit_code, stream_closed, dead, adjunct`
+       started_at, attached_at, adopted_at, exited_at, exit_code, stream_closed, dead, adjunct, provenance`
 
 // RunByToken run_token 查 run——Attach 首帧验证径。
 func (d *DB) RunByToken(ctx context.Context, token string) (*Run, error) {
@@ -70,13 +71,21 @@ func (d *DB) ActiveAdjunctForTicketRole(ctx context.Context, ticketID, role stri
 		 WHERE ticket_id=? AND dead=0 AND adjunct=1 AND role=? ORDER BY started_at DESC LIMIT 1`, ticketID, role))
 }
 
+// ActiveRunForRole 某角色未判死的最新 run（CEO 唤起去重闸——与票无关，
+// CEO run 的 ticket_id 恒空串）。
+func (d *DB) ActiveRunForRole(ctx context.Context, role string) (*Run, error) {
+	return d.scanRun(d.db.QueryRowContext(ctx,
+		`SELECT `+runCols+` FROM seat_run
+		 WHERE role=? AND dead=0 ORDER BY started_at DESC LIMIT 1`, role))
+}
+
 func (d *DB) scanRun(row *sql.Row) (*Run, error) {
 	var r Run
 	var started, attached, adopted, exited int64
 	var closed, dead, adjunct int
 	err := row.Scan(&r.RunID, &r.SeatID, &r.TicketID, &r.Role, &r.Shell, &r.PID,
 		&r.RunToken, &r.SocketPath, &r.LogPath, &started, &attached, &adopted,
-		&exited, &r.ExitCode, &closed, &dead, &adjunct)
+		&exited, &r.ExitCode, &closed, &dead, &adjunct, &r.Provenance)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
