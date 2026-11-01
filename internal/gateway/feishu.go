@@ -41,13 +41,15 @@ func (g *Gateway) FeishuChannel(ctx context.Context) *feishu.Channel {
 // StartFeishu 装配并起双环（serve 径）：入站 WS 环（有界退避）＋
 // 出站观察环（订进程内事件口，ceo_say/ceo_last_resort→owner chat）。
 // 环随 ctx/g.done 收；凭证坏时通道不启已在 FeishuChannel 报过。
+// 出站订户**同步注册**（先订阅后起泵——经验库 2026-11-01-订阅在
+// goroutine里注册；同 ceoPump 形制 gateway.go，防首拍 ceo_say 丢窗）。
 func (g *Gateway) StartFeishu(ctx context.Context) *feishu.Channel {
 	ch := g.FeishuChannel(ctx)
 	if ch == nil {
 		return nil
 	}
 	go ch.Run(ctx)
-	go g.feishuOutbound(ctx, ch)
+	go g.feishuOutbound(ctx, ch, g.subscribe())
 	return ch
 }
 
@@ -72,11 +74,11 @@ func (g *Gateway) feishuCred(ctx context.Context) (*pbv1.FeishuApp, bool) {
 	return app, true
 }
 
-// feishuOutbound 出站消费环：订进程内事件观察口逐事件喂通道；
+// feishuOutbound 出站消费环：订户道由 StartFeishu 同步注册后传入
+// （注册不在消费者 goroutine 内——首事件丢窗）；逐事件喂通道；
 // 随 ctx/g.done 收（网关退场环停）。
-func (g *Gateway) feishuOutbound(ctx context.Context, ch *feishu.Channel) {
-	evCh := g.Subscribe()
-	defer g.Unsubscribe(evCh)
+func (g *Gateway) feishuOutbound(ctx context.Context, ch *feishu.Channel, evCh chan Event) {
+	defer g.unsubscribe(evCh)
 	for {
 		select {
 		case e := <-evCh:
