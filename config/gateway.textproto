@@ -24,3 +24,7 @@ shell { name: "opencode" role: "审计" priority: 30 attempt_cap: 8000000 }
 shell { name: "devin"    model: "swe-2-max" role: "CTO" priority: 10 }
 shell { name: "claude"   role: "CTO" priority: 20 }
 shell { name: "opencode" role: "CTO" priority: 30 attempt_cap: 8000000 }
+
+# 前端席位板（票0012）：loopback+token 钦定最小暴露面；仅 loopback 地址合法。
+# token 种子=业主动作：meta secret put secret.board.token（值读 stdin）。
+board_listen: "127.0.0.1:9712"

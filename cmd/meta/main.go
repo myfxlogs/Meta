@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,12 +22,17 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	connect "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+
+	"meta/internal/board"
 	"meta/internal/caster"
 	"meta/internal/config"
 	"meta/internal/db"
 	"meta/internal/gateway"
 	"meta/internal/inject"
 	pbv1 "meta/internal/pb/metav1"
+	"meta/internal/pb/metav1/metav1connect"
 	"meta/internal/seat"
 	"meta/internal/supervise"
 	"meta/internal/upgrade"
@@ -63,6 +69,8 @@ func main() {
 		err = budgetCmd(os.Args[2:])
 	case "observe":
 		err = observeCmd(os.Args[2:])
+	case "board":
+		err = boardCmd(os.Args[2:], os.Stdout)
 	case "caster":
 		err = casterCmd(os.Args[2:])
 	case "retro":
@@ -95,6 +103,7 @@ func usage() {
   meta runs --socket <sock> --ticket <id>
   meta budget --socket <sock> --ticket <id> [--attempt-cap N] [--hard-cap N]
   meta observe --socket <sock>
+  meta board (--socket <meta.sock> | --connect <http://127.0.0.1:port>) --token <t> [--n N]   (席位板流打印：full+变化帧)
   meta caster --socket <sock> --routes <f> --state-dir <d> --run-dir <r> --notify-cmd <sh> [--once] [--replay-history]
   meta retro --socket <sock> --ticket <id> --verdict pass|reject --ref <判决档>
   meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
@@ -104,8 +113,8 @@ func usage() {
 
 // serveFlags serve/supervise 共用的参数面（supervise 原样透传给 serve 子进程）。
 type serveFlags struct {
-	db, sock, runDir, injectRoot, injectRecipe, configP *string
-	progressTimeout, stagger                           *time.Duration
+	db, sock, runDir, injectRoot, injectRecipe, configP, boardListen *string
+	progressTimeout, stagger                                        *time.Duration
 }
 
 func bindServeFlags(fs *flag.FlagSet) serveFlags {
@@ -118,6 +127,7 @@ func bindServeFlags(fs *flag.FlagSet) serveFlags {
 		injectRoot:      fs.String("inject-root", "", "注入机源根（roles/+docs/两库所在；空＝注入机关）"),
 		injectRecipe:    fs.String("inject-recipe", "", "项目配方/纪律文档（相对 inject-root，逗号分隔多件）"),
 		configP:         fs.String("config", "", "网关配置 textproto（缺省 <可执行>/../config/gateway.textproto；必载拒起）"),
+		boardListen:     fs.String("board-listen", "", "前端面 TCP 监听 127.0.0.1:<port>（空=不挂板；配置 board_listen）"),
 	}
 }
 
@@ -138,6 +148,9 @@ func (f serveFlags) serveArgs() []string {
 	}
 	if *f.configP != "" {
 		a = append(a, "--config", absOr(f.configP, ""))
+	}
+	if *f.boardListen != "" {
+		a = append(a, "--board-listen", *f.boardListen)
 	}
 	return a
 }
@@ -215,6 +228,20 @@ func serve(args []string) error {
 		return err
 	}
 	defer g.Close()
+
+	// 前端席位板（票0012）：旗标 override 配置行。
+	boardListen := *f.boardListen
+	if !set["board-listen"] && gc.BoardListen != "" {
+		boardListen = gc.BoardListen
+	}
+	bl, err := wireBoard(g, boardListen)
+	if err != nil {
+		return err
+	}
+	if bl != nil {
+		defer bl.Close()
+		fmt.Fprintf(os.Stderr, "meta: board 已挂 %s\n", bl.Addr)
+	}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- g.Serve() }()
@@ -531,6 +558,118 @@ func budgetCmd(args []string) error {
 	}
 	fmt.Printf("%s\tcap=%d used=%d\thard=%d total=%d\n", *tid, cur.Cap, cur.Used, cur.HardCap, cur.UsedTotal)
 	return nil
+}
+
+// wireBoard 组装板服务（票0012）：同一实现两出——unix socket gRPC 注册
+//（meta board --socket 验收径，恒挂）＋boardListen TCP Connect 二进制
+//（浏览器径，空=不挂）。须先于 g.Serve() 调（注册窗）。
+func wireBoard(g *gateway.Gateway, boardListen string) (*board.Listener, error) {
+	boardSvc := board.New(board.Deps{
+		DB:          g.DB(),
+		Subscribe:   g.Subscribe,
+		Unsubscribe: g.Unsubscribe,
+		CheckToken:  g.CheckBoardToken,
+	})
+	pbv1.RegisterBoardServer(g.GRPCServer(), boardSvc.GRPC())
+	if boardListen == "" {
+		return nil, nil
+	}
+	return board.ListenAndServe(boardSvc, boardListen)
+}
+
+// boardCmd 席位板验收径（票0012）：--socket 走 unix socket gRPC，--connect
+// 走 board_listen URL（Connect 二进制，浏览器同一协议径）；帧逐行打印。
+func boardCmd(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("board", flag.ContinueOnError)
+	sock := fs.String("socket", "", "网关 unix socket（gRPC 径）")
+	connURL := fs.String("connect", "", "board_listen URL（Connect 二进制径，如 http://127.0.0.1:9701）")
+	token := fs.String("token", "", "secret.board.token 值")
+	n := fs.Int("n", 0, "收满 N 帧即退（0=守到流断）")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if (*sock == "") == (*connURL == "") {
+		return fmt.Errorf("--socket 与 --connect 恰给其一")
+	}
+	print := func(f *pbv1.BoardFrame) {
+		for _, line := range formatFrame(f) {
+			fmt.Fprintln(out, line)
+		}
+	}
+	count := 0
+	if *sock != "" {
+		conn, err := grpc.NewClient("unix://"+absOr(sock, ""),
+			grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		stream, err := pbv1.NewBoardClient(conn).SeatBoard(context.Background(),
+			&pbv1.BoardReq{Token: *token})
+		if err != nil {
+			return err
+		}
+		for {
+			f, err := stream.Recv()
+			if err != nil {
+				return err
+			}
+			print(f)
+			if count++; *n > 0 && count >= *n {
+				return nil
+			}
+		}
+	}
+	tr := connecthttp.NewTransport(http.DefaultClient, *connURL)
+	client := metav1connect.NewBoardClient(connect.NewClient(tr))
+	stream, err := client.SeatBoard(context.Background(), &pbv1.BoardReq{Token: *token})
+	if err != nil {
+		return err
+	}
+	defer stream.Close()
+	for {
+		f, err := stream.Receive()
+		if err != nil {
+			return err
+		}
+		print(f)
+		if count++; *n > 0 && count >= *n {
+			return nil
+		}
+	}
+}
+
+// formatFrame 帧→可 greppable 行（FULL 展开为行序——与变化帧同口径）。
+func formatFrame(f *pbv1.BoardFrame) []string {
+	switch b := f.Body.(type) {
+	case *pbv1.BoardFrame_Full:
+		out := []string{fmt.Sprintf("FULL seats=%d tickets=%d", len(b.Full.Seats), len(b.Full.Tickets))}
+		for _, r := range b.Full.Seats {
+			out = append(out, seatLine(r))
+		}
+		for _, tr := range b.Full.Tickets {
+			out = append(out, ticketLine(tr))
+		}
+		return out
+	case *pbv1.BoardFrame_SeatUpsert:
+		return []string{seatLine(b.SeatUpsert)}
+	case *pbv1.BoardFrame_SeatGone:
+		return []string{"SEAT_GONE run=" + b.SeatGone.RunId}
+	case *pbv1.BoardFrame_TicketUpsert:
+		return []string{ticketLine(b.TicketUpsert)}
+	}
+	return []string{"?"}
+}
+
+func seatLine(r *pbv1.SeatRow) string {
+	return fmt.Sprintf("SEAT_UPSERT run=%s role=%s shell=%s model=%s ticket=%s stage=%s note=%q used=%d/%d total=%d/%d attached=%v adjunct=%v",
+		r.RunId, r.Role, r.Shell, r.Model, r.TicketId, r.Stage, r.Note,
+		r.Used, r.Cap, r.UsedTotal, r.HardCap, r.Attached, r.Adjunct)
+}
+
+func ticketLine(t *pbv1.TicketRow) string {
+	return fmt.Sprintf("TICKET_UPSERT id=%s phase=%s frozen=%v total=%d/%d title=%q",
+		t.Id, t.Phase, t.BudgetFrozen, t.UsedTotal, t.HardCap, t.Title)
 }
 
 func observeCmd(args []string) error {

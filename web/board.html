@@ -1,0 +1,128 @@
+<!doctype html>
+<!-- meta 席位板（票0012）：业主眼前的一面。
+     connect-es CDN 无构建——Connect 二进制流 Board.SeatBoard：
+     接入一帧全态，此后只推变化帧（seat upsert/seat_gone/ticket upsert）。
+     不存历史不查过去；loopback+token（secret.board.token）钦定最小暴露面。
+     用法：meta serve --board-listen 127.0.0.1:9712 起网关后，浏览器开本文件，
+     填 URL+token 点连接。依赖版本钉 ≥7 天：connect-web 2.2.0 / protobuf 2.16.0。 -->
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>meta 席位板</title>
+<style>
+  body { font: 14px/1.5 ui-monospace,monospace; margin: 16px; color:#222 }
+  input { font: inherit; padding: 4px }
+  table { border-collapse: collapse; margin: 12px 0 }
+  th, td { border: 1px solid #ccc; padding: 3px 10px; text-align: left }
+  th { background: #f4f4f4 }
+  tr.term td { color: #999 }
+  #log { max-height: 260px; overflow: auto; background:#f8f8f8; padding:8px; white-space: pre-wrap; word-break: break-all }
+  .ok { color: #070 } .err { color: #c00 }
+</style>
+</head>
+<body>
+<h1>meta 席位板</h1>
+<div>
+  <input id="url" value="http://127.0.0.1:9712" size="24" placeholder="board_listen URL">
+  <input id="token" type="password" size="20" placeholder="board token">
+  <button id="go">连接</button>
+  <button id="stop" disabled>断开</button>
+  <span id="status"></span>
+</div>
+<h2>席位</h2>
+<table id="seats"><thead><tr>
+  <th>run</th><th>角色</th><th>壳/模型</th><th>票</th><th>stage</th><th>附言</th><th>用量(尝试/累计)</th>
+</tr></thead><tbody></tbody></table>
+<h2>票</h2>
+<table id="tickets"><thead><tr>
+  <th>id</th><th>相位</th><th>冻结</th><th>累计/硬顶</th><th>标题</th>
+</tr></thead><tbody></tbody></table>
+<h2>帧日志</h2>
+<pre id="log"></pre>
+
+<script type="module">
+import { fileDesc }
+  from "https://esm.sh/@bufbuild/protobuf@2.16.0/codegenv2";
+import { toJson }
+  from "https://esm.sh/@bufbuild/protobuf@2.16.0";
+import { createClient }
+  from "https://esm.sh/@connectrpc/connect@2.2.0?deps=@bufbuild/protobuf@2.16.0";
+import { createConnectTransport }
+  from "https://esm.sh/@connectrpc/connect-web@2.2.0?deps=@bufbuild/protobuf@2.16.0,@connectrpc/connect@2.2.0";
+
+// 内嵌描述符（meta.proto + 其 import 的 duration.proto）——无构建步的
+// codegen 替代：schema 在页内由 protobuf-es 立起。
+const durationFd = fileDesc("Ch5nb29nbGUvcHJvdG9idWYvZHVyYXRpb24ucHJvdG8SD2dvb2dsZS5wcm90b2J1ZiI6CghEdXJhdGlvbhIYCgdzZWNvbmRzGAEgASgDUgdzZWNvbmRzEhQKBW5hbm9zGAIgASgFUgVuYW5vc0KDAQoTY29tLmdvb2dsZS5wcm90b2J1ZkINRHVyYXRpb25Qcm90b1ABWjFnb29nbGUuZ29sYW5nLm9yZy9wcm90b2J1Zi90eXBlcy9rbm93bi9kdXJhdGlvbnBi+AEBogIDR1BCqgIeR29vZ2xlLlByb3RvYnVmLldlbGxLbm93blR5cGVzYgZwcm90bzM=");
+const metaFd = fileDesc("ChJtZXRhL3YxL21ldGEucHJvdG8SB21ldGEudjEaHmdvb2dsZS9wcm90b2J1Zi9kdXJhdGlvbi5wcm90byKxAwoHU2VhdE1zZxImCgRhdXRoGAEgASgLMhAubWV0YS52MS5SdW5BdXRoSABSBGF1dGgSJgoFY2xhaW0YAiABKAsyDi5tZXRhLnYxLkNsYWltSABSBWNsYWltEi8KCHByb2dyZXNzGAMgASgLMhEubWV0YS52MS5Qcm9ncmVzc0gAUghwcm9ncmVzcxImCgV1c2FnZRgEIAEoCzIOLm1ldGEudjEuVXNhZ2VIAFIFdXNhZ2USLAoHZGVsaXZlchgFIAEoCzIQLm1ldGEudjEuRGVsaXZlckgAUgdkZWxpdmVyEkUKEHBlcm1pc3Npb25fcmVwbHkYBiABKAsyGC5tZXRhLnYxLlBlcm1pc3Npb25SZXBseUgAUg9wZXJtaXNzaW9uUmVwbHkSJgoFeWllbGQYByABKAsyDi5tZXRhLnYxLllpZWxkSABSBXlpZWxkEjMKCnNlY3JldF9yZXEYCCABKAsyEi5tZXRhLnYxLlNlY3JldFJlcUgAUglzZWNyZXRSZXESIwoEcnVsZRgJIAEoCzINLm1ldGEudjEuUnVsZUgAUgRydWxlQgYKBGJvZHkirQIKCkdhdGV3YXlNc2cSKQoGdGlja2V0GAEgASgLMg8ubWV0YS52MS5UaWNrZXRIAFIGdGlja2V0Ej8KDnBlcm1pc3Npb25fYXNrGAIgASgLMhYubWV0YS52MS5QZXJtaXNzaW9uQXNrSABSDXBlcm1pc3Npb25Bc2sSJgoFYWJvcnQYAyABKAsyDi5tZXRhLnYxLkFib3J0SABSBWFib3J0EikKBmV4dGVuZBgEIAEoCzIPLm1ldGEudjEuRXh0ZW5kSABSBmV4dGVuZBI2CgtzZWNyZXRfcmVzcBgFIAEoCzITLm1ldGEudjEuU2VjcmV0UmVzcEgAUgpzZWNyZXRSZXNwEiAKA2FjaxgGIAEoCzIMLm1ldGEudjEuQWNrSABSA2Fja0IGCgRib2R5IiYKB1J1bkF1dGgSGwoJcnVuX3Rva2VuGAEgASgJUghydW5Ub2tlbiIkCgVDbGFpbRIbCgl0aWNrZXRfaWQYASABKAlSCHRpY2tldElkIjQKCFByb2dyZXNzEhQKBXN0YWdlGAEgASgJUgVzdGFnZRISCgRub3RlGAIgASgJUgRub3RlIigKBVVzYWdlEh8KC3Rva2Vuc191c2VkGAEgASgDUgp0b2tlbnNVc2VkIkkKB0RlbGl2ZXISEAoDcmVmGAEgASgJUgNyZWYSEgoEbm90ZRgCIAEoCVIEbm90ZRIYCgd2ZXJkaWN0GAMgASgJUgd2ZXJkaWN0IjIKBFJ1bGUSFgoGYWN0aW9uGAEgASgJUgZhY3Rpb24SEgoEbm90ZRgCIAEoCVIEbm90ZSI+Cg9QZXJtaXNzaW9uUmVwbHkSFQoGYXNrX2lkGAEgASgJUgVhc2tJZBIUCgVhbGxvdxgCIAEoCFIFYWxsb3ciMwoFWWllbGQSEgoEa2luZBgBIAEoCVIEa2luZBIWCgZyZWFzb24YAiABKAlSBnJlYXNvbiIfCglTZWNyZXRSZXESEgoEbmFtZRgBIAEoCVIEbmFtZSJCCgZUaWNrZXQSDgoCaWQYASABKAlSAmlkEhQKBXRpdGxlGAIgASgJUgV0aXRsZRISCgRzcGVjGAMgASgMUgRzcGVjIoICCgpUaWNrZXRTcGVjEhIKBGdvYWwYASABKAlSBGdvYWwSEAoDd2h5GAIgASgJUgN3aHkSFAoFc2NvcGUYAyABKAlSBXNjb3BlEiAKDG91dF9vZl9zY29wZRgEIAEoCVIKb3V0T2ZTY29wZRISCgRyZWZzGAUgASgJUgRyZWZzEhgKB2FuY2hvcnMYBiABKAlSB2FuY2hvcnMSFgoGdmVyaWZ5GAcgASgJUgZ2ZXJpZnkSGAoHZGVsaXZlchgIIAEoCVIHZGVsaXZlchIaCghhcHBlbmRpeBgJIAEoCVIIYXBwZW5kaXgSGgoIdmVyZGljdHMYCiABKAlSCHZlcmRpY3RzIjoKDVBlcm1pc3Npb25Bc2sSFQoGYXNrX2lkGAEgASgJUgVhc2tJZBISCgR3aGF0GAIgASgJUgR3aGF0Ih8KBUFib3J0EhYKBnJlYXNvbhgBIAEoCVIGcmVhc29uIiAKBkV4dGVuZBIWCgZ0b2tlbnMYASABKANSBnRva2VucyJOCgpTZWNyZXRSZXNwEhIKBG5hbWUYASABKAlSBG5hbWUSFAoFdmFsdWUYAiABKAxSBXZhbHVlEhYKBmRlbmllZBgDIAEoCFIGZGVuaWVkIigKCUFkb3B0QXV0aBIbCglydW5fdG9rZW4YASABKAlSCHJ1blRva2VuIkMKCEFkb3B0QWNrEhoKCGFjY2VwdGVkGAEgASgIUghhY2NlcHRlZBIbCgl0aWNrZXRfaWQYAiABKAlSCHRpY2tldElkIoEBCglOZXdUaWNrZXQSDgoCaWQYASABKAlSAmlkEhQKBXRpdGxlGAIgASgJUgV0aXRsZRISCgRzcGVjGAMgASgMUgRzcGVjEh8KC2F0dGVtcHRfY2FwGAQgASgDUgphdHRlbXB0Q2FwEhkKCGhhcmRfY2FwGAUgASgDUgdoYXJkQ2FwIrcBCgtEaXNwYXRjaFJlcRIbCgl0aWNrZXRfaWQYASABKAlSCHRpY2tldElkEhIKBHJvbGUYAiABKAlSBHJvbGUSHwoLcHJvbXB0X2ZpbGUYAyABKAlSCnByb21wdEZpbGUSGQoId29ya19kaXIYBCABKAlSB3dvcmtEaXISIQoMcHJlZmVyX3NoZWxsGAUgASgJUgtwcmVmZXJTaGVsbBIYCgdhZGp1bmN0GAYgASgIUgdhZGp1bmN0ImQKCUJ1ZGdldFJlcRIbCgl0aWNrZXRfaWQYASABKAlSCHRpY2tldElkEh8KC2F0dGVtcHRfY2FwGAIgASgDUgphdHRlbXB0Q2FwEhkKCGhhcmRfY2FwGAMgASgDUgdoYXJkQ2FwIhsKCVRpY2tldFJlZhIOCgJpZBgBIAEoCVICaWQiKQoDQWNrEg4KAm9rGAEgASgIUgJvaxISCgRub3RlGAIgASgJUgRub3RlIkUKCFBoYXNlTXNnEhQKBXBoYXNlGAEgASgJUgVwaGFzZRIjCg1idWRnZXRfZnJvemVuGAIgASgIUgxidWRnZXRGcm96ZW4iawoJQnVkZ2V0TXNnEhAKA2NhcBgBIAEoA1IDY2FwEhIKBHVzZWQYAiABKANSBHVzZWQSGQoIaGFyZF9jYXAYAyABKANSB2hhcmRDYXASHQoKdXNlZF90b3RhbBgEIAEoA1IJdXNlZFRvdGFsIuYBCglFdmVudEl0ZW0SDgoCaWQYASABKANSAmlkEhIKBGtpbmQYAiABKAlSBGtpbmQSHQoKZnJvbV9waGFzZRgDIAEoCVIJZnJvbVBoYXNlEhkKCHRvX3BoYXNlGAQgASgJUgd0b1BoYXNlEhQKBWFjdG9yGAUgASgJUgVhY3RvchISCgRub3RlGAYgASgJUgRub3RlEiAKDGF0X3VuaXhfbmFubxgHIAEoA1IKYXRVbml4TmFubxIbCgl0aWNrZXRfaWQYCCABKAlSCHRpY2tldElkEhIKBHJvbGUYCSABKAlSBHJvbGUiPgoLRXZlbnRDdXJzb3ISGQoIc2luY2VfaWQYASABKANSB3NpbmNlSWQSFAoFbGltaXQYAiABKAVSBWxpbWl0IlMKCFJldHJvUmVxEhsKCXRpY2tldF9pZBgBIAEoCVIIdGlja2V0SWQSGAoHdmVyZGljdBgCIAEoCVIHdmVyZGljdBIQCgNyZWYYAyABKAlSA3JlZiI1CglFdmVudExpc3QSKAoFaXRlbXMYASADKAsyEi5tZXRhLnYxLkV2ZW50SXRlbVIFaXRlbXMimQIKB1J1bkl0ZW0SFQoGcnVuX2lkGAEgASgJUgVydW5JZBISCgRyb2xlGAIgASgJUgRyb2xlEhQKBXNoZWxsGAMgASgJUgVzaGVsbBIQCgNwaWQYBCABKAVSA3BpZBIbCglleGl0X2NvZGUYBSABKAVSCGV4aXRDb2RlEhIKBGRlYWQYBiABKAhSBGRlYWQSGgoIYXR0YWNoZWQYByABKAhSCGF0dGFjaGVkEhgKB2Fkb3B0ZWQYCCABKAhSB2Fkb3B0ZWQSHQoKc3RhcnRlZF9hdBgJIAEoA1IJc3RhcnRlZEF0EhsKCWV4aXRlZF9hdBgKIAEoA1IIZXhpdGVkQXQSGAoHYWRqdW5jdBgLIAEoCFIHYWRqdW5jdCIxCgdSdW5MaXN0EiYKBWl0ZW1zGAEgAygLMhAubWV0YS52MS5SdW5JdGVtUgVpdGVtcyJ6CghPYnNFdmVudBISCgRraW5kGAEgASgJUgRraW5kEhsKCXRpY2tldF9pZBgCIAEoCVIIdGlja2V0SWQSFQoGcnVuX2lkGAMgASgJUgVydW5JZBISCgRyb2xlGAQgASgJUgRyb2xlEhIKBG5vdGUYBSABKAlSBG5vdGUiIAoIQm9hcmRSZXESFAoFdG9rZW4YASABKAlSBXRva2VuIuABCgpCb2FyZEZyYW1lEigKBGZ1bGwYASABKAsyEi5tZXRhLnYxLkJvYXJkRnVsbEgAUgRmdWxsEjMKC3NlYXRfdXBzZXJ0GAIgASgLMhAubWV0YS52MS5TZWF0Um93SABSCnNlYXRVcHNlcnQSMAoJc2VhdF9nb25lGAMgASgLMhEubWV0YS52MS5TZWF0R29uZUgAUghzZWF0R29uZRI5Cg10aWNrZXRfdXBzZXJ0GAQgASgLMhIubWV0YS52MS5UaWNrZXRSb3dIAFIMdGlja2V0VXBzZXJ0QgYKBGJvZHkiYQoJQm9hcmRGdWxsEiYKBXNlYXRzGAEgAygLMhAubWV0YS52MS5TZWF0Um93UgVzZWF0cxIsCgd0aWNrZXRzGAIgAygLMhIubWV0YS52MS5UaWNrZXRSb3dSB3RpY2tldHMi7gIKB1NlYXRSb3cSFQoGcnVuX2lkGAEgASgJUgVydW5JZBISCgRyb2xlGAIgASgJUgRyb2xlEhQKBXNoZWxsGAMgASgJUgVzaGVsbBIUCgVtb2RlbBgEIAEoCVIFbW9kZWwSGwoJdGlja2V0X2lkGAUgASgJUgh0aWNrZXRJZBIUCgVzdGFnZRgGIAEoCVIFc3RhZ2USEgoEbm90ZRgHIAEoCVIEbm90ZRISCgR1c2VkGAggASgDUgR1c2VkEhAKA2NhcBgJIAEoA1IDY2FwEh0KCnVzZWRfdG90YWwYCiABKANSCXVzZWRUb3RhbBIZCghoYXJkX2NhcBgLIAEoA1IHaGFyZENhcBIaCghhdHRhY2hlZBgMIAEoCFIIYXR0YWNoZWQSGAoHYWRqdW5jdBgNIAEoCFIHYWRqdW5jdBIvChRzdGFydGVkX2F0X3VuaXhfbmFubxgOIAEoA1IRc3RhcnRlZEF0VW5peE5hbm8iIQoIU2VhdEdvbmUSFQoGcnVuX2lkGAEgASgJUgVydW5JZCKmAQoJVGlja2V0Um93Eg4KAmlkGAEgASgJUgJpZBIUCgV0aXRsZRgCIAEoCVIFdGl0bGUSFAoFcGhhc2UYAyABKAlSBXBoYXNlEiMKDWJ1ZGdldF9mcm96ZW4YBCABKAhSDGJ1ZGdldEZyb3plbhIdCgp1c2VkX3RvdGFsGAUgASgDUgl1c2VkVG90YWwSGQoIaGFyZF9jYXAYBiABKANSB2hhcmRDYXAiBwoFRW1wdHkiNAoKUm91dGVUYWJsZRImCgZyb3V0ZXMYASADKAsyDi5tZXRhLnYxLlJvdXRlUgZyb3V0ZXMifwoFUm91dGUSEgoEa2luZBgBIAEoCVIEa2luZBIpCgdhY3Rpb25zGAIgAygLMg8ubWV0YS52MS5BY3Rpb25SB2FjdGlvbnMSEgoEbm90ZRgDIAEoCVIEbm90ZRIjCg1ub3RlX2NvbnRhaW5zGAQgASgJUgxub3RlQ29udGFpbnMieAoGQWN0aW9uEi8KBm5vdGlmeRgBIAEoCzIVLm1ldGEudjEuTm90aWZ5QWN0aW9uSABSBm5vdGlmeRI1CghkaXNwYXRjaBgCIAEoCzIXLm1ldGEudjEuRGlzcGF0Y2hBY3Rpb25IAFIIZGlzcGF0Y2hCBgoEYm9keSIqCgxOb3RpZnlBY3Rpb24SGgoIdGVtcGxhdGUYASABKAlSCHRlbXBsYXRlIqUBCg5EaXNwYXRjaEFjdGlvbhISCgRyb2xlGAEgASgJUgRyb2xlEicKD3Byb21wdF90ZW1wbGF0ZRgCIAEoCVIOcHJvbXB0VGVtcGxhdGUSGQoId29ya19kaXIYAyABKAlSB3dvcmtEaXISIQoMcHJlZmVyX3NoZWxsGAQgASgJUgtwcmVmZXJTaGVsbBIYCgdhZGp1bmN0GAUgASgIUgdhZGp1bmN0IskECg1HYXRld2F5Q29uZmlnEkQKEHByb2dyZXNzX3RpbWVvdXQYASABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25SD3Byb2dyZXNzVGltZW91dBI8CgxhdXRoX3RpbWVvdXQYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25SC2F1dGhUaW1lb3V0EkcKEmFkb3B0X2RpYWxfdGltZW91dBgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvblIQYWRvcHREaWFsVGltZW91dBIzCgdzdGFnZ2VyGAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uUgdzdGFnZ2VyEjgKCnF1aWNrX2V4aXQYBSABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25SCXF1aWNrRXhpdBIiCg1tYXhfcGVyX3NoZWxsGAYgASgFUgttYXhQZXJTaGVsbBIuChNkZWZhdWx0X2F0dGVtcHRfY2FwGAcgASgDUhFkZWZhdWx0QXR0ZW1wdENhcBImCg90aWNrZXRfaGFyZF9jYXAYCCABKANSDXRpY2tldEhhcmRDYXASNAoLcm9sZV9idWRnZXQYCSADKAsyEy5tZXRhLnYxLlJvbGVCdWRnZXRSCnJvbGVCdWRnZXQSJwoFc2hlbGwYCiADKAsyES5tZXRhLnYxLlNoZWxsUm93UgVzaGVsbBIhCgxib2FyZF9saXN0ZW4YCyABKAlSC2JvYXJkTGlzdGVuIkEKClJvbGVCdWRnZXQSEgoEcm9sZRgBIAEoCVIEcm9sZRIfCgthdHRlbXB0X2NhcBgCIAEoA1IKYXR0ZW1wdENhcCKZAQoIU2hlbGxSb3cSEgoEbmFtZRgBIAEoCVIEbmFtZRIUCgVtb2RlbBgCIAEoCVIFbW9kZWwSEgoEcm9sZRgDIAEoCVIEcm9sZRIaCghwcmlvcml0eRgEIAEoBVIIcHJpb3JpdHkSHwoLYXR0ZW1wdF9jYXAYBSABKANSCmF0dGVtcHRDYXASEgoEbm90ZRgGIAEoCVIEbm90ZTJCCgtTZWF0R2F0ZXdheRIzCgZBdHRhY2gSEC5tZXRhLnYxLlNlYXRNc2caEy5tZXRhLnYxLkdhdGV3YXlNc2coATABMjsKCVNlYXRBZG9wdBIuCgVBZG9wdBISLm1ldGEudjEuQWRvcHRBdXRoGhEubWV0YS52MS5BZG9wdEFjazI+CgVCb2FyZBI1CglTZWF0Qm9hcmQSES5tZXRhLnYxLkJvYXJkUmVxGhMubWV0YS52MS5Cb2FyZEZyYW1lMAEy+wMKDEFkbWluR2F0ZXdheRIwCgxDcmVhdGVUaWNrZXQSEi5tZXRhLnYxLk5ld1RpY2tldBoMLm1ldGEudjEuQWNrEi4KCERpc3BhdGNoEhQubWV0YS52MS5EaXNwYXRjaFJlcRoMLm1ldGEudjEuQWNrEi0KCVNldEJ1ZGdldBISLm1ldGEudjEuQnVkZ2V0UmVxGgwubWV0YS52MS5BY2sSMAoGQnVkZ2V0EhIubWV0YS52MS5UaWNrZXRSZWYaEi5tZXRhLnYxLkJ1ZGdldE1zZxIuCgVQaGFzZRISLm1ldGEudjEuVGlja2V0UmVmGhEubWV0YS52MS5QaGFzZU1zZxIwCgZFdmVudHMSEi5tZXRhLnYxLlRpY2tldFJlZhoSLm1ldGEudjEuRXZlbnRMaXN0EjcKC0V2ZW50c0FmdGVyEhQubWV0YS52MS5FdmVudEN1cnNvchoSLm1ldGEudjEuRXZlbnRMaXN0EiwKBFJ1bnMSEi5tZXRhLnYxLlRpY2tldFJlZhoQLm1ldGEudjEuUnVuTGlzdBIuCgdPYnNlcnZlEg4ubWV0YS52MS5FbXB0eRoRLm1ldGEudjEuT2JzRXZlbnQwARIvCgxSZXRyb1ZlcmRpY3QSES5tZXRhLnYxLlJldHJvUmVxGgwubWV0YS52MS5BY2tCGVoXbWV0YS9pbnRlcm5hbC9wYi9tZXRhdjFiBnByb3RvMw==", [durationFd]);
+const Board = metaFd.services.find(s => s.typeName === "meta.v1.Board");
+const BoardFrame = metaFd.messages.find(m => m.typeName === "meta.v1.BoardFrame");
+
+const $ = id => document.getElementById(id);
+const seats = new Map(), tickets = new Map();
+let abort = null;
+
+function esc(s) { const d = document.createElement("td"); d.textContent = s; return d; }
+
+function render() {
+  const sb = $("seats").querySelector("tbody"); sb.replaceChildren();
+  for (const r of seats.values()) {
+    const tr = document.createElement("tr");
+    tr.append(
+      esc(r.runId), esc(r.role), esc(r.shell + (r.model ? "/" + r.model : "")),
+      esc(r.ticketId), esc(r.stage || ""), esc(r.note || ""),
+      esc(`${r.used}/${r.cap || "—"} · ${r.usedTotal}/${r.hardCap || "—"}`));
+    sb.append(tr);
+  }
+  const tb = $("tickets").querySelector("tbody"); tb.replaceChildren();
+  for (const r of tickets.values()) {
+    const tr = document.createElement("tr");
+    if (r.phase === "完成" || r.phase === "作废") tr.className = "term";
+    tr.append(esc(r.id), esc(r.phase), esc(r.budgetFrozen ? "冻" : ""),
+      esc(`${r.usedTotal}/${r.hardCap || "—"}`), esc(r.title || ""));
+    tb.append(tr);
+  }
+}
+
+function logline(tag, obj) {
+  $("log").textContent += tag + " " + JSON.stringify(obj) + "\n";
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+$("go").onclick = async () => {
+  $("go").disabled = true; $("stop").disabled = false;
+  $("status").className = ""; $("status").textContent = "连接中…";
+  abort = new AbortController();
+  try {
+    const transport = createConnectTransport({ baseUrl: $("url").value });
+    const client = createClient(Board, transport);
+    const stream = client.seatBoard({ token: $("token").value },
+      { signal: abort.signal });
+    for await (const f of stream) {
+      const b = f.body;
+      switch (b.case) {
+        case "full":
+          seats.clear(); tickets.clear();
+          for (const s of b.value.seats) seats.set(s.runId, s);
+          for (const t of b.value.tickets) tickets.set(t.id, t);
+          $("status").className = "ok";
+          $("status").textContent = `已连接 seats=${b.value.seats.length} tickets=${b.value.tickets.length}`;
+          break;
+        case "seatUpsert": seats.set(b.value.runId, b.value); break;
+        case "seatGone": seats.delete(b.value.runId); break;
+        case "ticketUpsert": tickets.set(b.value.id, b.value); break;
+      }
+      render();
+      logline(b.case, toJson(BoardFrame, f));
+    }
+    $("status").textContent = "流终";
+  } catch (e) {
+    $("status").className = "err";
+    $("status").textContent = "断/拒: " + (e && e.message ? e.message : e);
+  } finally {
+    $("go").disabled = false; $("stop").disabled = true;
+  }
+};
+$("stop").onclick = () => { if (abort) abort.abort(); };
+</script>
+</body>
+</html>

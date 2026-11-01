@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v3.21.12
-// source: proto/meta/v1/meta.proto
+// source: meta/v1/meta.proto
 
 package metav1
 
@@ -115,7 +115,7 @@ var SeatGateway_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
 }
 
 const (
@@ -223,7 +223,122 @@ var SeatAdopt_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
+}
+
+const (
+	Board_SeatBoard_FullMethodName = "/meta.v1.Board/SeatBoard"
+)
+
+// BoardClient is the client API for Board service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// 前端面：席位板（总设计 §9/§12，票0012）——业主眼前的一面。
+// 接入即一帧全态，此后只推变化帧；不存历史不查过去（历史归 DB 审计面）。
+// 同一实现在两处暴露：board_listen TCP 走 Connect 二进制（浏览器径），
+// unix socket 走 gRPC 注册（meta board --socket 验收径）。
+type BoardClient interface {
+	SeatBoard(ctx context.Context, in *BoardReq, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BoardFrame], error)
+}
+
+type boardClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewBoardClient(cc grpc.ClientConnInterface) BoardClient {
+	return &boardClient{cc}
+}
+
+func (c *boardClient) SeatBoard(ctx context.Context, in *BoardReq, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BoardFrame], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Board_ServiceDesc.Streams[0], Board_SeatBoard_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[BoardReq, BoardFrame]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Board_SeatBoardClient = grpc.ServerStreamingClient[BoardFrame]
+
+// BoardServer is the server API for Board service.
+// All implementations must embed UnimplementedBoardServer
+// for forward compatibility.
+//
+// 前端面：席位板（总设计 §9/§12，票0012）——业主眼前的一面。
+// 接入即一帧全态，此后只推变化帧；不存历史不查过去（历史归 DB 审计面）。
+// 同一实现在两处暴露：board_listen TCP 走 Connect 二进制（浏览器径），
+// unix socket 走 gRPC 注册（meta board --socket 验收径）。
+type BoardServer interface {
+	SeatBoard(*BoardReq, grpc.ServerStreamingServer[BoardFrame]) error
+	mustEmbedUnimplementedBoardServer()
+}
+
+// UnimplementedBoardServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedBoardServer struct{}
+
+func (UnimplementedBoardServer) SeatBoard(*BoardReq, grpc.ServerStreamingServer[BoardFrame]) error {
+	return status.Error(codes.Unimplemented, "method SeatBoard not implemented")
+}
+func (UnimplementedBoardServer) mustEmbedUnimplementedBoardServer() {}
+func (UnimplementedBoardServer) testEmbeddedByValue()               {}
+
+// UnsafeBoardServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to BoardServer will
+// result in compilation errors.
+type UnsafeBoardServer interface {
+	mustEmbedUnimplementedBoardServer()
+}
+
+func RegisterBoardServer(s grpc.ServiceRegistrar, srv BoardServer) {
+	// If the following call panics, it indicates UnimplementedBoardServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&Board_ServiceDesc, srv)
+}
+
+func _Board_SeatBoard_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(BoardReq)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(BoardServer).SeatBoard(m, &grpc.GenericServerStream[BoardReq, BoardFrame]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Board_SeatBoardServer = grpc.ServerStreamingServer[BoardFrame]
+
+// Board_ServiceDesc is the grpc.ServiceDesc for Board service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var Board_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "meta.v1.Board",
+	HandlerType: (*BoardServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SeatBoard",
+			Handler:       _Board_SeatBoard_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "meta/v1/meta.proto",
 }
 
 const (
@@ -677,5 +792,5 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "proto/meta/v1/meta.proto",
+	Metadata: "meta/v1/meta.proto",
 }

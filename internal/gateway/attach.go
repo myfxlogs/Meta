@@ -173,6 +173,9 @@ func (g *Gateway) handleProgress(ctx context.Context, st *runState, p *pbv1.Prog
 	}); err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
+	// 板变化帧源（§9：席位板「正在做什么」列）——落行后 emit，订户重读 DB 即现态。
+	g.emit(Event{Kind: "progress", TicketID: st.run.TicketID, RunID: st.run.RunID,
+		Role: st.run.Role, Note: p.Stage + " " + p.Note})
 	g.armAlarm(st.run.TicketID, time.Now().Add(g.cfg.ProgressTimeout)) // 随帧重置
 	return nil
 }
@@ -188,6 +191,8 @@ func (g *Gateway) handleUsage(ctx context.Context, st *runState, u *pbv1.Usage) 
 	}
 	_ = g.database.AppendEvent(ctx, tid, "usage", db.Event{
 		Actor: st.run.RunID, Note: fmt.Sprintf("+%d tokens", u.TokensUsed)})
+	// 板变化帧源（预算用量列随帧刷新）。
+	g.emit(Event{Kind: "usage", TicketID: tid, RunID: st.run.RunID, Role: st.run.Role})
 	g.armAlarm(tid, time.Now().Add(g.cfg.ProgressTimeout))
 
 	b, err := g.database.GetBudget(ctx, tid)
