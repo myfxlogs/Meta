@@ -131,9 +131,52 @@ func TestAdjunct_Defer(t *testing.T) {
 	}
 }
 
+// TestAdjunct_DeliverNoPhase 锚 5：adjunct deliver→仅落 adjunct_deliver 行＋
+// Ack 照回，票相位不动（§1.3 码位表 deliver 行——裁决席不是相位步行席）。
+func TestAdjunct_DeliverNoPhase(t *testing.T) {
+	g, dir := newTestGateway(t, func(c *Config) {
+		*c = dispatchCfg(filepath.Dir(c.DBPath))
+	})
+	ctx := context.Background()
+	mkTicketAt(t, g, "ta4", db.PhaseAssigned)
+	spawnSeat(t, g, "ta4", "施工", "worker")
+	waitPhase(t, g, "ta4", db.PhaseWorking, 5*time.Second)
+
+	if err := g.DispatchSeat(ctx, "ta4", "CTO",
+		adjunctSpec("rule", "SEAT_RULE=defer:真在干活")); err != nil {
+		t.Fatal(err)
+	}
+	waitEvent(t, g, "adjunct_claim", "ta4", 10*time.Second)
+	var token string
+	for _, r := range waitRuns(t, g, "ta4", 2, 10*time.Second) {
+		if r.Role == "CTO" {
+			token = r.RunToken
+		}
+	}
+	if token == "" {
+		t.Fatal("CTO adjunct run 未立")
+	}
+	// 第二流同 token 发 Deliver（裁决席产物出口）：adjunct 支只记行不转相位。
+	_, c := dialSeatGateway(t, filepath.Join(dir, "run", "meta.sock"))
+	s, _ := c.Attach(ctx)
+	s.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: token}}})
+	s.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{
+		Ref: "r1", Note: "裁决产物"}}})
+	m, err := s.Recv()
+	if err != nil || m.GetAck() == nil || !m.GetAck().GetOk() {
+		t.Fatalf("adjunct deliver 无 Ack: %v %+v", err, m)
+	}
+	if hasEvent(t, g, "ta4", "adjunct_deliver") == nil {
+		t.Fatal("adjunct_deliver 行未落账")
+	}
+	if p, _ := g.DB().PhaseOf(ctx, "ta4"); p != db.PhaseWorking {
+		t.Fatalf("adjunct deliver 动了相位: %s", p)
+	}
+	s.CloseSend()
+}
+
 // TestRule_NonAdjunctRejected 锚 5：非 adjunct 席发 rule→拒（断流）。
-func TestRule_NonAdjunctRejected(t *testing.T) {
-	g, dir := newTestGateway(t, nil)
+func TestRule_NonAdjunctRejected(t *testing.T) {	g, dir := newTestGateway(t, nil)
 	mkTicketAt(t, g, "ta3", db.PhaseAssigned)
 	run := spawnSeat(t, g, "ta3", "施工", "idle")
 	_, c := dialSeatGateway(t, filepath.Join(dir, "run", "meta.sock"))
