@@ -21,8 +21,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"meta/internal/adapter"
+	"meta/internal/inject"
 	pbv1 "meta/internal/pb/metav1"
 )
 
@@ -56,6 +58,7 @@ type spec struct {
 	RunToken    string
 	TicketID    string
 	RunID       string
+	Interactive bool // META_INTERACTIVE=1：stdin 透传给壳（CEO 交互面）
 	AdoptGrace  time.Duration
 }
 
@@ -75,6 +78,7 @@ func specFromEnv() (spec, error) {
 		RunToken:    e("META_RUN_TOKEN"),
 		TicketID:    e("META_TICKET_ID"),
 		RunID:       e("META_RUN_ID"),
+		Interactive: e("META_INTERACTIVE") == "1",
 		AdoptGrace:  600 * time.Second,
 	}
 	if g := e("META_ADOPT_GRACE"); g != "" {
@@ -82,9 +86,11 @@ func specFromEnv() (spec, error) {
 			s.AdoptGrace = time.Duration(sec) * time.Second
 		}
 	}
-	if s.Shell == "" || s.GatewaySock == "" || s.SeatSock == "" || s.RunToken == "" || s.TicketID == "" {
-		return s, fmt.Errorf("META_* 环境不全（shell=%q sock=%q seat=%q token=%v ticket=%q）",
-			s.Shell, s.GatewaySock, s.SeatSock, s.RunToken != "", s.TicketID)
+	// META_TICKET_ID 空串仅 CEO run 合法（无头化身/交互面免 claim，票0011）。
+	if s.Shell == "" || s.GatewaySock == "" || s.SeatSock == "" || s.RunToken == "" ||
+		(s.TicketID == "" && s.Role != "CEO") {
+		return s, fmt.Errorf("META_* 环境不全（shell=%q sock=%q seat=%q token=%v ticket=%q role=%q）",
+			s.Shell, s.GatewaySock, s.SeatSock, s.RunToken != "", s.TicketID, s.Role)
 	}
 	return s, nil
 }
@@ -106,11 +112,16 @@ type session struct {
 	resultOK     bool   // 见到 FrameResult
 	verdict      string // META_VERDICT 哨兵捕到的审计判决（pass|reject）
 	verdictRef   string // 判决档 ref
+	deliverRef   string // META_DELIVER 哨兵捕到的交付 ref（D-32）
+	deliverSeen  bool   // META_DELIVER 哨兵已见（净退无哨兵→ExitSeatErr）
 }
+
+// adapterNew 注入缝（测试换伪适配器——哨兵闸的壳行为由 argv 脚本驱动）。
+var adapterNew = adapter.New
 
 // run 主流程：收养口 → attach+claim → 起壳 → 帧泵 → 退码分级自退。
 func (s *session) run() int {
-	ad, err := adapter.New(s.spec.Shell)
+	ad, err := adapterNew(s.spec.Shell)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "seat:", err)
 		return ExitSeatErr
@@ -126,9 +137,12 @@ func (s *session) run() int {
 		fmt.Fprintln(os.Stderr, "seat: attach:", err)
 		return ExitSeatErr
 	}
-	if err := s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{
-		Claim: &pbv1.Claim{TicketId: s.spec.TicketID}}}); err != nil {
-		return ExitSeatErr
+	// META_TICKET_ID 空＝CEO run：免 claim（无票可领，§1.2）。
+	if s.spec.TicketID != "" {
+		if err := s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{
+			Claim: &pbv1.Claim{TicketId: s.spec.TicketID}}}); err != nil {
+			return ExitSeatErr
+		}
 	}
 
 	code, tail := s.runChild(ad)
@@ -146,11 +160,31 @@ func (s *session) run() int {
 		s.mu.Lock()
 		s.finishing = true
 		s.mu.Unlock()
+		// 无票 run（CEO 面）不送 Deliver——无相位可翻。
+		if s.spec.TicketID == "" {
+			return ExitClean
+		}
+		// D-32 机械哨兵闸（令#E15 首个适用）：净退无哨兵＝席死径
+		// （ExitSeatErr＋不发 Deliver——完工没喊交货就当没交）。审计席的
+		// 交付哨兵＝META_VERDICT（携判决+ref）；其余角色＝META_DELIVER:<ref>。
 		s.mu.Lock()
-		verdict, vref := s.verdict, s.verdictRef
+		verdict, vref, dref, dseen := s.verdict, s.verdictRef, s.deliverRef, s.deliverSeen
 		s.mu.Unlock()
+		if s.spec.Role == "审计" {
+			if verdict == "" {
+				fmt.Fprintln(os.Stderr, "seat: 净退无 META_VERDICT 哨兵——不交付")
+				return ExitSeatErr
+			}
+		} else if !dseen {
+			fmt.Fprintln(os.Stderr, "seat: 净退无 META_DELIVER 哨兵——不交付")
+			return ExitSeatErr
+		}
+		ref := dref
+		if s.spec.Role == "审计" {
+			ref = vref
+		}
 		s.enqueueSync(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{
-			Ref: vref, Verdict: verdict,
+			Ref: ref, Verdict: verdict,
 			Note: fmt.Sprintf("%s exit=0%s", s.spec.Shell, resultNote(s.resultOK))}}})
 		// 等 Deliver 回执（有界 3s）——尾帧不许丢在传输缓冲里。
 		select {
@@ -180,7 +214,9 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 	cmd := exec.Command(c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
 	cmd.Env = append(os.Environ(), c.Env...)
-	if c.StdinFile != "" {
+	if s.spec.Interactive {
+		cmd.Stdin = os.Stdin // META_INTERACTIVE=1：业主打字直透壳（CEO 交互面）
+	} else if c.StdinFile != "" {
 		f, err := os.Open(c.StdinFile)
 		if err != nil {
 			return -1, "prompt file: " + err.Error()
@@ -275,6 +311,9 @@ func (s *session) pumpGateway() {
 			case s.ackCh <- struct{}{}:
 			default:
 			}
+		case *pbv1.GatewayMsg_AdminResp:
+			fmt.Fprintf(os.Stderr, "seat: admin_resp ok=%v %s\n",
+				b.AdminResp.Ok, b.AdminResp.Note)
 		case *pbv1.GatewayMsg_Abort:
 			fmt.Fprintln(os.Stderr, "seat: Abort:", b.Abort.Reason)
 			os.Exit(ExitAbort)
@@ -413,7 +452,64 @@ func (s *session) scanSentinel(l []byte) bool {
 		s.mu.Unlock()
 		return true
 	}
+	if rest, ok := strings.CutPrefix(line, "META_DELIVER:"); ok {
+		// D-32 交付哨兵（令#E15）：净退无此行＝席死径不交付。
+		s.mu.Lock()
+		s.deliverRef, s.deliverSeen = rest, true
+		s.mu.Unlock()
+		return true
+	}
+	if rest, ok := strings.CutPrefix(line, "META_ADMIN:"); ok {
+		return s.adminSentinel(rest)
+	}
 	return false
+}
+
+// adminSentinel META_ADMIN:<动作>|<args> → SeatAdmin 帧（§1.5：CTO-A 写径
+// 随席位流走）。fill_spec/create_ticket 的 spec 均为票面 markdown 文件路径。
+func (s *session) adminSentinel(rest string) bool {
+	parts := strings.SplitN(rest, "|", 4)
+	send := func(a *pbv1.SeatAdmin) {
+		s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Admin{Admin: a}})
+	}
+	switch parts[0] {
+	case "fill_spec":
+		if len(parts) < 2 {
+			return false
+		}
+		b, err := os.ReadFile(parts[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "seat: fill_spec 读文件:", err)
+			return true
+		}
+		send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_FillSpec{
+			FillSpec: &pbv1.FillSpec{TicketId: s.spec.TicketID, SpecMd: b}}})
+	case "create_ticket":
+		// META_ADMIN:create_ticket|<id>|<title>|<spec.md>
+		if len(parts) < 4 {
+			return false
+		}
+		nt := &pbv1.NewTicket{Id: parts[1], Title: parts[2]}
+		if b, err := os.ReadFile(parts[3]); err == nil {
+			if ts, err := inject.ParseTicketMD(b); err == nil {
+				nt.Spec, _ = proto.Marshal(ts)
+			}
+		}
+		send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_CreateTicket{CreateTicket: nt}})
+	case "dispatch":
+		// META_ADMIN:dispatch|<ticket>|<role>|[promptfile]|[workdir]
+		if len(parts) < 3 {
+			return false
+		}
+		d := &pbv1.DispatchReq{TicketId: parts[1], Role: parts[2]}
+		if len(parts) > 3 && parts[3] != "" {
+			d.PromptFile, d.WorkDir, _ = strings.Cut(parts[3], "~")
+		}
+		send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_Dispatch{Dispatch: d}})
+	default:
+		return false
+	}
+	return true
 }
 
 func (s *session) sendProgress(stage, note string) {

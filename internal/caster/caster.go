@@ -244,6 +244,7 @@ func (e *Engine) execDispatch(ctx context.Context, cli AdminClient, row *pbv1.Ev
 		WorkDir:     d.WorkDir,
 		PreferShell: d.PreferShell,
 		Adjunct:     d.Adjunct,
+		Provenance:  row.Provenance, // D9：触发事件行的戳透传进 spawn（§1.3）
 	}
 	if d.PromptTemplate != "" {
 		body, err := os.ReadFile(filepath.Join(e.configRoot, d.PromptTemplate))

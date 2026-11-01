@@ -39,6 +39,12 @@ type Event struct {
 
 // CreateTicket 立票（初始相位 已立）。
 func (d *DB) CreateTicket(ctx context.Context, id, title string, spec []byte) error {
+	return d.CreateTicketProv(ctx, id, title, spec, "")
+}
+
+// CreateTicketProv 立票＋created 事件盖 provenance（D9：CEO/admin 帧链
+// 立票必须带戳——「业主指示」自此机检可查）。
+func (d *DB) CreateTicketProv(ctx context.Context, id, title string, spec []byte, provenance string) error {
 	now := d.now().UnixNano()
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO ticket (id, title, phase, spec, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
@@ -46,7 +52,7 @@ func (d *DB) CreateTicket(ctx context.Context, id, title string, spec []byte) er
 	if err != nil {
 		return fmt.Errorf("create ticket: %w", err)
 	}
-	return d.appendEvent(ctx, id, "created", "", PhaseCreated, "gateway", "", "")
+	return d.appendEvent(ctx, id, "created", "", PhaseCreated, "gateway", "", provenance)
 }
 
 // GetTicket 取票。
@@ -201,6 +207,47 @@ func (d *DB) EventsAfter(ctx context.Context, sinceID int64, limit int) ([]*Even
 	}
 	defer rows.Close()
 	return scanEvents(rows)
+}
+
+// LatestEventKind 票上最新一条 ticket_event 的 kind（req_pending 泊车标/
+// 对账抑制判据——无行回空串）。
+func (d *DB) LatestEventKind(ctx context.Context, ticketID string) (string, error) {
+	var k string
+	err := d.db.QueryRowContext(ctx,
+		`SELECT kind FROM ticket_event WHERE ticket_id=? ORDER BY id DESC LIMIT 1`,
+		ticketID).Scan(&k)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return k, err
+}
+
+// UpdateSpec 回填票面 spec（席位流 admin fill_spec 帧落点；BLOB 直写）。
+func (d *DB) UpdateSpec(ctx context.Context, ticketID string, spec []byte) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE ticket SET spec=?, updated_at=? WHERE id=?`,
+		spec, d.now().UnixNano(), ticketID)
+	return err
+}
+
+// TicketsByProjectPhase 项目×相位查票（design 锁释放后补发 spawn_needed 的
+// 查表径；project 空串票不入锁族）。
+func (d *DB) TicketsByProjectPhase(ctx context.Context, project string, phase Phase) ([]string, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT id FROM ticket WHERE project=? AND phase=? ORDER BY created_at`, project, string(phase))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // LastActivityAt 票上最近一次活性事件的墙上时间——闹钟 deadline 由此重算（§5.3 A4）。

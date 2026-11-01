@@ -87,7 +87,7 @@ func (d *DB) RunsForTicket(ctx context.Context, ticketID string) ([]*Run, error)
 		var closed, dead, adjunct int
 		if err := rows.Scan(&r.RunID, &r.SeatID, &r.TicketID, &r.Role, &r.Shell, &r.PID,
 			&r.RunToken, &r.SocketPath, &r.LogPath, &started, &attached, &adopted,
-			&exited, &r.ExitCode, &closed, &dead, &adjunct); err != nil {
+			&exited, &r.ExitCode, &closed, &dead, &adjunct, &r.Provenance); err != nil {
 			return nil, err
 		}
 		r.StartedAt = time.Unix(0, started)

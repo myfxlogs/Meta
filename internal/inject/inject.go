@@ -129,7 +129,13 @@ func Assemble(in Input) (string, error) {
 	b.WriteString("## 五、技能库索引（docs/技能库/——成套打法，在用证错同票必修）\n\n")
 	writeIndex(&b, skillIdx)
 
-	fmt.Fprintf(&b, "## 六、工作目录\n\n%s\n", in.Root)
+	fmt.Fprintf(&b, "## 六、工作目录\n\n%s\n\n", in.Root)
+
+	// D-32 交付哨兵机械末行（令#E15 首个适用——完工没喊交货＝席死径）：
+	// 本行是注入模板钦定末行，改/删＝票面级变更（验收锚：末行断言）。
+	b.WriteString("## 七、交付哨兵（机械强制——净退无此行外壳按席死计，不交付）\n\n")
+	b.WriteString("完工的最后一行必须**单独一行**输出哨兵，`<ref>`＝交付 commit/支名：\n\n")
+	b.WriteString("META_DELIVER:<ref>\n")
 	return b.String(), nil
 }
 
