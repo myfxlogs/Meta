@@ -318,8 +318,18 @@ func (g *Gateway) CeoEvents(sub *pbv1.Subscribe, stream pbv1.CeoGateway_EventsSe
 	g.ceoPending = nil
 	g.ceoDispatched[run.RunID] += len(pending)
 	g.mu.Unlock()
+	send := func(e Event) error {
+		it := ceoEventItem(e)
+		// marshal 预检（决策 67 D-45③）：净化后仍败的坏行发 bad_row
+		// 标记帧——毒事件不再崩 CEO 事件流整流。
+		if _, err := proto.Marshal(it); err != nil {
+			it = &pbv1.EventItem{Kind: "bad_row",
+				Note: "bad_row: 事件 marshal 败", AtUnixNano: time.Now().UnixNano()}
+		}
+		return stream.Send(it)
+	}
 	for _, e := range pending {
-		if err := stream.Send(ceoEventItem(e)); err != nil {
+		if err := send(e); err != nil {
 			return err
 		}
 	}
@@ -329,7 +339,7 @@ func (g *Gateway) CeoEvents(sub *pbv1.Subscribe, stream pbv1.CeoGateway_EventsSe
 	for {
 		select {
 		case e := <-ch:
-			if err := stream.Send(ceoEventItem(e)); err != nil {
+			if err := send(e); err != nil {
 				return err
 			}
 		case <-ctx.Done():
@@ -340,10 +350,12 @@ func (g *Gateway) CeoEvents(sub *pbv1.Subscribe, stream pbv1.CeoGateway_EventsSe
 	}
 }
 
+// ceoEventItem 进程内事件→proto——全字段净化（决策 67 D-45③）。
 func ceoEventItem(e Event) *pbv1.EventItem {
 	return &pbv1.EventItem{
-		Kind: e.Kind, TicketId: e.TicketID, Actor: e.RunID, Role: e.Role,
-		Note: e.Note, Provenance: e.Provenance, AtUnixNano: time.Now().UnixNano(),
+		Kind: clean(e.Kind), TicketId: clean(e.TicketID), Actor: clean(e.RunID),
+		Role: clean(e.Role),
+		Note: clean(e.Note), Provenance: clean(e.Provenance), AtUnixNano: time.Now().UnixNano(),
 	}
 }
 
@@ -588,9 +600,12 @@ func (g *Gateway) CeoMemory(stream pbv1.CeoGateway_MemoryServer) error {
 				return status.Error(codes.Internal, err.Error())
 			}
 			for _, m := range rows {
+				// DB 源字段净化（决策 67 D-45③）——Content 是 bytes 列
+				// （proto 不验 UTF-8），文本字段逐过 clean。
 				if err := stream.Send(&pbv1.MemoryOp{Op: &pbv1.MemoryOp_Row{
-					Row: &pbv1.MemoryRow{Id: m.ID, Kind: m.Kind, Title: m.Title,
-						Content: m.Content, EventRef: m.EventRef, Provenance: m.Provenance,
+					Row: &pbv1.MemoryRow{Id: m.ID, Kind: clean(m.Kind), Title: clean(m.Title),
+						Content: m.Content, EventRef: clean(m.EventRef),
+						Provenance: clean(m.Provenance),
 						AtUnixNano: m.CreatedAt.UnixNano()}}}); err != nil {
 					return err
 				}

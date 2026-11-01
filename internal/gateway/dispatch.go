@@ -491,7 +491,9 @@ func logTail(path string, n int64) string {
 	if _, err := f.ReadAt(b, off); err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(b))
+	// 出口净化（决策 67 实证毒源）：日志尾原文含毒字节，进 seat_err note
+	// 即埋雷——事件流 marshal 必炸。clean 后 TrimSpace。
+	return strings.TrimSpace(clean(string(b)))
 }
 
 // shellsExhausted 全壳耗尽：事件→CEO（§8.1 必报）。CTO 部署支连席都起

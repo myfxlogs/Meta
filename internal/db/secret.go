@@ -78,7 +78,7 @@ func (d *DB) PutSecret(ctx context.Context, name string, ciphertext []byte, role
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO secret (name, value, role_acl, created_at, rotated_at) VALUES (?,?,?,?,?)
 		 ON CONFLICT(name) DO UPDATE SET value=excluded.value, role_acl=excluded.role_acl, rotated_at=excluded.rotated_at`,
-		name, ciphertext, strings.Join(roleACL, ","), now, now)
+		cargs(name, ciphertext, strings.Join(roleACL, ","), now, now)...)
 	return err
 }
 

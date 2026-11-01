@@ -410,6 +410,8 @@ func (s *session) attachOnce() error {
 func (s *session) sendPump(stream pbv1.SeatGateway_AttachClient, conn *grpc.ClientConn) {
 	for m := range s.sendq {
 		if err := stream.Send(m); err != nil {
+			// Send 败暗死是次伤面（决策 67）：帧丢而席无恙＝交付帧可能蒸发。
+			fmt.Fprintln(os.Stderr, "seat: sendPump Send:", err)
 			return
 		}
 	}
@@ -457,7 +459,9 @@ func (s *session) drain() {
 // 裁决席 META_RULE/审计席 META_VERDICT 均「最后单独一行」钦定，§1.4/§15.2）。
 // 命中即消费返回 true。
 func (s *session) scanSentinel(l []byte) bool {
-	line := strings.TrimSpace(string(l))
+	// 壳原行净化在前——哨兵 ref/verdict 带毒进 proto 帧必炸 marshal
+	// （决策 67：毒 META_DELIVER 埋在垃圾流里的同族面，D-45②）。
+	line := strings.TrimSpace(strings.ToValidUTF8(string(l), "�"))
 	if rest, ok := strings.CutPrefix(line, "META_RULE:"); ok {
 		action, note, _ := strings.Cut(rest, ":")
 		s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Rule{
@@ -531,7 +535,14 @@ func (s *session) adminSentinel(rest string) bool {
 		nt := &pbv1.NewTicket{Id: parts[1], Title: parts[2]}
 		if b, err := os.ReadFile(parts[3]); err == nil {
 			if ts, err := inject.ParseTicketMD(b); err == nil {
-				nt.Spec, _ = proto.Marshal(ts)
+				// marshal 败不落部分 wire（决策 67 次伤面：吞错存半废 spec）——
+				// Spec=nil 拒存＋stderr 留痕，毒票在源头不入库。
+				if spec, err := proto.Marshal(ts); err == nil {
+					nt.Spec = spec
+				} else {
+					fmt.Fprintln(os.Stderr, "seat: create_ticket spec marshal:", err)
+					nt.Spec = nil
+				}
 			}
 		}
 		send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_CreateTicket{CreateTicket: nt}})
