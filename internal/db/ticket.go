@@ -13,6 +13,7 @@ type Ticket struct {
 	ID           string
 	Title        string
 	Phase        Phase
+	Spec         []byte // 序列化 pbv1.TicketSpec（票面八栏，可空）
 	Project      string
 	DedupeKey    string
 	BudgetFrozen bool
@@ -54,9 +55,9 @@ func (d *DB) GetTicket(ctx context.Context, id string) (*Ticket, error) {
 	var created, updated int64
 	var frozen int
 	err := d.db.QueryRowContext(ctx,
-		`SELECT id, title, phase, project, dedupe_key, budget_frozen, reject_count, defer_count, created_at, updated_at
+		`SELECT id, title, phase, spec, project, dedupe_key, budget_frozen, reject_count, defer_count, created_at, updated_at
 		 FROM ticket WHERE id=?`, id).
-		Scan(&t.ID, &t.Title, &phase, &t.Project, &t.DedupeKey, &frozen,
+		Scan(&t.ID, &t.Title, &phase, &t.Spec, &t.Project, &t.DedupeKey, &frozen,
 			&t.RejectCount, &t.DeferCount, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
