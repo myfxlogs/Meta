@@ -32,10 +32,15 @@ const (
 	ExitSeatErr   = 2  // 外壳自身错（attach/claim/适配器构造失败）
 	ExitOrphan    = 3  // 收养闹钟到未被收养（§5.1）
 	ExitAbort     = 4  // 网关 Abort 令
+	ExitInputErr  = 5  // 输入层死因（prompt 文件不可读/适配器 Build 失败）——席非壳之错
 	ExitSpawnFail = 61 // ① 起不来/秒退
 	ExitTransient = 62 // ②a 限流/瞬态
 	ExitFatal     = 63 // ②b 配额尽/授权/持续错
 )
+
+// codeInputErr runChild 输入层死因哨兵（非真退码——run() 据此归 ExitWrapper
+// 再经 ExitCodeOf 落成 ExitInputErr 进程退码；与 -1 机器级哨兵分桶）。
+const codeInputErr = -2
 
 // Run 席位主程。全部参数经 env 注入（META_*，见 Spawn），返回进程退出码。
 func Run() int {
@@ -132,7 +137,12 @@ func (s *session) run() int {
 	}
 
 	code, tail := s.runChild(ad)
-	class := ad.Classify(code, tail)
+	var class adapter.ExitClass
+	if code == codeInputErr {
+		class = adapter.ExitWrapper // 输入层死因：席非壳之错（D-40 禁标壳）
+	} else {
+		class = ad.Classify(code, tail)
+	}
 	if tok, ok := ad.FinalTokens(s.spec.Spec); ok {
 		s.sendUsageFinal(tok)
 	} else {
@@ -175,7 +185,7 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 	c, err := ad.Build(s.spec.Spec)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "seat: build:", err)
-		return -1, err.Error()
+		return codeInputErr, err.Error()
 	}
 	cmd := exec.Command(c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
@@ -183,7 +193,7 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 	if c.StdinFile != "" {
 		f, err := os.Open(c.StdinFile)
 		if err != nil {
-			return -1, "prompt file: " + err.Error()
+			return codeInputErr, "prompt file: " + err.Error()
 		}
 		defer f.Close()
 		cmd.Stdin = f
@@ -506,13 +516,18 @@ func ExitCodeOf(class adapter.ExitClass) int {
 		return ExitFatal
 	case adapter.ExitOK:
 		return ExitClean
+	case adapter.ExitWrapper:
+		return ExitInputErr // 席位级死因的通用退码（输入层为代表例）
 	}
 	return ExitSpawnFail
 }
 
-// ClassOfExit 席位退码→失效分级（网关侧用）。
+// ClassOfExit 席位退码→失效分级（网关侧用）。席位级死因（2/3/4/5——外壳错/
+// 孤儿/Abort/输入层）归 ExitWrapper：席非壳之错，网关据此禁标壳（D-40）。
 func ClassOfExit(code int) adapter.ExitClass {
 	switch code {
+	case ExitSeatErr, ExitOrphan, ExitAbort, ExitInputErr:
+		return adapter.ExitWrapper
 	case ExitTransient:
 		return adapter.ExitTransient
 	case ExitFatal:

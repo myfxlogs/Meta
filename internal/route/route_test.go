@@ -75,6 +75,8 @@ func TestNextHealth(t *testing.T) {
 		{HealthDead, adapter.ExitOK, HealthOK, true},           // 懒探恢复
 		{HealthOK, adapter.ExitOK, HealthOK, false},            // 幂等
 		{HealthDead, adapter.ExitSpawn, HealthDead, false},     // dead 行 probe 又①仍死
+		{HealthOK, adapter.ExitWrapper, HealthOK, false},       // 席位级：不迁（禁标壳 D-40）
+		{HealthDead, adapter.ExitWrapper, HealthDead, false},   // 席位级：同样不迁
 	}
 	for _, tc := range cases {
 		got, ch := NextHealth(tc.cur, tc.class)

@@ -22,9 +22,16 @@ routes {
 }
 routes { kind: "defer_limit" note: "延期帽尽→通知" actions { notify { template: "【Meta】⚠️卡死裁决延期已尽[{{ticket_id}}]——CEO 已接手" } } }
 # ——审计派发径（决策40，设计 §15 落点）——
-routes { kind: "deliver" note: "交付→通知＋起审计席（决策53 复位：全链无人；票面必带 spec 防 D-40 空提示；注入机未开期模板兜底——止血补丁，0009 落地后由 role 过滤拆行接管）"
+# D-39：deliver 按事件 role 拆行——CTO 交设计票只通知（事后验归 CEO，决策49/53），
+# 施工交付才派审计；审计 dispatch 行带静态模板（注入机未开期第二道防线，0007 空提示正解 D-40）。
+routes { kind: "deliver" role: "CTO"
+  note: "设计票交付→只通知不进审（CTO 交付归 CEO 事后验，决策49/53）"
+  actions { notify { template: "【Meta】{{role}}:设计交付·事后验[{{ticket_id}}]" } } }
+routes { kind: "deliver" role: "施工"
+  note: "施工交付→通知＋起审计席（决策53 复位：全链无人；票面必带 spec 防 D-40 空提示）"
   actions { notify { template: "【Meta】{{role}}:完工转交[{{ticket_id}}]" } }
-  actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
+  actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/opt/meta"
+                       prompt_template: "caster/audit-review.md" } } }
 routes { kind: "audit_start" note: "审计拉起（决策34 缺口补）" actions { notify { template: "【Meta】审计:接单[{{ticket_id}}]" } } }
 routes { kind: "audit_pass" note: "判决通过→待部署（部署闸票再接 dispatch CTO-B）" actions { notify { template: "【Meta】审计:完成转交[{{ticket_id}}]" } } }
 routes { kind: "reject" note: "驳回→通知＋自动重派施工（判决史随注入累积）"

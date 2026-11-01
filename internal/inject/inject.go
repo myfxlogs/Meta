@@ -130,7 +130,11 @@ func Assemble(in Input) (string, error) {
 	writeIndex(&b, skillIdx)
 
 	fmt.Fprintf(&b, "## 六、工作目录\n\n%s\n", in.Root)
-	return b.String(), nil
+	out := b.String()
+	if strings.TrimSpace(out) == "" {
+		return "", fmt.Errorf("注入产物为空（票 %s role=%s）——D-40 产物级兜底", in.TicketID, in.Role)
+	}
+	return out, nil
 }
 
 func writeIndex(b *strings.Builder, names []string) {

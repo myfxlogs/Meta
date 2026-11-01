@@ -129,9 +129,12 @@ routes { kind: "stall_suspect"
   actions { notify { template: "N {{ticket_id}}" } }
   actions { dispatch { role: "CTO" adjunct: true prompt_template: "caster/ruling.md" work_dir: "/w" } } }
 routes { kind: "budget_frozen" actions { notify { template: "F {{ticket_id}}" } } }
-routes { kind: "deliver"
+routes { kind: "deliver" role: "CTO"
+  actions { notify { template: "CD {{ticket_id}}" } } }
+routes { kind: "deliver" role: "施工"
   actions { notify { template: "D {{ticket_id}}" } }
-  actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/w" } } }
+  actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/w"
+                       prompt_template: "caster/audit.md" } } }
 routes { kind: "audit_start" actions { notify { template: "A {{ticket_id}}" } } }
 routes { kind: "audit_pass"  actions { notify { template: "P {{ticket_id}}" } } }
 routes { kind: "reject"
@@ -143,11 +146,9 @@ routes { kind: "spawn_needed" note_contains: "施工" actions { dispatch { role:
 routes { kind: "ruling" actions { notify { template: "L {{ticket_id}}" } } }
 `
 
-func newEngine(t *testing.T, f *fakeAdmin, notifies *[]string, replay bool) (*Engine, string) {
+// writeCasterTemplates 在配置根落 fixture 模板件（prompt_template 相对配置根解）。
+func writeCasterTemplates(t *testing.T, dir string) {
 	t.Helper()
-	dir := t.TempDir()
-	rp := writeRoutes(t, dir, fixtureTable)
-	// 模板落点：相对配置根（routes 父目录）的 caster/ruling.md
 	if err := os.MkdirAll(filepath.Join(dir, "caster"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +156,17 @@ func newEngine(t *testing.T, f *fakeAdmin, notifies *[]string, replay bool) (*En
 		[]byte("裁决 {{ticket_id}} {{note}} run_dir={{run_dir}} sock={{gateway_sock}}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "caster", "audit.md"),
+		[]byte("审计 {{ticket_id}} {{note}}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newEngine(t *testing.T, f *fakeAdmin, notifies *[]string, replay bool) (*Engine, string) {
+	t.Helper()
+	dir := t.TempDir()
+	rp := writeRoutes(t, dir, fixtureTable)
+	writeCasterTemplates(t, dir)
 	eng, err := New(Config{
 		RoutesPath: rp, StateDir: filepath.Join(dir, "state"),
 		RunDir: "/run", SocketPath: "/sock", ReplayHistory: replay,
@@ -177,8 +189,8 @@ func TestLoadTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tb.Routes) != 10 {
-		t.Fatalf("行数=%d 预期 10", len(tb.Routes))
+	if len(tb.Routes) != 11 {
+		t.Fatalf("行数=%d 预期 11", len(tb.Routes))
 	}
 	for _, bad := range []string{
 		`routes { kind: "" actions { notify { template: "x" } } }`,
@@ -242,7 +254,9 @@ func TestWM_Idempotent(t *testing.T) {
 	}
 	// 第二跑：零动作（wm=2 无新行）。
 	f2 := &fakeAdmin{}
-	eng2, _ := newEngineAt(t, f2, &notifies, filepath.Join(dir, "state"), false, writeRoutes(t, t.TempDir(), fixtureTable))
+	dir2 := t.TempDir()
+	writeCasterTemplates(t, dir2)
+	eng2, _ := newEngineAt(t, f2, &notifies, filepath.Join(dir, "state"), false, writeRoutes(t, dir2, fixtureTable))
 	if err := eng2.Once(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -250,15 +264,20 @@ func TestWM_Idempotent(t *testing.T) {
 		t.Fatal("第二跑零动作")
 	}
 	// 推进：插新行→只处理 id>wm。
-	f2.add(&pbv1.EventItem{Id: 3, Kind: "deliver", TicketId: "t"})
+	f2.add(&pbv1.EventItem{Id: 3, Kind: "deliver", TicketId: "t", Role: "施工"})
 	if err := eng2.Once(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if f2.nDispatch() != 1 || f2.dispatches[0].Role != "审计" {
 		t.Fatalf("新行未处理或越界: %+v", f2.dispatches)
 	}
-	if f2.dispatches[0].PreferShell != "claude" || f2.dispatches[0].PromptFile != "" {
+	// D-39：审计派发带 prompt_template→渲染落盘，PromptFile 非空含票号。
+	pf := f2.dispatches[0].PromptFile
+	if f2.dispatches[0].PreferShell != "claude" || pf == "" {
 		t.Fatalf("deliver→审计派发不符（prefer/prompt_file）: %+v", f2.dispatches[0])
+	}
+	if b, err := os.ReadFile(pf); err != nil || !strings.Contains(string(b), "审计 t") {
+		t.Fatalf("审计 prompt 未渲染票号: %s %v", pf, err)
 	}
 }
 
@@ -295,7 +314,7 @@ func TestReconnect(t *testing.T) {
 
 	f.killStream()
 	// 间隙内落库的行：重连成功后 resync 补处理。
-	f.add(&pbv1.EventItem{Id: 2, Kind: "deliver", TicketId: "t"})
+	f.add(&pbv1.EventItem{Id: 2, Kind: "deliver", TicketId: "t", Role: "施工"})
 	waitFor(t, 8*time.Second, func() bool { return f.nDispatch() >= 1 })
 	cancel()
 	<-done
@@ -348,4 +367,144 @@ func waitFor(t *testing.T, d time.Duration, ok func() bool) {
 		<-time.After(10 * time.Millisecond)
 	}
 	t.Fatal("有界等待超时")
+}
+
+// TestRoleFilter 锚 2（D-39＋对抗性锚 a）：行 role 非空＝事件 role 等值才动作。
+// deliver{role:施工}→dispatch 审计；deliver{role:CTO}→零 dispatch 只 notify；
+// 空 role 行照旧全匹配（回归）；role 与 note_contains 并存＝两条件都过。
+// 删 process() 的 `rt.Role != "" && rt.Role != row.Role` 本表必红。
+func TestRoleFilter(t *testing.T) {
+	dir := t.TempDir()
+	table := `
+routes { kind: "deliver" role: "CTO"
+  actions { notify { template: "CTO交付 {{ticket_id}}" } } }
+routes { kind: "deliver" role: "施工"
+  actions { notify { template: "施工交付 {{ticket_id}}" } }
+  actions { dispatch { role: "审计" prefer_shell: "claude" work_dir: "/w"
+                       prompt_template: "audit.md" } } }
+routes { kind: "ping"
+  actions { dispatch { role: "施工" work_dir: "/w" } } }
+routes { kind: "multi" role: "施工" note_contains: "go"
+  actions { dispatch { role: "审计" work_dir: "/w" } } }
+`
+	rp := writeRoutes(t, dir, table)
+	if err := os.WriteFile(filepath.Join(dir, "audit.md"),
+		[]byte("审计 {{ticket_id}}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeAdmin{}
+	var notifies []string
+	eng, err := New(Config{
+		RoutesPath: rp, StateDir: filepath.Join(dir, "state"),
+		RunDir: "/run", SocketPath: "/sock", ReplayHistory: true,
+		Dial: func(ctx context.Context) (AdminClient, error) { return f, nil },
+		Notify: func(ctx context.Context, text string) error {
+			notifies = append(notifies, text)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.add(&pbv1.EventItem{Id: 1, Kind: "deliver", TicketId: "0009", Role: "施工"})
+	f.add(&pbv1.EventItem{Id: 2, Kind: "deliver", TicketId: "0007", Role: "CTO"})
+	f.add(&pbv1.EventItem{Id: 3, Kind: "ping", TicketId: "p", Role: "任意"})
+	f.add(&pbv1.EventItem{Id: 4, Kind: "multi", TicketId: "m1", Role: "施工", Note: "no"})
+	f.add(&pbv1.EventItem{Id: 5, Kind: "multi", TicketId: "m2", Role: "CTO", Note: "go"})
+	f.add(&pbv1.EventItem{Id: 6, Kind: "multi", TicketId: "m3", Role: "施工", Note: "go"})
+	if err := eng.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// dispatch 只三枚：deliver施工→审计、ping（空 role 行全匹配）→施工、
+	// multi施工+go→审计。deliver CTO 与 multi 两失格行零 dispatch。
+	if f.nDispatch() != 3 {
+		t.Fatalf("Dispatch=%d 预期 3: %+v", f.nDispatch(), f.dispatches)
+	}
+	d0 := f.dispatches[0]
+	if d0.Role != "审计" || d0.TicketId != "0009" {
+		t.Fatalf("deliver施工应派审计: %+v", d0)
+	}
+	if b, err := os.ReadFile(d0.PromptFile); err != nil ||
+		!strings.Contains(string(b), "0009") {
+		t.Fatalf("审计 prompt 未渲染: %s %v", d0.PromptFile, err)
+	}
+	if f.dispatches[1].Role != "施工" || f.dispatches[2].TicketId != "m3" {
+		t.Fatalf("派发序不符: %+v", f.dispatches)
+	}
+	// notify：deliver 两发（施工交付＋CTO交付），deliver CTO 只通知不进审。
+	var hasCTO, hasW bool
+	for _, n := range notifies {
+		if strings.Contains(n, "CTO交付") {
+			hasCTO = true
+		}
+		if strings.Contains(n, "施工交付") {
+			hasW = true
+		}
+	}
+	if !hasCTO || !hasW {
+		t.Fatalf("deliver 两行 notify 不齐: %v", notifies)
+	}
+}
+
+// TestProdConfig 锚 6：仓内 config/caster.textproto 加载全绿；deliver 按
+// role 拆两行在；审计 dispatch 行全带 prompt_template；audit-review.md
+// 存在且渲染含票号＋META_VERDICT 哨兵纪律＋meta events/phase 自取指引。
+func TestProdConfig(t *testing.T) {
+	tb, err := LoadTable(filepath.Join("..", "..", "config", "caster.textproto"))
+	if err != nil {
+		t.Fatalf("生产路由表拒载: %v", err)
+	}
+	var ctoLine, workLine bool
+	auditDisp := 0
+	for _, r := range tb.Routes {
+		if r.Kind != "deliver" {
+			continue
+		}
+		switch r.Role {
+		case "CTO":
+			ctoLine = true
+			for _, a := range r.Actions {
+				if a.GetDispatch() != nil {
+					t.Fatal("deliver/CTO 行只许通知不许派单")
+				}
+			}
+		case "施工":
+			workLine = true
+		default:
+			t.Fatalf("deliver 行带意外 role: %q", r.Role)
+		}
+	}
+	for _, r := range tb.Routes {
+		for _, a := range r.Actions {
+			if d := a.GetDispatch(); d != nil && d.Role == "审计" {
+				auditDisp++
+				if d.PromptTemplate != "caster/audit-review.md" {
+					t.Fatalf("审计 dispatch 行缺 prompt_template: %+v", d)
+				}
+			}
+		}
+	}
+	if !ctoLine || !workLine {
+		t.Fatalf("deliver 未按 role 拆两行: CTO=%v 施工=%v", ctoLine, workLine)
+	}
+	if auditDisp != 3 {
+		t.Fatalf("审计 dispatch 行数=%d 预期 3（deliver/audit_dead/spawn_needed）", auditDisp)
+	}
+
+	b, err := os.ReadFile(filepath.Join("..", "..", "config", "caster", "audit-review.md"))
+	if err != nil {
+		t.Fatalf("audit-review.md 缺失: %v", err)
+	}
+	for _, s := range []string{"{{ticket_id}}", "META_VERDICT", "meta events", "meta phase"} {
+		if !strings.Contains(string(b), s) {
+			t.Fatalf("审计模板缺 %q", s)
+		}
+	}
+	// 渲染含真实票号、占位符被消化。
+	out := (&Engine{}).render(string(b),
+		&pbv1.EventItem{TicketId: "0009"}, false)
+	if !strings.Contains(out, "0009") || strings.Contains(out, "{{ticket_id}}") {
+		t.Fatal("模板渲染未消化 {{ticket_id}}")
+	}
 }

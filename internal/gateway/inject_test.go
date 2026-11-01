@@ -117,7 +117,7 @@ func TestDispatch_PromptFile覆盖(t *testing.T) {
 	if err := g.DB().CreateTicket(ctx, "to", "覆盖票", testSpec(t)); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.DispatchSeat(ctx, "to", "施工", dispatchSpec()); err != nil { // dispatchSpec 带 /dev/null prompt
+	if err := g.DispatchSeat(ctx, "to", "施工", dispatchSpec(t)); err != nil { // dispatchSpec 带 fixture prompt
 		t.Fatal(err)
 	}
 	waitPhase(t, g, "to", db.PhaseWorking, 10*time.Second)

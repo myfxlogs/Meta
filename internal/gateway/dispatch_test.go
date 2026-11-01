@@ -28,9 +28,15 @@ func dispatchCfg(dir string) Config {
 	}
 }
 
-func dispatchSpec() SeatSpec {
+func dispatchSpec(t *testing.T) SeatSpec {
+	t.Helper()
+	// 非空提示文件（D-40 闸后 /dev/null 零字节＝空提示会被 spawn_blocked）。
+	pf := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(pf, []byte("# fixture 提示\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return SeatSpec{
-		PromptFile: "/dev/null", WorkDir: "/tmp",
+		PromptFile: pf, WorkDir: "/tmp",
 		Env: []string{"GO_HELPER_SEAT=1", "SEAT_MODE=worker", "META_ADOPT_GRACE=30",
 			"PATH=" + os.Getenv("PATH")},
 	}
@@ -47,7 +53,7 @@ func TestDispatch_SeatLifecycle(t *testing.T) {
 	if err := g.DB().CreateTicket(ctx, "td", "dispatch 票", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.DispatchSeat(ctx, "td", "施工", dispatchSpec()); err != nil {
+	if err := g.DispatchSeat(ctx, "td", "施工", dispatchSpec(t)); err != nil {
 		t.Fatal(err)
 	}
 	waitPhase(t, g, "td", db.PhaseWorking, 10*time.Second)
@@ -95,7 +101,7 @@ func TestDispatch_FrozenRefuses(t *testing.T) {
 	g.mu.Lock()
 	g.frozen["tf"] = true
 	g.mu.Unlock()
-	if err := g.DispatchSeat(ctx, "tf", "施工", dispatchSpec()); err == nil {
+	if err := g.DispatchSeat(ctx, "tf", "施工", dispatchSpec(t)); err == nil {
 		t.Fatal("冻票派发应被拒")
 	}
 	// 排队 spawn 事件在消费端判弃：手动入队，观察口不许出 spawn_needed。
@@ -198,7 +204,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 		t.Fatal("先杀后冻：席未被杀")
 	}
 	// 冻票相位回队后不自动重派、Dispatch 拒。
-	if err := g.DispatchSeat(ctx, "tb2", "施工", dispatchSpec()); err == nil {
+	if err := g.DispatchSeat(ctx, "tb2", "施工", dispatchSpec(t)); err == nil {
 		t.Fatal("冻票派发应被拒")
 	}
 }
@@ -218,9 +224,8 @@ func TestBudget_AttemptReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	// idle 席不自己连——测试代驾 Attach 推 Usage 帧。
-	spec := SeatSpec{PromptFile: "/dev/null", WorkDir: "/tmp",
-		Env: []string{"GO_HELPER_SEAT=1", "SEAT_MODE=idle", "META_ADOPT_GRACE=30",
-			"PATH=" + os.Getenv("PATH")}}
+	spec := dispatchSpec(t)
+	spec.Env[1] = "SEAT_MODE=idle" // 换 idle：不自己连，测试代驾 Attach
 	if err := g.DispatchSeat(ctx, "tr", "施工", spec); err != nil {
 		t.Fatal(err)
 	}
