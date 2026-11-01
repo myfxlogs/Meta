@@ -20,7 +20,9 @@
    理由指向 diff 行或机器输出；债项节列 TODO/绕过/半成品与摘要「下一步」
    对账结果）——commit 到交付支
 2. **最后一行单独输出哨兵**：`META_VERDICT:pass:<判决档路径>` 或
-   `META_VERDICT:reject:<判决档路径>`——外壳扫描回流判决，漏发＝死席
+   `META_VERDICT:reject:<判决档路径>`——外壳扫描回流判决，漏发＝死席；
+   **同一行原文另追加** `echo '<哨兵原文>' >> $META_ART_DIR/sentinel.log`
+   （双发兜底——外壳两径都扫，任一命中即算）
 
 ## 纪律
 

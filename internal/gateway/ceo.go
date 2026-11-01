@@ -531,7 +531,7 @@ func (g *Gateway) renderRedirectPrompt(ticketID, note string) (string, error) {
 		"3. 回填本票八栏：`META_ADMIN:fill_spec|<本票八栏 .md 路径>`（只许本票）。\n" +
 		"4. 立子票：`META_ADMIN:create_ticket|<id>|<title>|<子票八栏 .md 路径>`\n" +
 		"5. 派子票（role∈{施工,审计,CTO}，CEO 禁派闸挡）：`META_ADMIN:dispatch|<id>|<role>|[promptfile~workdir]`\n" +
-		"6. 完工交付：末行单独输出 `META_DELIVER:<交付 ref>`。\n\n" +
+		"6. 完工交付：末行单独输出 `META_DELIVER:<交付 ref>`，同一行原文另追加 `$META_ART_DIR/sentinel.log`（双发）。\n\n" +
 		"## 出口\n\n仍属「需求待裁」（动钱/范围外/票面歧义）→ `Yield` 再泊车等 CEO；\n" +
 		"**不要选一种解释硬做**。\n"
 	return g.writeCeoPromptFile("redirect-", body)

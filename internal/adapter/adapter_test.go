@@ -205,3 +205,30 @@ func TestNew_Unknown(t *testing.T) {
 		t.Fatal("未知壳应报错")
 	}
 }
+
+// TestClaudeAdapter_FrameText（D-42 对抗锚）：assistant/result/不可解析
+// 三形 Text 全量非截断（>200B 断言全长）——哨兵扫描面的供给契约。
+func TestClaudeAdapter_FrameText(t *testing.T) {
+	long := strings.Repeat("判", 120) // 360B>200B——截断即短于此
+	full := func(frs []Frame, want string) {
+		t.Helper()
+		if len(frs) != 1 {
+			t.Fatalf("帧数 %d 预期 1: %+v", len(frs), frs)
+		}
+		if frs[0].Text != want {
+			t.Fatalf("Text 截断/缺失 len=%d 预期 %d", len(frs[0].Text), len(want))
+		}
+	}
+
+	a, _ := New("claude")
+	// assistant 文本块 → Text=p.Text 全量（含内嵌换行的哨兵形）。
+	want := long + "\nMETA_VERDICT:pass:x"
+	full(a.Parse([]byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"`+long+`\nMETA_VERDICT:pass:x"}]}}`)), want)
+	// result（正常与 is_error）→ Text=m.Result 全量。
+	a2, _ := New("claude")
+	full(a2.Parse([]byte(`{"type":"result","result":"`+long+`","usage":{"input_tokens":1,"output_tokens":1}}`)), long)
+	full(a2.Parse([]byte(`{"type":"result","is_error":true,"result":"`+long+`"}`)), long)
+	// 不可解析行 → Text=原行全文（fd-1 直写哨兵的兜底径）。
+	raw := "not json " + long
+	full(a.Parse([]byte(raw)), raw)
+}

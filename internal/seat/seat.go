@@ -121,6 +121,13 @@ type session struct {
 	deliverRef    string // META_DELIVER 哨兵捕到的交付 ref（D-32）
 	deliverSeen   bool   // META_DELIVER 哨兵已见（净退无哨兵→ExitSeatErr）
 	deployNote    string // META_DEPLOY:done|failed 哨兵原行（CTO-B 部署支，票0010）
+
+	// D-42 哨兵双通道：值类文件源优先标记＋动作类流↔文件配对计数＋文件泵 offset。
+	verdictFile bool           // META_VERDICT 文件源已落值（流源同种不再覆盖）
+	deliverFile bool           // META_DELIVER 同上
+	deployFile  bool           // META_DEPLOY 同上
+	pending     map[string]int // 动作类哨兵原文配对计数（>0 流等文件，<0 文件等流）
+	sentinelOff int64          // $META_ART_DIR/sentinel.log 增量读 offset
 }
 
 // adapterNew 注入缝（测试换伪适配器——哨兵闸的壳行为由 argv 脚本驱动）。
@@ -255,18 +262,21 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 	go s.pumpGateway()
 
 	sc := bufio.NewScanner(out)
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	sc.Buffer(make([]byte, 1<<24), 1<<24) // 16MB：单 JSONL 事件超 1MB 曾致尾流哨兵全丢（D-42 同族）
 	var lastUsage int64
 	for sc.Scan() {
 		l := sc.Bytes()
 		s.noteTail(l)
 		os.Stdout.Write(append(l, '\n')) // 原文留痕进席位日志
-		if s.scanSentinel(l) {
-			continue // 哨兵行不进适配器（壳与外壳的约定，与壳无关）
-		}
 		for _, fr := range ad.Parse(l) {
+			// D-42：哨兵扫适配器解析后文本流（帧 Text 逐段行首锚定），
+			// 不扫原始行——JSON 壳把哨兵包进字符串，原始行永不命中。
+			live := s.scanFrameText(fr.Text)
 			switch fr.Kind {
 			case adapter.FrameText:
+				if fr.Text != "" && !live {
+					break // 全段皆哨兵的帧不算活性
+				}
 				s.textSeen++
 				if s.textSeen%32 == 1 { // 活性帧稀释：每 32 行透一帧，进度闹钟照活
 					s.sendProgress(fr.Stage, fr.Note)
@@ -287,8 +297,10 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 				s.sendProgress("错误", fr.Note)
 			}
 		}
+		s.pumpSentinelFile() // 每 stdout 行处理后泵一次（事件驱动，零定时器）
 	}
 	werr := cmd.Wait()
+	s.pumpSentinelFile() // 净退闸判前最后一泵——文件兜底捕尾哨兵
 	s.mu.Lock()
 	s.tailLastUsage = lastUsage
 	s.mu.Unlock()
@@ -453,12 +465,78 @@ func (s *session) drain() {
 	}
 }
 
-// scanSentinel 壳 stdout 哨兵扫描（壳与外壳的约定行，不进 adapter——
-// 裁决席 META_RULE/审计席 META_VERDICT 均「最后单独一行」钦定，§1.4/§15.2）。
-// 命中即消费返回 true。
-func (s *session) scanSentinel(l []byte) bool {
-	line := strings.TrimSpace(string(l))
+// pumpSentinelFile $META_ART_DIR/sentinel.log 增量读兜底泵（D-42 第二信道——
+// 文件写径旁路一切壳渲染：行合并/JSON 包裹/截断全免疫，exec-resp.log 同构先例）。
+// 只处理 \n 收口的完整行，尾残段留下次；文件缺/空＝零成本直返。
+// 泵点全事件驱动：每 stdout 行处理后＋cmd.Wait() 后（净退闸判前）各一次。
+func (s *session) pumpSentinelFile() {
+	if s.spec.ArtifactDir == "" {
+		return
+	}
+	f, err := os.Open(filepath.Join(s.spec.ArtifactDir, "sentinel.log"))
+	if err != nil {
+		return // 缺失/不可读＝零成本
+	}
+	defer f.Close()
+	if _, err := f.Seek(s.sentinelOff, io.SeekStart); err != nil {
+		return
+	}
+	buf, err := io.ReadAll(f)
+	if err != nil {
+		return
+	}
+	rest := string(buf)
+	cut := strings.LastIndexByte(rest, '\n')
+	if cut < 0 {
+		return // 无完整行——尾残段留下次
+	}
+	s.sentinelOff += int64(cut) + 1
+	for _, ln := range strings.Split(rest[:cut], "\n") {
+		s.scanSentinel(ln, true)
+	}
+}
+
+// pairDedup 动作类哨兵（RULE/ADMIN/EXEC）流↔文件原文配对去重（D-42 双发契约）：
+// 配对键＝行原文整体——被污染的流行与文件净行内容不同，不配对、各发各的；
+// 重试同文哨兵＝新一次出现，按出现序自配对。返回 true＝已配对消化（本次不处理）。
+func (s *session) pairDedup(line string, fromFile bool) bool {
+	if s.pending == nil {
+		s.pending = make(map[string]int)
+	}
+	n := s.pending[line]
+	if fromFile {
+		s.pending[line] = n - 1
+		return n > 0 // 流源已在等配对→消化
+	}
+	s.pending[line] = n + 1
+	return n < 0 // 文件源已在等配对→消化
+}
+
+// scanFrameText 帧全文逐段过哨兵匹配器（流源）：命中段消费不进活性计数
+// （壳与外壳的约定，壳无关），返回帧内是否存在未消费非空段（活性判定）。
+func (s *session) scanFrameText(text string) bool {
+	live := false
+	for _, seg := range strings.Split(text, "\n") {
+		if s.scanSentinel(seg, false) {
+			continue
+		}
+		if strings.TrimSpace(seg) != "" {
+			live = true
+		}
+	}
+	return live
+}
+
+// scanSentinel 哨兵行匹配器（壳与外壳的约定行——裁决席 META_RULE/审计席
+// META_VERDICT 均「最后单独一行」钦定，§1.4/§15.2）。fromFile=false＝流源
+// （适配器帧 Text 逐段）；fromFile=true＝sentinel.log 文件源。命中即消费返回 true。
+// 值类（VERDICT/DELIVER/DEPLOY）文件源值优先；动作类（RULE/ADMIN/EXEC）原文配对去重。
+func (s *session) scanSentinel(line string, fromFile bool) bool {
+	line = strings.TrimSpace(line)
 	if rest, ok := strings.CutPrefix(line, "META_RULE:"); ok {
+		if s.pairDedup(line, fromFile) {
+			return true
+		}
 		action, note, _ := strings.Cut(rest, ":")
 		s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Rule{
 			Rule: &pbv1.Rule{Action: action, Note: note}}})
@@ -467,23 +545,38 @@ func (s *session) scanSentinel(l []byte) bool {
 	if rest, ok := strings.CutPrefix(line, "META_VERDICT:"); ok {
 		v, ref, _ := strings.Cut(rest, ":")
 		s.mu.Lock()
-		s.verdict, s.verdictRef = v, ref
+		if fromFile {
+			s.verdict, s.verdictRef, s.verdictFile = v, ref, true
+		} else if !s.verdictFile {
+			s.verdict, s.verdictRef = v, ref
+		}
 		s.mu.Unlock()
 		return true
 	}
 	if rest, ok := strings.CutPrefix(line, "META_DELIVER:"); ok {
 		// D-32 交付哨兵（令#E15）：净退无此行＝席死径不交付。
 		s.mu.Lock()
-		s.deliverRef, s.deliverSeen = rest, true
+		s.deliverSeen = true
+		if fromFile {
+			s.deliverRef, s.deliverFile = rest, true
+		} else if !s.deliverFile {
+			s.deliverRef = rest
+		}
 		s.mu.Unlock()
 		return true
 	}
 	if rest, ok := strings.CutPrefix(line, "META_ADMIN:"); ok {
+		if s.pairDedup(line, fromFile) {
+			return true
+		}
 		return s.adminSentinel(rest)
 	}
 	// META_EXEC:<step>[ <ref>]——CTO-B 部署支的命令代跑请求（票0010）。
 	// 网关三重闸后 sudo -n 代跑，回执经 exec_resp 落 $META_ART_DIR/exec-resp.log。
 	if rest, ok := strings.CutPrefix(line, "META_EXEC:"); ok {
+		if s.pairDedup(line, fromFile) {
+			return true
+		}
 		parts := strings.Fields(rest)
 		if len(parts) > 0 {
 			req := &pbv1.ExecReq{Step: parts[0]}
@@ -497,7 +590,11 @@ func (s *session) scanSentinel(l []byte) bool {
 	// META_DEPLOY:done|failed——部署支交付哨兵：原行存住，Deliver note 携带。
 	if strings.HasPrefix(line, "META_DEPLOY:") {
 		s.mu.Lock()
-		s.deployNote = line
+		if fromFile {
+			s.deployNote, s.deployFile = line, true
+		} else if !s.deployFile {
+			s.deployNote = line
+		}
 		s.mu.Unlock()
 		return true
 	}
