@@ -73,3 +73,12 @@
 - **机器记录**：CEO 机械代跑四命令全绿（build/vet/test/selfcheck，rc=0）——`~/meta-worktrees/t0001.machine-record.txt`＋`t0001.code.diff`（4557 行）已落档
 - **审计席起法定格**：claude CLI bypass 被 Claude Code 安全闸拦（授权未点名此席）→ 改 harness 原生子代理：默认权限、只读、判决出 stdout＋写 verdict 文件——**比 bypass 更贴合 D4**（读机器记录、不亲自跑）。经验库同日条目固化两席起法分工
 - 附：六项特别质询已注入审计（selfcheck 语义改动居首）
+
+### 决策 10：票 0001 判决通过，并入 master——阶段 0 完成
+- 触发：正审（devin swe-2-max，sandbox＋stdout 续跑径）出判决
+- provenance：`system_event`（判决文件＋日志）
+- **判决＝通过，两审独立一致**（正审 devin swe-2-max＋预审 claude；判决档入 `docs/实现/票-0001-判决/`）。正审证据链到 diff 行号：22 边零缺零多、五相位对账逐格、闹钟过期即响、伪连接/收养互证各具名测试、R2/R3 亲 grep 零命中、范围与形制合规
+- **已并 master**（`9ea5945`，no-ff）并推 origin
+- **遗留清单（阶段 1 票材，出自正审六备注）**：① 锚 4 措辞改「可打开且表数一致」或 `mode=ro` ② 「部署中死→先核回滚态」阶段 0 空真、部署闸票必补 ③ `armAlarm` 两锁间窄竞（幂等，观察项） ④ `已立` 对账发 spawn_needed 系机械延拓、§5.3 补一行更严 ⑤ `cmd/meta` 无直接单测（安全径已端到端覆盖，观察项）
+- **网关激活刻意延后**：`meta serve` 待阶段 1 壳适配器就绪再起——骨架的 spawn 会真派席，无适配器＝空转循环；ceo_memory/票面导入 DB 与激活同步做。此为 CEO 决定，非遗忘
+- 经验库＋2：sandbox 下 Write 仍被闸（判决走 stdout 重定向）、`-p` 内联提示词撞路径参数（一律 `--prompt-file`）
