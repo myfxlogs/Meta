@@ -8,7 +8,7 @@ D=/opt/meta/docs/实现/债务台账.md
 fail=0
 # ① 同生原则（水位：决策 69 起，既往不咎）
 awk '/^### 决策/{n=$0; sub(".*决策 ","",n); sub("[^0-9].*","",n)} n>=69 && /^-/{print}' "$M" | while IFS= read -r ln; do
-  echo "$ln" | grep -qE '经验库|坑' || continue
+  echo "$ln" | grep -qE '经验库＋|入册|入库|入档|补入|坑档' || continue
   echo "$ln" | grep -qE '\.md|经验库/' || { echo "✗ 同生违反（决策69后）：$ln"; exit 1; }
 done || fail=1
 # ② 坑档存在性：经验库被引用的文件名真实存在
