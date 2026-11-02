@@ -195,8 +195,8 @@ for 部署中 t:
   「deploy_poison 阻重试」可作后续改进票，本票不扩。
 - **0034 部署 24 连败的收敛真相**：幂等跳过只在「master 静窗」下
   收口＝运气非机制；态判后无论静窗与否 restart 径恒收口。
-- **起手支处置**：/tmp/wt-p3(t/0034-p3-deploy-verdict) 留作 0043 施工
-  接替参考——三洞见 §0.3，可取骨架不可取判据。
+- **起手支处置**：/tmp/wt-p3(t/0034-p3-deploy-verdict) 已由并行链
+  消化并入 master（见 §11）——0043 以 728adeb 为基另立新支。
 
 ## 10. 子票锚预览（详见票-0043 八栏）
 
@@ -204,3 +204,22 @@ for 部署中 t:
 checker 绿红双径（exec-log 行＋prev 回写＋restart 调用痕）/ adjunct
 收养 / exec envs / bash -n 脚本闸 / `go build+vet+test ./...` 全绿；
 对抗锚＝态判判等行、pending 删除行、scope 包装行各为一名刽子手提名位。
+
+## 11. 落地对账（设计 commit 后并行链先合——以 728adeb 为现基线）
+
+本设计 commit（fd50a8c）前后，/tmp/wt-p3 起手支经独立施工＋双审计
+并入 master（ac21f97→ef46899 驳回→a016b01 返修→81d6c73 通过→
+728adeb merge）。已落地件与本设计对账：
+
+| 机制 | 落地实况 | 残面（→票-0043） |
+|---|---|---|
+| checker 自检移位 | ✅ 且更优：transient service（审计一骑实捉 --scope 前台阻塞假 detach）＋等死再探（捉探旧口竞态）＋时间戳 unit | 证据行落 journal/discard——票面锚2「exec 日志见自检行」未满足；补 --exec-log/--verdict＋reconcile poke |
+| 席位 scope 豁免 | ✅ spawn 无条件包装（LookPath 在则包） | 无预探测（systemd-run 坏→起后秒死→全壳冤案）；kill 径未加 `systemctl --user kill`；adjunct 活席无收养 |
+| 收口态判 | ⚠️ deployStateOK 已合并但判据两洞（§0.3①②原样入码）：restart 径 cmd_run 行写不出、启动对账 Probe 恒红 | 实际收口＝scope 幸存席→收养→幂等重跑（仍寄生席活）；pending 意向书态判未落——子票主判据 |
+| pending 意向书 | ❌ 未落 | 0043 核心新增 |
+| 收养幂等 | ❌ 未落——对账收养无 adopted 闸，本席亲见 28 连发事件风暴 | 0043 范围内（同一函数，顺带闸） |
+
+结论：杀环主链已断（scope 包席＋checker 移位是止血主力，24 连败型
+循环不再）；子票 0043 收缩为残面施工——pending 态判坐实钦定「判据
+不寄生席活」＋证据落档＋收养幂等/扩面＋探测加固。**修不翻**：已审
+落地件一律不动，0043 范围外明列。
