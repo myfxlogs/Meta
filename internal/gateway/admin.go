@@ -55,6 +55,7 @@ func (g *Gateway) Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv1.Ac
 		Adjunct:     req.Adjunct,
 		Provenance:  req.Provenance, // caster 透传触发事件行戳
 		Project:     req.Project,    // 派发径挂接（取锁闸之前 attachProject）
+		CliDrive:    req.CliDrive,   // T25：CLI 直驱席（seat-drive 机械四步）
 	})
 	if err != nil {
 		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
