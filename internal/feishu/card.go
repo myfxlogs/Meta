@@ -37,6 +37,11 @@ type CardView struct {
 	Terminal  bool      // 终态票（完成/作废）——懒创建闸：终态无卡不补
 	At        time.Time // 卡面「时间」＝票上最近活性时刻（状态派生——
 	// 渲染墙钟会击穿哈希闸：内容永变则每事件 PATCH，合并刷帧失效）
+	// 票0036 相位耗时三件（耗时唯一时间源＝RenderAt，装配收口——renderCard
+	// 保持纯函数；显示粒度截断后同粒度窗内容逐字节同，哈希闸不失效）：
+	PhaseSince time.Time // 当前相位进入时刻（零值→裸相位行降级）
+	RenderAt   time.Time // 本次渲染时刻（非终态耗时＝RenderAt−PhaseSince）
+	CreatedAt  time.Time // 票创建时刻（终态总时长＝PhaseSince−CreatedAt）
 }
 
 // CardConfig 卡消费者装配参数；Create/Patch/View 等为注入缝
@@ -185,7 +190,7 @@ func renderCard(v *CardView) string {
 			},
 		},
 		"elements": []any{
-			mdLine("**相位**：" + v.Phase),
+			mdLine("**相位**：" + v.Phase + phaseSuffix(v)), // 对抗锚 a 提名行（票0036）：删后缀→锚2/3 红
 			mdLine("**当前席**：" + seat),
 			mdLine("**进度**：" + note),
 			mdLine(fmt.Sprintf("**用量**：%d（累计 %d）", v.Used, v.UsedTotal)),
@@ -198,6 +203,29 @@ func renderCard(v *CardView) string {
 		return `{"elements":[{"tag":"div","text":{"tag":"plain_text","content":"卡渲染失败"}}]}`
 	}
 	return string(b)
+}
+
+// phaseSuffix 相位行耗时后缀（票0036）：非终态 d=RenderAt−PhaseSince→
+// 「已 N 分/X.Y 时」；终态 d=PhaseSince−CreatedAt→「总 …」（固定快照——
+// 终态后重渲逐字节同，不再随渲染时刻漂移）。d<0 钳 0；PhaseSince 零值
+// →裸相位行（畸形视图安全降级）。<60min 整分 floor；≥60min %.1f 时。
+func phaseSuffix(v *CardView) string {
+	if v.PhaseSince.IsZero() {
+		return ""
+	}
+	d := v.RenderAt.Sub(v.PhaseSince)
+	prefix := "已"
+	if v.Terminal {
+		d = v.PhaseSince.Sub(v.CreatedAt)
+		prefix = "总"
+	}
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("（%s %d 分）", prefix, int64(d.Minutes()))
+	}
+	return fmt.Sprintf("（%s %.1f 时）", prefix, d.Hours())
 }
 
 // mdLine 一行 lark_md div（卡面文案全经此行——note/stage 用户源文本

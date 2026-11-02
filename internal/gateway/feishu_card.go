@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"strings"
+	"time"
 
 	"meta/internal/db"
 	"meta/internal/feishu"
@@ -62,12 +63,20 @@ func (g *Gateway) cardView(ctx context.Context, ticketID string) (*feishu.CardVi
 		return nil, err
 	}
 	v := &feishu.CardView{
-		TicketID: t.ID,
-		Title:    t.Title,
-		Phase:    string(t.Phase),
-		Rejects:  t.RejectCount,
-		Terminal: t.Phase == db.PhaseDone || t.Phase == db.PhaseVoid,
-		At:       t.UpdatedAt,
+		TicketID:  t.ID,
+		Title:     t.Title,
+		Phase:     string(t.Phase),
+		Rejects:   t.RejectCount,
+		Terminal:  t.Phase == db.PhaseDone || t.Phase == db.PhaseVoid,
+		At:        t.UpdatedAt,
+		CreatedAt: t.CreatedAt,
+		RenderAt:  time.Now(), // 耗时唯一时间源（票0036）——渲染时刻在此收口
+	}
+	// 相位进入时刻：败径降 updated_at（卡照渲，与各段容错现形制同）。
+	if since, err := g.database.PhaseEnteredAt(ctx, ticketID, t.Phase); err == nil {
+		v.PhaseSince = since
+	} else {
+		v.PhaseSince = t.UpdatedAt
 	}
 	if r, err := g.database.ActiveRunForTicket(ctx, ticketID); err == nil && r != nil {
 		v.Role, v.Shell = r.Role, r.Shell
