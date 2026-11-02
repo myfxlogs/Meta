@@ -10,7 +10,7 @@ fail=0
 M=$(mktemp /tmp/ceo-mem.XXXXXX); trap 'rm -f "$M"' EXIT
 sqlite3 "$DB" "SELECT '### '||title||char(10)||content FROM ceo_memory WHERE kind='decision' ORDER BY id" > "$M"
 # ① 同生原则（水位：决策 69 起，既往不咎）：带坑档标签的行须含真实路径
-awk '/^### /{n=0; t=$0; sub(".*决策 ?","",t); if(t ~ /^[0-9]+/){sub("[^0-9].*","",t); n=t}} n>=69{print}' "$M" | grep -oE '坑档[：:][^ ]*|经验库＋[^ ]*' | while IFS= read -r ln; do
+awk '/^### /{n=0; t=$0; sub(".*决策 ?","",t); if(t ~ /^[0-9]+/){sub("[^0-9].*","",t); n=t}} n>=69{print}' "$M" | { grep -oE '坑档[：:][^ ]*|经验库＋[^ ]*' || true; } | while IFS= read -r ln; do
   echo "$ln" | grep -qE '\.md|经验库/' || { echo "✗ 同生违反（决策69后）：$ln"; exit 1; }
 done || fail=1
 # ② 坑档存在性：经验库被引用的文件名真实存在
