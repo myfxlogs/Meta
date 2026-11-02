@@ -15,7 +15,10 @@ RESTART=${META_RESTART_CMD:-"systemctl --user restart meta-gateway"}
 CHECK_SOCK=${META_GATEWAY_SOCK:-/opt/meta/run/meta.sock}
 
 mkdir -p bin
-stamp="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)-deploy"
+# stamp 绑「最后动码提交」非 HEAD——文档提交不推换装（实证：decision/docs
+# 提交不该触发重启；码面＝.go/proto/cmd/internal/scripts/go.mod·go.sum）。
+code_head="$(git log -1 --format=%h -- '*.go' 'proto' 'cmd' 'internal' 'scripts' 'go.mod' 'go.sum' 2>/dev/null || true)"
+stamp="${code_head:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}-deploy"
 
 # 幂等闸（票0029 续·决策82 实证）：装着的二进制已＝master 现状→跳过构建
 # 换装重启直接退 0——重启会杀部署席自身流（收养单次握手窗口竞态），
