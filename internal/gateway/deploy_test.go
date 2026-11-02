@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -112,16 +113,18 @@ func stubProject(id string) db.Project {
 		DeployCmd:    "echo deploy-ok; git init -q .; echo x > artifact.txt",
 		ProbeCmd:     "echo probe-ok",
 		RollbackCmd:  "echo rollback-ok",
-		SandboxSpec: stubSandboxSpec(),
+		SandboxSpec:  stubSandboxSpec(),
 	}
 }
 
 // stubSandboxSpec 票0031：legacy sudo 退役后测试配方全走同用户短路——
 // run_as=当前用户（seatrun/owner 等异用户步已属 deny 径，见 TestDeploy_LegacyDenied）。
+// 票0034-p1：笼内 passwd 无自身条目→user.Current() err→run_as 落数字 uid
+// （sameUser 数字直比径——与名解析等效同构）。
 func stubSandboxSpec() string {
 	me, err := user.Current()
 	if err != nil {
-		return `run_as: "nobody-should-not-resolve"`
+		return fmt.Sprintf(`run_as: %q`, strconv.Itoa(os.Getuid()))
 	}
 	return fmt.Sprintf(`run_as: %q`, me.Username)
 }
@@ -642,10 +645,15 @@ step_container_image { key: "check" value: "golang:test-img" }`
 			rmLine = ln
 		}
 	}
-	me, _ := user.Current()
+	// 票0034-p1：笼内 user.Current() err——判空回退 os.Getuid()（与实现
+	// selfIDs 同径）；宿主两源恒等。
+	wantUid := strconv.Itoa(os.Getuid())
+	if me, err := user.Current(); err == nil {
+		wantUid = me.Uid
+	}
 	for _, want := range []string{
 		"--name meta-exec-t29b-check-", "--network meta-sandbox",
-		"--user " + me.Uid + ":", "/deploy/t29b:/work", "-w /work",
+		"--user " + wantUid + ":", "/deploy/t29b:/work", "-w /work",
 		":/gomod:ro", "GOMODCACHE=/gomod", "-e META_TICKET_ID=t29b",
 		"-e META_EXEC_STEP=check", "golang:test-img", "bash -lc",
 	} {
@@ -692,5 +700,55 @@ step_container_image { key: "check" value: "golang:test-img" }`
 	}
 	if !strings.Contains(string(log), "rm -f meta-exec-t29c-check-") {
 		t.Fatalf("超时后孤儿未扫: %q", string(log))
+	}
+}
+
+// TestExec_NumericRunAs 票0034-p1 锚4：run_as 数字 uid＝笼内 /etc/passwd 无
+// 条目（--user uid:gid）的同构环境——名解析失效不改判。同 uid 步直跑退 0＋
+// sudo 零调用；异 uid 步仍落 legacy deny。（对抗锚：删 sameUser 数字直比→
+// 同 uid 案落 deny 红；删 deny 分支→异 uid 案放行红。）
+func TestExec_NumericRunAs(t *testing.T) {
+	selfUid := os.Getuid()
+	for _, tc := range []struct {
+		name     string
+		tid      string
+		runAs    string
+		wantCode int32
+		wantDeny bool
+	}{
+		{"同uid步直跑", "t34a", strconv.Itoa(selfUid), 0, false},
+		{"异uid步仍拒", "t34b", strconv.Itoa(selfUid + 1), -1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := dispatchCfg(dir)
+			cfg.SudoBin = sudoStub(t, dir, 0)
+			g, err := New(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer g.Close()
+			proj := stubProject("P")
+			proj.SandboxSpec = fmt.Sprintf(`run_as: "%s"`, tc.runAs)
+			sb, err := parseSandbox(proj.SandboxSpec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp := g.runExecStep(context.Background(), execUnit(tc.tid), &proj, sb,
+				"integrate", "echo numeric-uid-ok", tc.runAs, "deadbeef")
+			if resp.ExitCode != tc.wantCode {
+				t.Fatalf("退码 %d want %d: %+v", resp.ExitCode, tc.wantCode, resp)
+			}
+			if tc.wantDeny {
+				if !strings.Contains(resp.Note, "legacy-sudo 径已退役") {
+					t.Fatalf("异 uid 步应落 legacy deny: %+v", resp)
+				}
+			} else if !strings.Contains(resp.Tail, "numeric-uid-ok") {
+				t.Fatalf("同 uid 步 tail 缺步输出: %q", resp.Tail)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "sudo-argv.log")); !os.IsNotExist(err) {
+				t.Fatal("数字 run_as 径竟调 sudo")
+			}
+		})
 	}
 }
