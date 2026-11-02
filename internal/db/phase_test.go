@@ -133,10 +133,11 @@ func TestAnchorH_MigrationSmoke(t *testing.T) {
 	want := map[string]bool{
 		"ticket": true, "ticket_event": true, "seat": true, "seat_run": true,
 		"shell": true, "project": true, "ceo_memory": true, "budget": true, "secret": true,
-		"cmd_run": true, // 票0010 第十表（代跑留痕）
+		"cmd_run":     true, // 票0010 第十表（代跑留痕）
+		"feishu_card": true, // 票0014 第十一表（活票卡 message_id↔票）
 	}
 	if len(tables) != len(want) {
-		t.Fatalf("表数 %d ≠ 10: %v", len(tables), tables)
+		t.Fatalf("表数 %d ≠ %d: %v", len(tables), len(want), tables)
 	}
 	for _, tb := range tables {
 		if !want[tb] {
