@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,63 @@ import (
 // provenance 盖取、记忆写数比对、角色/相位闸。「该不该裁」永远归 CEO 席。
 
 // ---------- 锁＝连接登记（禁区#10/B8：互斥＋排队，非 DB 旗非阻塞） ----------
+
+// ceoAuth T2 终端受控写径：先走 ceoByToken（席位 token 不动）；token 空/
+// 无效→终端形态鉴权——核验 run/ceo-present.json 的 pid 存活（在岗锁即
+// 凭据），过则放行（伪 run：RunID=terminal:<pid>，provenance=terminal）；
+// 不过=拒。不开无鉴权径。
+func (g *Gateway) ceoAuth(ctx context.Context, token string) (*db.Run, error) {
+	if token != "" {
+		if run, err := g.ceoByToken(ctx, token); err == nil {
+			return run, nil
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(g.cfg.RunDir, "ceo-present.json"))
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated,
+			"run_token 无效＋在岗锁缺（无终端凭据）")
+	}
+	// R3 禁 JSON 包：手扫 "pid":<n>／"shell":"<s>"（文件为交互席手写单行 JSON）。
+	pid, shell := parseCeoPresent(b)
+	if pid <= 0 {
+		return nil, status.Error(codes.Unauthenticated, "在岗锁文件坏/缺 pid")
+	}
+	if !processAlive(pid) {
+		return nil, status.Error(codes.Unauthenticated,
+			fmt.Sprintf("在岗锁 pid=%d 已死——终端凭据失效", pid))
+	}
+	return &db.Run{RunID: fmt.Sprintf("terminal:%s:%d", shell, pid),
+		Role: "CEO", Provenance: "terminal"}, nil
+}
+
+// parseCeoPresent 在岗锁件手扫（R3 禁 encoding/json）："pid":N＋
+// "shell":"s" 两键；shell 缺＝"terminal"。测试锚。
+func parseCeoPresent(b []byte) (pid int, shell string) {
+	shell = "terminal"
+	s := string(b)
+	i := strings.Index(s, `"pid"`)
+	if i < 0 {
+		return 0, shell
+	}
+	rest := s[i+5:]
+	if j := strings.IndexByte(rest, ':'); j >= 0 {
+		rest = strings.TrimSpace(rest[j+1:])
+		k := 0
+		for k < len(rest) && rest[k] >= '0' && rest[k] <= '9' {
+			k++
+		}
+		pid, _ = strconv.Atoi(rest[:k])
+	}
+	if i := strings.Index(s, `"shell"`); i >= 0 {
+		if j := strings.Index(s[i+7:], `"`); j >= 0 {
+			rest := s[i+7+j+1:]
+			if k := strings.IndexByte(rest, '"'); k > 0 {
+				shell = rest[:k]
+			}
+		}
+	}
+	return pid, shell
+}
 
 // ceoByToken 五 RPC 共用首验：token→活 run→role 必须 CEO。
 func (g *Gateway) ceoByToken(ctx context.Context, token string) (*db.Run, error) {
@@ -418,7 +476,7 @@ func (g *Gateway) CeoSubmitRequirement(ctx context.Context, r *pbv1.Requirement)
 // CeoRule CEO 裁决三动作（机械闸外全归席）：void（破坏性须 confirm 重述确认
 // §3.4）／budget_raise（抬硬顶解冻）／redirect（req_pending 泊车票重派 CTO）。
 func (g *Gateway) CeoRule(ctx context.Context, r *pbv1.Ruling) (*pbv1.RuleAck, error) {
-	run, err := g.ceoByToken(ctx, r.RunToken)
+	run, err := g.ceoAuth(ctx, r.RunToken)
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +500,13 @@ func (g *Gateway) CeoRule(ctx context.Context, r *pbv1.Ruling) (*pbv1.RuleAck, e
 			Actor: run.RunID, Note: note, Provenance: run.Provenance})
 		g.emit(Event{Kind: "ruling", TicketID: r.TicketId, RunID: run.RunID,
 			Role: "CEO", Note: note, Provenance: run.Provenance})
+		// T2 裁决自动落账：每笔成功裁决写 ceo_memory——决策+理由+
+		// provenance 戳+署名（首航零写实证）。
+		content := fmt.Sprintf("决策：%s %s\n理由：%s\n署名：%s",
+			r.Action, r.TicketId, r.Note, run.RunID)
+		_, _ = g.database.PutMemory(ctx, "decision",
+			fmt.Sprintf("rule %s %s", r.Action, r.TicketId),
+			[]byte(content), run.RunID, run.Provenance)
 		return ack(true, note), nil
 	}
 	switch r.Action {
@@ -588,7 +653,7 @@ func (g *Gateway) CeoMemory(stream pbv1.CeoGateway_MemoryServer) error {
 		if err != nil {
 			return err // EOF 亦同径退
 		}
-		run, err := g.ceoByToken(ctx, op.RunToken)
+		run, err := g.ceoAuth(ctx, op.RunToken)
 		if err != nil {
 			return err
 		}

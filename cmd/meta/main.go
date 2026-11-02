@@ -1064,6 +1064,10 @@ func ceoToken() string {
 	return t
 }
 
+// ceoTokenOpt 可选 token（T2 终端写径）：空则由网关在岗锁兜底鉴权——
+// rule/memory 两令用；不开无鉴权径（网关拒则报错回）。
+func ceoTokenOpt() string { return os.Getenv("META_RUN_TOKEN") }
+
 // ceoCmd 交互面（先求通）：IssueCeoToken 开 run → Events follow 侧流打印 →
 // stdin 行命令 REPL（require/rule/inquire/say/memory/events/quit）。
 func ceoCmd(args []string) error {
@@ -1204,7 +1208,7 @@ func ruleCmd(args []string) error {
 	}
 	defer conn.Close()
 	ack, err := c.Rule(context.Background(), &pbv1.Ruling{
-		RunToken: ceoToken(), Action: *action, TicketId: *tid,
+		RunToken: ceoTokenOpt(), Action: *action, TicketId: *tid,
 		Note: *note, Confirm: *confirm, HardCap: *hcap})
 	if err != nil {
 		return err
@@ -1330,9 +1334,9 @@ func memoryCmd(args []string) error {
 		} else if content, err = io.ReadAll(os.Stdin); err != nil {
 			return err
 		}
-		return memoryPut(c, ceoToken(), *kind, *title, content)
+		return memoryPut(c, ceoTokenOpt(), *kind, *title, content)
 	}
-	return memoryGet(c, ceoToken(), *kind, int32(*limit))
+	return memoryGet(c, ceoTokenOpt(), *kind, int32(*limit))
 }
 
 func sayCmd(args []string) error {
