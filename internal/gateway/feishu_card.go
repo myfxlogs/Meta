@@ -28,6 +28,9 @@ func (g *Gateway) StartFeishuCards(ctx context.Context) *feishu.Cards {
 		View:        g.cardView,
 		CardRow:     g.cardRow,
 		SaveCardRow: g.saveCardRow,
+		TouchCard:   func(ctx context.Context, tid string) {
+			_ = g.database.TouchFeishuCard(ctx, tid)
+		},
 		NonTerminal: g.nonTerminalIDs,
 		RecordErr:   g.recordCardErr,
 	})

@@ -261,7 +261,8 @@ func (g *Gateway) spawnCEO(ctx context.Context, at route.Attempt, promptFile, pr
 		return false
 	case <-oneShot(g.cfg.QuickExit, g.done):
 	}
-	g.emit(Event{Kind: "seat_up", RunID: run.RunID, Role: "CEO"})
+	g.emit(Event{Kind: "seat_up", RunID: run.RunID, Role: "CEO",
+		Note: "化身起 " + run.Shell}) // T9/D-63：化身起迸发可辨事件（业主点名壳）
 	return true
 }
 

@@ -9,6 +9,7 @@ package feishu
 
 import (
 	"context"
+	"sync"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -55,6 +56,8 @@ type CardConfig struct {
 	CardRow func(ctx context.Context, ticketID string) (messageID string, ok bool, err error)
 	// SaveCardRow 懒创建成功后落 message_id 行。
 	SaveCardRow func(ctx context.Context, ticketID, messageID, chatID string) error
+	// TouchCard PATCH 成功后刷新 updated_at（T9）；nil 不记。
+	TouchCard func(ctx context.Context, ticketID string)
 	// NonTerminal 启动对账扫描面（非终态票号全列）。
 	NonTerminal func(ctx context.Context) ([]string, error)
 	// RecordErr create 败记事件行（DB 真源；不进事件总线——
@@ -72,6 +75,7 @@ type CardConfig struct {
 type Cards struct {
 	cfg  CardConfig
 	api  *lark.Client
+	mu   sync.Mutex        // last 并发闸（T9 补建批并发）
 	last map[string][32]byte // 票→上次成功落卡的内容哈希
 }
 
@@ -137,7 +141,10 @@ func (c *Cards) Observe(ctx context.Context, kind, ticketID string) {
 	}
 	// 对抗锚 a 提名行＝下行复用判断（删之＝每事件新卡）；复用已落
 	// message_id 原地刷新——一卡到底（E14 钦定）。
-	if c.last[ticketID] == sum {
+	c.mu.Lock()
+	same := c.last[ticketID] == sum
+	c.mu.Unlock()
+	if same {
 		return // 内容未变——哈希闸挡 PATCH（对抗锚 b 提名行：翻之＝同帧也 PATCH）
 	}
 	if err := c.cfg.Patch(ctx, msgID, content); err != nil {
@@ -145,20 +152,37 @@ func (c *Cards) Observe(ctx context.Context, kind, ticketID string) {
 		c.cfg.Logf("卡 PATCH 败 tid=%s mid=%s（下事件再试）: %v", ticketID, msgID, err)
 		return
 	}
+	c.mu.Lock()
 	c.last[ticketID] = sum
+	c.mu.Unlock()
+	// T9/D-63 后半：PATCH 成功写 updated_at（DB 留痕——有凭据才可追卡龄）。
+	if c.cfg.TouchCard != nil {
+		c.cfg.TouchCard(ctx, ticketID)
+	}
 }
 
 // Reconcile 启动对账（一次性 R2 合法）：扫非终态票→各票走 Observe 同径——
 // 无卡补建（懒创建）、有卡按哈希闸刷新（重启后 last 空＝每卡至多补一拍）。
+// T9/D-67：补建批并发（8 工位扇出）——首航逐张缓建滞后数十秒的实证，
+// 同步于对账不再串排；last 写锁保护并发安全。
 func (c *Cards) Reconcile(ctx context.Context) {
 	ids, err := c.cfg.NonTerminal(ctx)
 	if err != nil {
 		c.cfg.Logf("启动对账扫描败: %v", err)
 		return
 	}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
 	for _, tid := range ids {
-		c.Observe(ctx, "reconcile", tid)
+		wg.Add(1)
+		go func(tid string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			c.Observe(ctx, "reconcile", tid)
+		}(tid)
 	}
+	wg.Wait()
 }
 
 // ---------- 渲染（票+相位+席+stage+用量+驳回数+时间→卡片 JSON） ----------
