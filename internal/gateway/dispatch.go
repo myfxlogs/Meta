@@ -458,6 +458,15 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 	if spec.ResumeSession != "" { // 票0030：续会锚透席（经 adapter.Spec 进壳 argv）
 		env = append(env, "META_RESUME_SESSION="+spec.ResumeSession)
 	}
+	// T7 scoped 凭据挂载：run/secrets/<runid> 预建 0700＋env 指针＋
+	// HOME/seat-secrets 只读挂载符号链（非容器席的挂载语义近似）。
+	secDir := filepath.Join(g.cfg.RunDir, "secrets", run.RunID)
+	_ = os.MkdirAll(secDir, 0o700)
+	_ = os.Chmod(secDir, 0o700)
+	env = append(env, "META_SECRETS_DIR="+secDir)
+	if spec.WorkDir != "" {
+		_ = os.Symlink(secDir, filepath.Join(spec.WorkDir, "seat-secrets"))
+	}
 	argv := g.cfg.SeatArgv
 	if len(argv) == 0 {
 		argv = []string{g.cfg.SelfPath, "seat"}

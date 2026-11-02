@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -426,11 +428,28 @@ func (g *Gateway) handleSecret(ctx context.Context, st *runState, stream pbv1.Se
 	if g.vaultKey != nil {
 		if ct, ok, err := g.database.GetSecret(ctx, req.Name, st.run.Role); err == nil && ok {
 			if plain, err := db.DecryptSecret(g.vaultKey, ct); err == nil {
+				// T7 scoped 凭据注入：放行即落 run/secrets/<runid>/<name>
+				// （目录0700 文件0600），席位经 HOME/seat-secrets 只读挂载
+				// 径读——值仍随流回执（兼容既有消费面）。
+				secDir := filepath.Join(g.cfg.RunDir, "secrets", st.run.RunID)
+				_ = os.MkdirAll(secDir, 0o700)
+				_ = os.Chmod(secDir, 0o700)
+				if werr := os.WriteFile(filepath.Join(secDir, req.Name), plain, 0o600); werr != nil {
+					_ = g.database.AppendEvent(ctx, st.run.TicketID, "secret_write_failed", db.Event{
+						Actor: "gateway", Note: req.Name + ": " + werr.Error()})
+				}
 				resp = &pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_SecretResp{
 					SecretResp: &pbv1.SecretResp{Name: req.Name, Value: plain},
 				}}
 			}
 		}
+	}
+	if resp.GetSecretResp().GetDenied() {
+		// T7 ACL fail-closed 留痕：越权读必拒＋denied 事件（不静默）。
+		_ = g.database.AppendEvent(ctx, st.run.TicketID, "secret_denied", db.Event{
+			Actor: st.run.RunID, Note: "name=" + req.Name + " role=" + st.run.Role})
+		g.emit(Event{Kind: "secret_denied", TicketID: st.run.TicketID,
+			RunID: st.run.RunID, Role: st.run.Role, Note: req.Name})
 	}
 	if err := g.sendToSeat(st, resp); err != nil {
 		return status.Error(codes.Internal, err.Error())
@@ -489,6 +508,8 @@ func (g *Gateway) maybeDeclareDead(st *runState) {
 func (g *Gateway) onRunDead(st *runState) {
 	ctx := context.Background()
 	_ = g.database.MarkDead(ctx, st.run.RunID)
+	// T7 死席凭据目录回收：run/secrets/<runid> 全删——凭据作用域=run 生命周期。
+	_ = os.RemoveAll(filepath.Join(g.cfg.RunDir, "secrets", st.run.RunID))
 
 	if st.attempt.Shell != "" {
 		g.mu.Lock()
