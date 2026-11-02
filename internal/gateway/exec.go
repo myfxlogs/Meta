@@ -168,10 +168,15 @@ func (g *Gateway) handleExec(ctx context.Context, st *runState, stream pbv1.Seat
 		ref = g.lastDeliverRef(ctx, st.run.TicketID)
 	}
 	resp := g.runExecStep(ctx, st, proj, sb, req.Step, cmd, runAs, ref)
-	// 票0030：integrate 步败＝merge 冲突信号（巡检订阅锚——退码非零即报，
-	// 冲突/编译错同桶归巡检判）。
+	// 票0030/T1：integrate 步败＝merge 冲突信号。T1 按退码分径——exit=92
+	// 分支丢失（ref 校验段钦定码）→REF_LOST:；余＝真冲突→CONFLICT:；两类
+	// 事件照发不静默（巡检订阅锚）。
 	if req.Step == "integrate" && resp.ExitCode != 0 {
-		note := fmt.Sprintf("integrate exit=%d tail=%s", resp.ExitCode, resp.Tail)
+		prefix := "CONFLICT: "
+		if resp.ExitCode == 92 {
+			prefix = "REF_LOST: " // 对抗性锚提名行：92=分支丢失钦定码
+		}
+		note := fmt.Sprintf("%sintegrate exit=%d tail=%s", prefix, resp.ExitCode, resp.Tail)
 		_ = g.database.AppendEvent(ctx, st.run.TicketID, "merge_conflict", db.Event{
 			Actor: st.run.RunID, Note: note})
 		g.emit(Event{Kind: "merge_conflict", TicketID: st.run.TicketID,
