@@ -670,3 +670,5 @@
 **实证链**：部署后启动对账单轮——adjunct 收尸×2、req-f88 已立→CTO-A→design_start→claim（devin/swe-2-max 骑设计卡）、patrol 票→巡检 claim。残账三条错配 spawn_needed 重放前废种。
 
 **教训入规**：外部直改库只许 UPDATE 相位/标死列；事件行禁手工 INSERT（纳秒整型陷阱），一律 meta inject/CLI（D-56）。
+
+**坑档**：docs/经验库/2026-11-02-手工写事件行created_at要纳秒整型.md；docs/经验库/2026-11-02-杀席先标死会绕过对账角色分流.md；docs/经验库/2026-11-02-相位不等于行动者角色.md。技能沉淀：docs/技能库/外科手术径-直改库安全面.md。
