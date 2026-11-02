@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +17,10 @@ import (
 	"meta/internal/db"
 	pbv1 "meta/internal/pb/metav1"
 )
+
+// newAdapter 壳适配器构造缝（包级——测试可换伪壳走通 cheapFilter 全径，
+// inject.go 的 assemble 同款先例）。
+var newAdapter = adapter.New
 
 // 巡检席三件（票0030）：订阅匹配（emit 末位钩）→批收→便宜壳两级过滤→
 // 信号路由（带票→adjunct 巡检席；无票→巡检票归并/立案＋正式派发）。
@@ -108,7 +113,7 @@ func (g *Gateway) cheapFilter(ctx context.Context, evs []Event) ([]Event, error)
 	if err != nil {
 		return nil, err
 	}
-	ad, err := adapter.New(g.cfg.Filter.Name)
+	ad, err := newAdapter(g.cfg.Filter.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +141,10 @@ func (g *Gateway) cheapFilter(ctx context.Context, evs []Event) ([]Event, error)
 	}
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("过滤壳 %s: %w", g.cfg.Filter.Name, err)
+		// 死因分类（票0034）：裸 `signal: killed` 盖超时杀/限额退壳/起壳
+		// 败一个样＝下次坏照样瞎（11-02 实证事件 2638）——note 即诊断面。
+		return nil, fmt.Errorf("过滤壳 %s: %s", g.cfg.Filter.Name,
+			classifyFilterExit(cctx, err, out))
 	}
 	keep, ok := parseKeepAll(string(out), len(evs))
 	if !ok {
@@ -145,7 +153,12 @@ func (g *Gateway) cheapFilter(ctx context.Context, evs []Event) ([]Event, error)
 		keep, ok = parseKeepAll(adapter.JSONLText(string(out)), len(evs))
 	}
 	if !ok {
-		return nil, fmt.Errorf("过滤壳输出不可判（无 KEEP/DROP 行）")
+		if quotaLike(string(out)) {
+			return nil, fmt.Errorf("过滤壳限额打穿（输出不可判＋限额特征） tail=%s",
+				outTail(string(out), 300))
+		}
+		return nil, fmt.Errorf("过滤壳输出不可判（无 KEEP/DROP 行） tail=%s",
+			outTail(string(out), 200))
 	}
 	var sig []Event
 	for i, e := range evs {
@@ -187,6 +200,61 @@ func parseKeepAll(out string, n int) (map[int]bool, bool) {
 	return keep, seen
 }
 
+// quotaSigs 限额签名集（小写子串匹配——票0034）：壳/上游 API 限额打穿时的
+// 高频特征词。启发式（设计§5 诚实边界）：假阳最坏＝分类词偏差（壳败放行
+// 全开语义不变，信号一条不丢）；假阴＝落「退码非零」仍强于裸 killed。
+var quotaSigs = []string{
+	"rate limit", "429", "quota", "insufficient_quota",
+	"daily limit", "limit exceeded", "限额",
+}
+
+// quotaLike 输出/错误尾带限额特征判（纯函数，测试锚）。
+func quotaLike(s string) bool {
+	s = strings.ToLower(s)
+	for _, sig := range quotaSigs {
+		if strings.Contains(s, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// outTail 输出尾摘要（logTail 同款形制，票0034）：末 n 字节→clean 净化
+// （决策 67 毒字节进事件流瘫 marshal 先例）→换行并竖线→TrimSpace——
+// 进 filter_degraded note 即安全。
+func outTail(s string, n int) string {
+	b := []byte(s)
+	if len(b) > n {
+		b = b[len(b)-n:]
+	}
+	return strings.TrimSpace(strings.ReplaceAll(clean(string(b)), "\n", " | "))
+}
+
+// classifyFilterExit 过滤壳死因分类（纯函数，测试锚）：超时杀/限额打穿/
+// 退码非零/起壳败四桶。cmd.Output 的错误原文（`signal: killed` 等）不可分
+// 死因——分类词＋净化证据尾进 filter_degraded note，下次坏可判。
+func classifyFilterExit(cctx context.Context, err error, out []byte) string {
+	// CommandContext 超时杀的钦定特征：壳进程被杀时 ctx 已截止。
+	if cctx.Err() == context.DeadlineExceeded {
+		return "超时（ctx 截止被杀——CommandContext 限时杀）"
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		stderr := string(ee.Stderr)
+		if quotaLike(stderr) || quotaLike(string(out)) {
+			tail := outTail(stderr, 300)
+			if tail == "" {
+				tail = outTail(string(out), 300)
+			}
+			return fmt.Sprintf("限额打穿（限额特征命中） exit=%d tail=%s",
+				ee.ExitCode(), tail)
+		}
+		return fmt.Sprintf("退码非零 exit=%d tail=%s", ee.ExitCode(),
+			outTail(stderr, 300))
+	}
+	// Start 败/二进制缺/权限——壳根本没跑起来。
+	return "起壳败: " + err.Error()
+}
 
 // routeSignal 信号→席位：带票事件→adjunct 巡检席（同票同角色去重闸天然
 // 防风暴；票终态/冻票 DispatchSeat 自拒落 patrol_skip 行）；无票事件
@@ -289,4 +357,53 @@ func (g *Gateway) patrolFile(name, body string) (string, error) {
 		return "", err
 	}
 	return pf, nil
+}
+
+// patrolDutyPromptFile patrol-* 值班兜底提示件（票0034）：注入机缺
+// （InjectRoot 空）或组装败时的最简值班提示——巡检是「机器坏时仍能报信」
+// 的兜底径，不能依赖被它监视的设施（11-02 实证：unit 缺 --inject-root 一次，
+// 值班票 100% 撞 D-40 空提示全灭）。占相位正经席口径（非 adjunct——文案
+// 不写「不占相位」）；比注入前缀薄（无角色卡/配方/两库索引），八栏内嵌＋
+// 留言＋轨＋哨兵契约在，本职「判信号→立案→报告」可做。
+func (g *Gateway) patrolDutyPromptFile(ctx context.Context, ticketID, role string, t *db.Ticket) (string, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# 巡检席值班票（票 %s：%s）\n\n", ticketID, t.Title)
+	fmt.Fprintf(&b, "你是**巡检席**（role=%s，占相位的正经席位）。本提示为注入机不可用时的"+
+		"兜底件，比全量注入前缀薄——按下列票面与轨执行本职。\n\n", role)
+
+	b.WriteString("## 票面八栏\n\n")
+	ts := &pbv1.TicketSpec{}
+	if len(t.Spec) > 0 && proto.Unmarshal(t.Spec, ts) == nil {
+		for _, col := range []struct{ name, val string }{
+			{"目标", ts.Goal}, {"为什么", ts.Why}, {"范围内", ts.Scope},
+			{"范围外（禁线）", ts.OutOfScope}, {"设计引用", ts.Refs},
+			{"验收锚", ts.Anchors}, {"验证命令", ts.Verify}, {"交付形制", ts.Deliver},
+		} {
+			fmt.Fprintf(&b, "- **%s**：%s\n", col.name, col.val)
+		}
+	} else {
+		b.WriteString("（spec 反序列化败/空——完整票面读 DB：meta ticket）\n")
+	}
+
+	if ms, err := g.database.MsgsForTicket(ctx, ticketID, false); err == nil && len(ms) > 0 {
+		b.WriteString("\n## 未投递留言（信号原文——必读）\n\n")
+		for _, m := range ms {
+			fmt.Fprintf(&b, "- [%s] %s（%s）\n", m.Actor, m.Text,
+				m.CreatedAt.Format("01-02 15:04"))
+		}
+	}
+
+	b.WriteString("\n## 动作轨\n\n")
+	fmt.Fprintf(&b, "1. 诊断：meta events / runs / phase --socket \"$META_GATEWAY_SOCK\" --ticket %s "+
+		"逐条查证留言中的信号。\n", ticketID)
+	fmt.Fprintf(&b, "2. 真问题→自立案：meta ticket new --socket \"$META_GATEWAY_SOCK\"（id 建议 %s-pN，"+
+		"票面八栏照 docs/实现/ 既有票形制）。\n", ticketID)
+	b.WriteString("3. 报告：每条信号有判定与去向（立案票号/噪声理由）——漏报信号＝瞒报同罪。\n")
+
+	b.WriteString("\n## 交付契约\n\n" +
+		"完工交付摘要后，stdout 最后一行单独一行哨兵，并把同一行原文追加到\n" +
+		"$META_ART_DIR/sentinel.log（双发——缺任一＝半交付）：\n\n" +
+		"META_DELIVER:<ref>\n")
+	return g.patrolFile(fmt.Sprintf("duty-%s-%s-%d.md", ticketID, role,
+		time.Now().UnixNano()), b.String())
 }

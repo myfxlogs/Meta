@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"meta/internal/db"
-	"meta/internal/route"
 	pbv1 "meta/internal/pb/metav1"
+	"meta/internal/route"
 )
 
 // attachClient 测试代驾席位：直插 run 行→Attach 发 RunAuth——不经 spawn。
@@ -216,9 +216,10 @@ func TestT30_PatrolRoute(t *testing.T) {
 	if ms, _ := d.MsgsForTicket(ctx, pid, false); len(ms) != 1 || ms[0].Actor != "patrol:patrol_tick" {
 		t.Fatalf("心跳信号未挂留言: %+v", ms)
 	}
-	// 测试环境无 InjectRoot→空提示被 D-40 闸拦成 spawn_blocked——
-	// 取证「无票信号→立票→正式派发」链路到达派发径（生产有注入机走全量）。
-	waitEvent(t, g, "spawn_blocked", pid, 15*time.Second)
+	// 测试环境无 InjectRoot→票0034 兜底件过 D-40 抵壳路由（测试壳表无巡检
+	// 行→shells_exhausted）——取证「无票信号→立票→正式派发」链路到达壳
+	// 路由（生产有注入机走全量前缀）。
+	waitEvent(t, g, "shells_exhausted", pid, 15*time.Second)
 
 	// 第二张 patrol_tick：归并同票不另立（值班票单例）。
 	g.emit(Event{Kind: "patrol_tick", Note: "心跳2"})

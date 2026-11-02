@@ -18,13 +18,13 @@ import (
 // SeatSpec 一次派发的参数（DispatchSeat 入，随票留存至本进程终——
 // 重启后缺则 spawn_blocked 事件，不重建假参数）。
 type SeatSpec struct {
-	PromptFile  string
-	WorkDir     string
-	Env         []string
-	PreferShell string // 非空＝该壳尝试提首（smoke 指定径；不换优先序语义）
-	Adjunct     bool   // 辅助席（裁决/诊断，§1.3）：不占相位、必给 prompt_file
-	Provenance  string // D9 盖戳源：派发方透传触发事件行/父 run 的戳
-	Project     string // 派发径挂接（票0015）：非空→取锁闸之前 attachProject
+	PromptFile    string
+	WorkDir       string
+	Env           []string
+	PreferShell   string // 非空＝该壳尝试提首（smoke 指定径；不换优先序语义）
+	Adjunct       bool   // 辅助席（裁决/诊断，§1.3）：不占相位、必给 prompt_file
+	Provenance    string // D9 盖戳源：派发方透传触发事件行/父 run 的戳
+	Project       string // 派发径挂接（票0015）：非空→取锁闸之前 attachProject
 	ResumeSession string // 票0030 续传：非空→壳续会锚（经 META_RESUME_SESSION 透席）
 }
 
@@ -259,6 +259,8 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 
 	// 注入机径：无 --prompt-file 覆盖且注入机开 → 组装提示前缀文件。
 	// 组装失败＝缺一不派（§6.1），出事件即返——非壳之错，不耗壳尝试。
+	// patrol-* 例外（票0034）：注入败不 return，续走下方兜底件——值班票是
+	// 报信链本体，组装败正是最需要报信的时刻（inject_failed 事件照落不吞错）。
 	if spec.PromptFile == "" && g.cfg.InjectRoot != "" {
 		pf, err := g.injectPrompt(ctx, req.ticketID, req.role, t)
 		if err != nil {
@@ -266,6 +268,26 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 				Actor: "gateway", Note: err.Error()})
 			g.emit(Event{Kind: "inject_failed", TicketID: req.ticketID, Role: req.role,
 				Note: err.Error()})
+			if !strings.HasPrefix(req.ticketID, "patrol-") {
+				return
+			}
+		} else {
+			spec.PromptFile = pf
+		}
+	}
+
+	// patrol-* 兜底件（票0034，对抗性锚提名行：删则值班票回撞 D-40 空提示
+	// 全灭）：注入机缺（InjectRoot 空——11-02 实证 unit 无 --inject-root）
+	// 或败时合成最简值班提示，不裸撞 D-40 闸。非 patrol-* 票无此支——注入机
+	// 缺/败是配置故障，照撞闸该响。
+	if spec.PromptFile == "" && strings.HasPrefix(req.ticketID, "patrol-") {
+		pf, err := g.patrolDutyPromptFile(ctx, req.ticketID, req.role, t)
+		if err != nil {
+			note := "值班兜底提示件: " + err.Error()
+			_ = g.database.AppendEvent(ctx, req.ticketID, "spawn_blocked", db.Event{
+				Actor: "gateway", Note: note + " role=" + req.role})
+			g.emit(Event{Kind: "spawn_blocked", TicketID: req.ticketID, Role: req.role,
+				Note: note})
 			return
 		}
 		spec.PromptFile = pf

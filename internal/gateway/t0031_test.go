@@ -54,8 +54,8 @@ func TestT31_PatrolDispatchRegression(t *testing.T) {
 	if err != nil || !ack.Ok {
 		t.Fatal(err)
 	}
-	// 无票信号→立 patrol-* 票→派发（无 InjectRoot→D-40 空提示闸
-	// spawn_blocked 取证到达派发径，同 TestT30_PatrolRoute）。
+	// 无票信号→立 patrol-* 票→派发（无 InjectRoot→票0034 兜底件过 D-40
+	// 抵壳路由 shells_exhausted 取证到达派发径，同 TestT30_PatrolRoute）。
 	deadline := time.Now().Add(15 * time.Second)
 	var pid string
 	for time.Now().Before(deadline) && pid == "" {
@@ -73,5 +73,5 @@ func TestT31_PatrolDispatchRegression(t *testing.T) {
 	if pid == "" {
 		t.Fatal("patrol_tick 未立值班票")
 	}
-	waitEvent(t, g, "spawn_blocked", pid, 15*time.Second)
+	waitEvent(t, g, "shells_exhausted", pid, 15*time.Second)
 }
