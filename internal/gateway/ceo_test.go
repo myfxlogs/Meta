@@ -130,6 +130,44 @@ func TestCeoSpawn(t *testing.T) {
 	}
 }
 
+// TestCeoSpawn_DeployFailed 票26 锚（决策77）：deploy_failed∈spawn_kinds——
+// 无 CEO 订阅→ceoPending 曾含该事件＋seat_run 出 role=CEO run（复用
+// TestCeoSpawn 骨架换 kind＋断言 pending）。
+func TestCeoSpawn_DeployFailed(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "ceo")
+	t.Setenv("META_ADOPT_GRACE", "30")
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		c.CeoSpawnKinds["deploy_failed"] = true
+		c.CeoEvents["deploy_failed"] = true
+	})
+	ctx := context.Background()
+
+	g.emit(Event{Kind: "deploy_failed", TicketID: "t-d"})
+	// 无订阅→泵入 pending 排队（切换不丢，§8）；helper ceo 席不订阅
+	// Events，pending 不被回放排空——先见排队再见唤起。
+	waitFor2(t, 3*time.Second, func() bool {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		for _, e := range g.ceoPending {
+			if e.Kind == "deploy_failed" && e.TicketID == "t-d" {
+				return true
+			}
+		}
+		return false
+	})
+	waitFor2(t, 15*time.Second, func() bool {
+		r, _ := g.DB().ActiveRunForRole(ctx, "CEO")
+		return r != nil && r.Provenance == "system_event"
+	})
+	// 杀掉化身→D-22 比对不炸（未派发事件零计数早退）。
+	r, _ := g.DB().ActiveRunForRole(ctx, "CEO")
+	if r != nil {
+		g.killRun(g.bindRun(r))
+	}
+}
+
 // TestCeoSpawn_LastResort 连败 3→ceo_last_resort 行（SeatArgv 指向不存在二进制）。
 func TestCeoSpawn_LastResort(t *testing.T) {
 	g, dir := newTestGateway(t, func(c *Config) {
