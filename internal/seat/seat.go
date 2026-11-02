@@ -442,9 +442,16 @@ func (s *session) attachOnce() error {
 // 白名单（META_*＋PATH/HOME/壳鉴权件）——宿主全量 env 剥光。
 func cageArgv(img string, argv []string, workDir string, env []string) []string {
 	self, _ := user.Current()
+	uid, gid := "0", "0" // user.Current 判空回退（T10返修4——同 T1 笼内坑型）
+	if self != nil {
+		uid, gid = self.Uid, self.Gid
+	} else {
+		uid = strconv.Itoa(os.Getuid())
+		gid = strconv.Itoa(os.Getgid())
+	}
 	out := []string{"docker", "run", "--rm", "-i",
 		"--network", envOr("META_SEAT_NET", "meta-seat"),
-		"--user", self.Uid + ":" + self.Gid,
+		"--user", uid + ":" + gid,
 		"-v", workDir + ":" + workDir, "-w", workDir}
 	if d := os.Getenv("META_SECRETS_DIR"); d != "" {
 		out = append(out, "-v", d+":/seat-secrets:ro")
@@ -457,6 +464,9 @@ func cageArgv(img string, argv []string, workDir string, env []string) []string 
 	}
 	for _, m := range strings.Split(os.Getenv("META_SEAT_MOUNT_MASK"), ",") {
 		if m != "" {
+			if !filepath.IsAbs(m) {
+				continue // T10返修2：tmpfs 必绝对径——相对径拒（遮错径比不遮坏）
+			}
 			out = append(out, "--tmpfs", m)
 		}
 	}
@@ -466,8 +476,14 @@ func cageArgv(img string, argv []string, workDir string, env []string) []string 
 		}
 	}
 	wl := map[string]bool{"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true}
+	// T10返修3：token/sock 结构性不入笼——白名单剔三件（req-f88 §4）。
+	ban := map[string]bool{"META_RUN_TOKEN": true, "META_GATEWAY_SOCK": true,
+		"META_SEAT_SOCK": true}
 	for _, e := range os.Environ() {
 		k := strings.SplitN(e, "=", 2)[0]
+		if ban[k] {
+			continue
+		}
 		if wl[k] || strings.HasPrefix(k, "META_") ||
 			strings.HasPrefix(k, "ANTHROPIC_") || strings.HasPrefix(k, "CLAUDE_") ||
 			strings.HasPrefix(k, "OPENAI_") || strings.HasPrefix(k, "GOOGLE_") ||
@@ -476,7 +492,11 @@ func cageArgv(img string, argv []string, workDir string, env []string) []string 
 		}
 	}
 	for _, e := range env {
-		out = append(out, "-e", strings.SplitN(e, "=", 2)[0])
+		// T10返修1：传全串 -e K=V——只传键 docker 取席进程 env 值致错值。
+		if ban[strings.SplitN(e, "=", 2)[0]] {
+			continue
+		}
+		out = append(out, "-e", e)
 	}
 	return append(append(out, img), argv...) // 镜像后整壳 argv 原序
 }
