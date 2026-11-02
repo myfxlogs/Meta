@@ -79,6 +79,8 @@ ceo_prompt: "config/caster/ceo-headless.md"
 # token 种子=业主动作：meta secret put secret.board.token（值读 stdin）。
 board_listen: "127.0.0.1:9712"
 
+reconcile_debounce { seconds: 30 }         # 票0039/T11 立票点火去抖窗
+
 # 巡检席（票0030）：事件订阅种子（kind→role，种入 subscription 表）＋
 # 两级过滤便宜壳＋巡检壳登记行。
 subscribe { kind: "exec_denied"          role: "巡检" }

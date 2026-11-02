@@ -57,7 +57,13 @@ func (g *Gateway) reconcile(ctx context.Context) {
 			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
 				Actor: "gateway", Note: "对账补发: " + spawnLine(t.Phase),
 			})
-			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
+			// patrol-* 值班票恒巡检（D-54 同径，已立行漏覆写——票0039
+			// 锚③）：立票即唤 CTO 会把系统票喂进业务流水线。
+			role := "CTO"
+			if strings.HasPrefix(t.ID, "patrol-") {
+				role = "巡检"
+			}
+			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
 		}
 	}
 	// D-55 孤儿收尸：行动者对账只覆盖票上相位行动者——adjunct 席与
