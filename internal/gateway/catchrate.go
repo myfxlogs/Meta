@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"meta/internal/db"
 )
@@ -110,4 +111,55 @@ func pitPaths(note string) []string {
 		}
 		rest = rest[i+len(pitTag):]
 	}
+}
+
+// MonthlyCatch 月聚合行（T23 月报件）：月份/判例数/自捕数——同一
+// extCatchRule/pitTag 口径按月分桶。
+type MonthlyCatch struct {
+	Month string
+	Total int
+	Self  int
+}
+
+// classifyMonthly 全量候选行→按 created_at 月分桶聚合（逐月窗口
+// 不设 20 判帽——月报是全量口径，与卡面「近20判」并列不替）。
+func classifyMonthly(rows []*db.Event, now func(time.Time) string) []MonthlyCatch {
+	byMonth := map[string]*MonthlyCatch{}
+	var order []string
+	bucket := func(e *db.Event) *MonthlyCatch {
+		m := now(e.CreatedAt) // 注入缝：测试钉死
+		if byMonth[m] == nil {
+			byMonth[m] = &MonthlyCatch{Month: m}
+			order = append(order, m)
+		}
+		return byMonth[m]
+	}
+	rejected := map[string]int64{}
+	seenPit := map[string]bool{}
+	for _, e := range rows {
+		mc := bucket(e)
+		if rule := extCatchRule[e.Kind]; rule != nil && rule(e.TicketID) {
+			mc.Total++
+			if e.Kind == "reject" && rejected[e.TicketID] < e.ID {
+				rejected[e.TicketID] = e.ID
+			}
+		}
+		for _, p := range pitPaths(e.Note) {
+			key := e.TicketID + "\x00" + p
+			if seenPit[key] {
+				continue
+			}
+			seenPit[key] = true
+			if e.ID < rejected[e.TicketID] {
+				continue
+			}
+			mc.Total++
+			mc.Self++
+		}
+	}
+	out := make([]MonthlyCatch, 0, len(order))
+	for i := len(order) - 1; i >= 0; i-- {
+		out = append(out, *byMonth[order[i]])
+	}
+	return out
 }

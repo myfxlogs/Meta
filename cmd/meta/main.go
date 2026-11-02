@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -55,6 +56,8 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		err = serve(os.Args[2:])
+	case "catchrate":
+		err = catchrateCmd(os.Args[2:])
 	case "secret":
 		err = secret(os.Args[2:])
 	case "ticket":
@@ -1556,4 +1559,90 @@ func seatDriveCmd() error {
 	fmt.Println("META_DEPLOY:done")
 	return st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{
 		Deliver: &pbv1.Deliver{Ref: "cli", Note: "META_DEPLOY:done"}}})
+}
+
+
+// catchrateCmd T23 自捕率月报件：事件推导聚合——外捕三类（reject/
+// deploy_failed/patrol- created）+「坑档：」自捕标签按月分桶；输出
+// 月→判例/自捕/自捕率＋决策 77 基线对照（≥90% 目标）。纯读零写。
+func catchrateCmd(args []string) error {
+	fs := flag.NewFlagSet("catchrate", flag.ContinueOnError)
+	dbPath := fs.String("db", "run/meta.db", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	d, err := db.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	rows, err := d.CatchRows(context.Background(), 1<<20)
+	if err != nil {
+		return err
+	}
+	type bucket struct{ total, self int }
+	byMonth := map[string]*bucket{}
+	var months []string
+	rejected := map[string]int64{}
+	seenPit := map[string]bool{}
+	for _, e := range rows {
+		m := e.CreatedAt.Format("2006-01")
+		if byMonth[m] == nil {
+			byMonth[m] = &bucket{}
+			months = append(months, m)
+		}
+		ext := e.Kind == "reject" || e.Kind == "deploy_failed" ||
+			(e.Kind == "created" && strings.HasPrefix(e.TicketID, "patrol-"))
+		if ext {
+			byMonth[m].total++
+			if e.Kind == "reject" && rejected[e.TicketID] < e.ID {
+				rejected[e.TicketID] = e.ID
+			}
+		}
+		for _, p := range catchPitPaths(e.Note) {
+			k := e.TicketID + "\x00" + p
+			if seenPit[k] {
+				continue
+			}
+			seenPit[k] = true
+			if e.ID < rejected[e.TicketID] {
+				continue
+			}
+			byMonth[m].total++
+			byMonth[m].self++
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(months)))
+	fmt.Printf("%-8s %6s %6s %8s %s\n", "月", "判例", "自捕", "自捕率", "基线(≥90%)")
+	for _, m := range months {
+		b := byMonth[m]
+		rate := float64(0)
+		if b.total > 0 {
+			rate = 100 * float64(b.self) / float64(b.total)
+		}
+		ok := "未达"
+		if rate >= 90 {
+			ok = "达标"
+		}
+		fmt.Printf("%-8s %6d %6d %7.1f%% %s\n", m, b.total, b.self, rate, ok)
+	}
+	return nil
+}
+
+// catchPitPaths 「坑档：」标签提取（与 gateway pitPaths 同径——CLI 纯
+// 读件不复用包内私函）。
+func catchPitPaths(note string) []string {
+	var out []string
+	for _, seg := range strings.Split(note, "坑档：") {
+		if seg == note || len(seg) == 0 {
+			continue
+		}
+		end := strings.IndexAny(seg, " \n")
+		if end < 0 {
+			end = len(seg)
+		}
+		if p := strings.TrimSpace(seg[:end]); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
