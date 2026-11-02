@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -97,8 +98,13 @@ func TestT1_IntegratePaths(t *testing.T) {
 	}
 	defer g.Close()
 	ctx := context.Background()
-	me, _ := user.Current()
-	sb := &pbv1.SandboxSpec{RunAs: me.Username}
+	// 票0034-p1 同型坑：笼内 passwd 无自身条目→user.Current() err→
+	// me.Username 空指针（0034 check 实证 panic）——判空回退数字 uid。
+	runAs := strconv.Itoa(os.Getuid())
+	if me, err := user.Current(); err == nil {
+		runAs = me.Username
+	}
+	sb := &pbv1.SandboxSpec{RunAs: runAs}
 	proj := &db.Project{ID: "P", RepoURL: repo, DefaultBranch: "master",
 		IntegrateCmd: t1IntegrateCmd("$CLONE")} // 占位：真跑时把 $CLONE 换 clone 径
 	// ensureDeployClone 的 clone 落点由网关定——先跑一发拿路径，
