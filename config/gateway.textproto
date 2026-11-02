@@ -33,10 +33,10 @@ project {
   id: "meta"
   repo_url: "/opt/meta"
   default_branch: "master"
-  integrate_cmd: "git -C /opt/meta merge --ff-only \"$META_EXEC_REF\""
+  integrate_cmd: "git -C /opt/meta merge --ff-only \"$META_EXEC_REF\" || git -C /opt/meta merge-base --is-ancestor \"$META_EXEC_REF\" HEAD"
   check_cmd: "go build ./... && go vet ./... && go test -count=1 ./..."
-  deploy_cmd: "bash scripts/meta-deploy.sh"
-  probe_cmd: "bash scripts/meta-probe.sh"
+  deploy_cmd: "bash /opt/meta/scripts/meta-deploy.sh"
+  probe_cmd: "bash /opt/meta/scripts/meta-probe.sh"
   rollback_cmd: "set -x; if [ -f /opt/meta/bin/meta.prev ]; then install -m 755 /opt/meta/bin/meta.prev /opt/meta/bin/meta && systemctl --user restart meta-gateway || true; fi; git -C /opt/meta reset --hard ORIG_HEAD || true"
   sandbox {
     run_as: "metaseat"
