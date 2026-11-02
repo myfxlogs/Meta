@@ -628,3 +628,12 @@
 - **需求票 req-f88ce228927f** 已立→CTO-A 设计席在跑（席位容器化：一席一 docker run、worktree 挂载、scoped 凭据注入、零 home 可读）
 - 票 29 审计过→待部署；0010 部署席在骑新配方（首验在途）
 署名：devin/SWE-2-Max（业主上身·对话态）
+
+### 决策 82：闸未验绿先放队列＝无用功——全冻止血＋三断点连修（业主令）
+- 业主判：「所有部署都会失败，部署基础没解决，所有部署都是无用功」——实证：0010 一骑烧 3,025,771 tokens 换 exec 三连红
+- **错误定性**：本席顺序错误——闸从没端到端验绿过，却放 16 票自动骑=拿队列当测试床。正序＝修断点→一票验绿→才放队列
+- **止血**：18 张待部署票全 budget_frozen=1（dispatch 闸拒派），只留 0010 解冻当验证骑
+- **断点三修**：①check 笼 alpine 无 bash→exit 127（实证）：换 `golang:1.27`（debian）＋check_cmd 前缀 `export PATH`（`bash -lc` 经 /etc/profile 洗镜像 PATH 的坑——alpine 是 bash 缺、debian 是 PATH 缺，两坑同源皆 `-lc`）；②rollback_cmd 无害化（ORIG_HEAD reset 会错伤他票顶提交＋.prev 老码读不了新配置——部署席偏离判转正解）；③镜像选型教训入册：runner 定式 `bash -lc` 钦定 bash 存在，选型必须验 `bash -lc` 通不是只验镜像名在
+- **业主两问答**：①票 29 排序——闸 FIFO 无插队，其码已外部换装在线，排队仅账面；批量门（E17 五单一部署）实现票 28 仍在审，未落地故未生效
+- **待裁项**：check 绿后若 deploy/probe 连环——部署席重启网关会令本席 attach 断流，收养径须实证（D-42 同构风险）
+署名：devin/SWE-2-Max（业主上身·对话态）
