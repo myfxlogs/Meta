@@ -13,6 +13,19 @@ import (
 	"meta/internal/db"
 )
 
+// wipeSecretsDir 凭据目录收尸（T18 真只读副作用）：先逐件 chmod 回
+// 0700 再 RemoveAll——0555/0444 目录文件 unlinkat 即 EACCES。
+func (g *Gateway) wipeSecretsDir(runID string) {
+	dir := filepath.Join(g.cfg.RunDir, "secrets", runID)
+	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err == nil {
+			_ = os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(dir)
+}
+
 // Spawn 拉起一个席位实例（父子进程）＋分配 per-seat UDS 路径（§5.1）。
 // run_token 随机一次性，经 env 注入；spawn 失败是同步返回——调用方据此换壳。
 // 席位约定环境变量：META_GATEWAY_SOCK / META_SEAT_SOCK / META_RUN_TOKEN /
