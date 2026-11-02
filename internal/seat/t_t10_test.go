@@ -1,12 +1,35 @@
 package seat
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // TestT10_CageArgv 笼 argv 锚：image/net/user/mounts/env 白名单成型；
 // 宿主 env 白名单外项剥光（凭据/宿主件不入笼）。
+// TestT10_CageArgvSymlink 反向锚（T15 驳回项）：symlink 型 CLI——假 bin
+// 目录软链→真身目录 ELF，cageArgv 必含链接目录＋真身目录两 ro 挂。
+func TestT10_CageArgvSymlink(t *testing.T) {
+	base := t.TempDir()
+	linkDir := filepath.Join(base, "bin")
+	realDir := filepath.Join(base, "real")
+	_ = os.MkdirAll(linkDir, 0o755)
+	_ = os.MkdirAll(realDir, 0o755)
+	real := filepath.Join(realDir, "fakecli")
+	_ = os.WriteFile(real, []byte("#!/bin/sh\n"), 0o755)
+	_ = os.Symlink(real, filepath.Join(linkDir, "fakecli"))
+	t.Setenv("PATH", linkDir+":"+os.Getenv("PATH"))
+	t.Setenv("META_SEAT_NET", "meta-seat")
+	argv := cageArgv("golang:1.27", []string{"fakecli"}, "/w", nil)
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "-v "+linkDir+":"+linkDir+":ro") ||
+		!strings.Contains(joined, "-v "+realDir+":"+realDir+":ro") {
+		t.Fatalf("symlink 型 CLI 双目录未俱在:\n%s", joined)
+	}
+}
+
 func TestT10_CageArgv(t *testing.T) {
 	t.Setenv("META_SEAT_NET", "meta-seat")
 	t.Setenv("META_SECRETS_DIR", "/run/secrets/r1")
