@@ -105,6 +105,18 @@ func main() {
 		err = superviseCmd(os.Args[2:])
 	case "upgrade":
 		err = upgradeCmd(os.Args[2:])
+	case "upgrade-check":
+		fs2 := flag.NewFlagSet("upgrade-check", flag.ContinueOnError)
+		sock := fs2.String("sock", "", "健康自检 socket")
+		prev := fs2.String("prev", "", "prev 二进制")
+		inst := fs2.String("install", "", "安装位")
+		rc := fs2.String("restart-cmd", "", "重启命令")
+		hp := fs2.Bool("have-prev", false, "prev 可退")
+		if perr := fs2.Parse(os.Args[2:]); perr != nil {
+			err = perr
+		} else {
+			err = upgrade.CheckCmd(os.Stdout, *sock, *prev, *inst, *rc, *hp)
+		}
 	case "version":
 		fmt.Println("meta", buildStamp)
 	default:

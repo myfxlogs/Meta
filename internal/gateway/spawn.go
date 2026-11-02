@@ -55,6 +55,13 @@ func (g *Gateway) startRun(ctx context.Context, run *db.Run, argv []string, env 
 		return err
 	}
 
+	// 0034-p3 连坐豁免：席包 systemd-run scope——逃出 meta-gateway
+	// cgroup，deploy restart 不再满门杀（adjunct 免连坐＋他票席豁免）；
+	// scope 失则直跑（旧径）。
+	if p, err := exec.LookPath("systemd-run"); err == nil {
+		argv = append([]string{p, "--user", "--scope", "--quiet", "--collect",
+			"--unit=meta-seat-" + run.RunID, "--"}, argv...)
+	}
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 	cmd.Env = append([]string{}, env...)
 	cmd.Env = append(cmd.Env,

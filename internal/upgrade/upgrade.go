@@ -69,23 +69,66 @@ func Do(cfg Config) error {
 		c.Stdout, c.Stderr = cfg.Out, cfg.Out
 		return c.Run()
 	}
+	// 0034-p3：自检执行体移位——本进程必死于自己发的 restart（同
+	// cgroup），先 detached 起存活 checker（systemd-run scope，无则
+	// setsid），restart 后由它探活/回退，自检径不再是死码。
+	if cfg.CheckSock != "" {
+		spawnChecker(cfg, prev, wrotePrev)
+	}
 	if err := restart(); err != nil {
 		return fmt.Errorf("upgrade: 重启命令失败: %w", err)
 	}
 	if cfg.CheckSock == "" {
 		return nil
 	}
-	if err := Probe(cfg.CheckSock, cfg.CheckTimeout); err != nil {
-		if wrotePrev {
-			fmt.Fprintf(cfg.Out, "upgrade: 健康自检失败——回退 prev\n")
-			if rerr := copyAtomic(prev, cfg.Install); rerr == nil {
-				_ = restart()
-			}
-			return fmt.Errorf("upgrade: 健康自检失败，已回退 prev: %w", err)
-		}
-		return fmt.Errorf("upgrade: 健康自检失败（无 prev 可退）: %w", err)
+	fmt.Fprintf(cfg.Out, "upgrade: 自检已移交 detached checker（%s）\n", cfg.CheckSock)
+	return nil
+}
+
+// spawnChecker detached 自检执行体（0034-p3）：upgrade 自身死于 restart
+// ——checker 走 systemd-run scope（无则 setsid）逃 cgroup，restart 后探活，
+// 红则回退 prev 再 restart 一次。CheckCmd 是 checker 进程入口（`meta
+// upgrade-check`）。
+func spawnChecker(cfg Config, prev string, wrotePrev bool) {
+	self, err := os.Executable()
+	if err != nil {
+		return
 	}
-	fmt.Fprintf(cfg.Out, "upgrade: 健康自检绿 %s\n", cfg.CheckSock)
+	args := []string{"upgrade-check",
+		"--sock", cfg.CheckSock,
+		"--prev", prev,
+		"--install", cfg.Install,
+		"--restart-cmd", cfg.RestartCmd,
+		"--have-prev", fmt.Sprintf("%v", wrotePrev)}
+	if p, err := exec.LookPath("systemd-run"); err == nil {
+		c := exec.Command(p, "--user", "--scope", "--quiet", "--collect",
+			"--unit=meta-upg-check", "--", self)
+		c.Args = append(c.Args[:len(c.Args)-1], append([]string{self}, args...)...)
+		if c.Run() == nil {
+			return
+		}
+	}
+	if p, err := exec.LookPath("setsid"); err == nil {
+		c := exec.Command(p, append([]string{self}, args...)...)
+		c.Stdout, c.Stderr = io.Discard, io.Discard
+		_ = c.Start()
+	}
+}
+
+// CheckCmd upgrade-check 入口：等待新网关起→Probe socket→红则回退 prev
+// ＋再 restart。detached 径被杀/无 prev 时如实退错。
+func CheckCmd(out io.Writer, sock, prev, install, restartCmd string, havePrev bool) error {
+	if err := Probe(sock, 15*time.Second); err != nil {
+		if havePrev {
+			fmt.Fprintf(out, "upgrade-check: 自检红——回退 prev\n")
+			if rerr := copyAtomic(prev, install); rerr == nil {
+				_ = exec.Command("sh", "-c", restartCmd).Run()
+			}
+			return fmt.Errorf("upgrade-check: 自检红已回退: %w", err)
+		}
+		return fmt.Errorf("upgrade-check: 自检红（无 prev）: %w", err)
+	}
+	fmt.Fprintf(out, "upgrade-check: 健康自检绿 %s\n", sock)
 	return nil
 }
 
