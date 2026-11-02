@@ -505,6 +505,11 @@ func (g *Gateway) CeoRule(ctx context.Context, r *pbv1.Ruling) (*pbv1.RuleAck, e
 			Actor: run.RunID, Note: note, Provenance: run.Provenance})
 		g.emit(Event{Kind: "ruling", TicketID: r.TicketId, RunID: run.RunID,
 			Role: "CEO", Note: note, Provenance: run.Provenance})
+		// T22 评注转留言：CEO 裁决 note 原文挂票内留言（施工席续会
+		// 注入/票内留言段带走——不再只有 meta msg 一径）。
+		if strings.TrimSpace(r.Note) != "" {
+			_, _ = g.database.AppendMsg(ctx, r.TicketId, "CEO:"+run.RunID, r.Note)
+		}
 		// T2 裁决自动落账：每笔成功裁决写 ceo_memory——决策+理由+
 		// provenance 戳+署名（首航零写实证）。
 		content := fmt.Sprintf("决策：%s %s\n理由：%s\n署名：%s",
