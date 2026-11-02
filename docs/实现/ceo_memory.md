@@ -658,3 +658,15 @@
 - 收：重启 caster（新表在载）＋直改已立＋redirect→2628 spawn 渲 cto-design 正确，设计席 3e75b51 骑设计卡
 - 债：D-53 caster 无热载（改表须重启的运维坑）
 署名：devin/SWE-2-Max（业主上身·对话态）
+
+## 决策 86（2026-11-02）——业主令「一次清不修修补补」：单行动者不变量全案
+
+**触发**：req-f88 四连错配后业主叫停——「从头清查，找出所有问题一次性修复」。
+
+**全量清查（code-audit 流程）出 8 缺陷**：①行动者角色源三种口径并存且最早行会钉首任；②非 adjunct 席全票唯一无闸（req-f88 设计+施工双席并存实证）；③标死不杀进程组；④巡检角色无票种派发闸；⑤caster 无热载（D-53）；⑥过滤壳 90s 必超时；⑦adjunct/孤儿席无收尸径（去重闸拿尸体永挡新席——本轮实证）；⑧手工 SQL 写 ticket_event created_at 用 datetime('now') 字符串→Observe 扫行崩流→caster 停摆（一行毒死全道，CEO 自伤实证）。
+
+**处置**：五闸一热载一超时一次部署（91cc202）——角色源统一最近非 adjunct run；dispatch 非 adjunct 全票唯一闸＋巡检票种闸；标死连坐 SIGKILL 进程组；孤儿收尸段；caster resync 前 mtime 热载；过滤超时 300s。
+
+**实证链**：部署后启动对账单轮——adjunct 收尸×2、req-f88 已立→CTO-A→design_start→claim（devin/swe-2-max 骑设计卡）、patrol 票→巡检 claim。残账三条错配 spawn_needed 重放前废种。
+
+**教训入规**：外部直改库只许 UPDATE 相位/标死列；事件行禁手工 INSERT（纳秒整型陷阱），一律 meta inject/CLI（D-56）。
