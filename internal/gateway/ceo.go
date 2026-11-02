@@ -155,7 +155,7 @@ func (g *Gateway) ensureCEO(ctx context.Context, e Event) {
 		if at.Stagger > 0 && !waitOnce(at.Stagger, g.done) {
 			return
 		}
-		if g.spawnCEO(ctx, at, pf) {
+		if g.spawnCEO(ctx, at, pf, e.Provenance) {
 			g.mu.Lock()
 			g.ceoFails = 0
 			g.mu.Unlock()
@@ -166,10 +166,15 @@ func (g *Gateway) ensureCEO(ctx context.Context, e Event) {
 }
 
 // spawnCEO 起一枚 CEO 候选：prompt 文件 + CEO env，attach/秒退窗口同 trySpawn。
-func (g *Gateway) spawnCEO(ctx context.Context, at route.Attempt, promptFile string) bool {
+// provenance 取触发事件行戳（飞书入站=feishu:<open_id>，§1.3/§2 链戳同盖）；
+// 空＝system_event（系统事件唤起）。
+func (g *Gateway) spawnCEO(ctx context.Context, at route.Attempt, promptFile, prov string) bool {
 	run := g.newRun("", "CEO", at.Shell)
 	run.Shell = shellLabel(at)
-	run.Provenance = "system_event"
+	run.Provenance = prov
+	if run.Provenance == "" {
+		run.Provenance = "system_event"
+	}
 	artDir := filepath.Join(g.cfg.RunDir, "artifacts", run.RunID)
 	_ = os.MkdirAll(artDir, 0o700)
 	env := append([]string{}, os.Environ()...)
