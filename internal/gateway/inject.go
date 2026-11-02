@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"strings"
 	"os"
 	"path/filepath"
 
@@ -43,11 +44,16 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 
 	// 票内留言（票0030 续传）：全量行入注入前缀——非续会派发这是唯一
 	// 带走径，续会派发兜底重述（消息不丢优先于省 token）。
-	var msgs []string
+	var msgs, extMsgs []string
 	if ms, err := g.database.MsgsForTicket(ctx, ticketID, false); err == nil {
 		for _, m := range ms {
-			msgs = append(msgs, fmt.Sprintf("- [%s] %s（%s）", m.Actor, m.Text,
-				m.CreatedAt.Format("01-02 15:04")))
+			line := fmt.Sprintf("- [%s] %s（%s）", m.Actor, m.Text,
+				m.CreatedAt.Format("01-02 15:04"))
+			if extSrcActor(m.Actor) {
+				extMsgs = append(extMsgs, line)
+			} else {
+				msgs = append(msgs, line)
+			}
 		}
 	}
 
@@ -59,6 +65,8 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 		Spec:     ts,
 		Verdicts: verdicts,
 		Msgs:     msgs,
+		ExtMsgs:  extMsgs,
+		ExtSrc:   extSrcTicket(ctx, g.database, ticketID),
 		Recipes:  g.cfg.InjectRecipes,
 	})
 	if err != nil {
@@ -75,4 +83,24 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 		return "", err
 	}
 	return p, nil
+}
+
+// extSrcTicket 票级外源判定（T10）：created 事件 provenance——feishu 需求
+// 径立票＝外源，terminal/CEO 径＝内源。
+func extSrcTicket(ctx context.Context, d *db.DB, tid string) bool {
+	evs, err := d.Events(ctx, tid)
+	if err != nil || len(evs) == 0 {
+		return false
+	}
+	return extSrcActor(evs[0].Provenance)
+}
+
+// extSrcActor 外源判定（T10）：terminal/内部角色＝内源；feishu:<id>/
+// 其他系统外戳＝外源——「指示」降权为材料。
+func extSrcActor(a string) bool {
+	switch a {
+	case "", "terminal", "gateway", "CEO", "CTO", "施工", "审计", "巡检", "board":
+		return false
+	}
+	return strings.HasPrefix(a, "feishu") || strings.Contains(a, ":")
 }
