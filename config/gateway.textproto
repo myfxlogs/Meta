@@ -34,7 +34,7 @@ project {
   repo_url: "/opt/meta"
   default_branch: "master"
   integrate_cmd: "git -C /opt/meta merge --ff-only \"$META_EXEC_REF\" || git -C /opt/meta merge-base --is-ancestor \"$META_EXEC_REF\" HEAD"
-  check_cmd: "go build ./... && go vet ./... && go test -count=1 ./..."
+  check_cmd: "export PATH=/usr/local/go/bin:$PATH && go build ./... && go vet ./... && go test -count=1 ./..."
   deploy_cmd: "bash /opt/meta/scripts/meta-deploy.sh"
   probe_cmd: "bash /opt/meta/scripts/meta-probe.sh"
   rollback_cmd: "echo rollback: 本部署无破坏可回（merge 已并历史不回退——ORIG_HEAD 陈旧指针会错伤他票顶提交，实证见决策81；二进制回退由 upgrade 自检兜底件）"
@@ -44,7 +44,7 @@ project {
     step_run_as { key: "deploy"    value: "mluser" }
     step_run_as { key: "probe"     value: "mluser" }
     step_run_as { key: "rollback"  value: "mluser" }
-    step_container_image { key: "check" value: "golang:1.27-alpine" }
+    step_container_image { key: "check" value: "golang:1.27" }
     exec_timeout { seconds: 900 }
   }
 }
