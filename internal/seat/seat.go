@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -237,7 +238,14 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 		fmt.Fprintln(os.Stderr, "seat: build:", err)
 		return codeInputErr, err.Error()
 	}
-	cmd := exec.Command(c.Argv[0], c.Argv[1:]...)
+	argv := c.Argv
+	// T10 席位容器笼（票0033/req-f88 设计§4）：META_SEAT_IMAGE 置→壳子进程
+	// 进 docker 笼（外壳持 token/sock 留宿主不入笼）；env 白名单剥宿主全量，
+	// workdir 同径挂、secrets ro、mount_mask tmpfs 遮、extra_mount 按行挂。
+	if img := os.Getenv("META_SEAT_IMAGE"); img != "" {
+		argv = cageArgv(img, argv, c.Dir, c.Env)
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = c.Dir
 	cmd.Env = append(os.Environ(), c.Env...)
 	if s.spec.Interactive {
@@ -427,6 +435,57 @@ func (s *session) attachOnce() error {
 	s.mu.Unlock()
 	go s.sendPump(stream, conn)
 	return nil
+}
+
+// cageArgv 壳 argv→docker run argv（T10 码面落点）：--rm＋net＋user 同
+// 宿主 uid＋workdir 同径 rw＋secrets ro＋mask tmpfs＋extra_mount 行＋env
+// 白名单（META_*＋PATH/HOME/壳鉴权件）——宿主全量 env 剥光。
+func cageArgv(img string, argv []string, workDir string, env []string) []string {
+	self, _ := user.Current()
+	out := []string{"docker", "run", "--rm", "-i",
+		"--network", envOr("META_SEAT_NET", "meta-seat"),
+		"--user", self.Uid + ":" + self.Gid,
+		"-v", workDir + ":" + workDir, "-w", workDir}
+	if d := os.Getenv("META_SECRETS_DIR"); d != "" {
+		out = append(out, "-v", d+":/seat-secrets:ro")
+	}
+	if a := os.Getenv("META_ART_DIR"); a != "" {
+		out = append(out, "-v", a+":"+a)
+	}
+	if p := os.Getenv("META_PROMPT_FILE"); p != "" {
+		out = append(out, "-v", filepath.Dir(p)+":"+filepath.Dir(p)+":ro")
+	}
+	for _, m := range strings.Split(os.Getenv("META_SEAT_MOUNT_MASK"), ",") {
+		if m != "" {
+			out = append(out, "--tmpfs", m)
+		}
+	}
+	for _, m := range strings.Split(os.Getenv("META_SEAT_EXTRA_MOUNT"), ",") {
+		if m != "" {
+			out = append(out, "-v", m)
+		}
+	}
+	wl := map[string]bool{"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true}
+	for _, e := range os.Environ() {
+		k := strings.SplitN(e, "=", 2)[0]
+		if wl[k] || strings.HasPrefix(k, "META_") ||
+			strings.HasPrefix(k, "ANTHROPIC_") || strings.HasPrefix(k, "CLAUDE_") ||
+			strings.HasPrefix(k, "OPENAI_") || strings.HasPrefix(k, "GOOGLE_") ||
+			strings.HasPrefix(k, "DEVIN_") || strings.HasPrefix(k, "OPENCODE_") {
+			out = append(out, "-e", k)
+		}
+	}
+	for _, e := range env {
+		out = append(out, "-e", strings.SplitN(e, "=", 2)[0])
+	}
+	return append(append(out, img), argv...) // 镜像后整壳 argv 原序
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
 }
 
 // sendPump 唯一发件者（gRPC 流并发 Send 不安全，一切外发经 sendq）。

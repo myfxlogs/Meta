@@ -275,6 +275,8 @@ func serve(args []string) error {
 	for _, s := range gc.Subscribe {
 		gcfg.Subs = append(gcfg.Subs, gateway.SubSeed{Kind: s.Kind, Role: s.Role})
 	}
+	gcfg.SeatImage, gcfg.SeatNet = gc.SeatImage, gc.SeatNet
+	gcfg.SeatMountMask, gcfg.SeatExtraMount = gc.SeatMountMask, gc.SeatExtraMount
 	if gc.ReconcileDebounce != nil {
 		gcfg.ReconcileDebounce = gc.ReconcileDebounce.AsDuration()
 	}
