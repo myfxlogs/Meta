@@ -228,6 +228,28 @@ func runSeatWithArgv(t *testing.T, role, script string) (int, []*pbv1.SeatMsg) {
 // META_ART_DIR（sentinel.log 文件兜底径测试用）。
 func runSeatSession(t *testing.T, role, artDir string, ad adapter.Adapter) (int, []*pbv1.SeatMsg) {
 	t.Helper()
+	stub, done := runSeatSessionAsync(t, role, artDir, ad)
+	code := <-done
+	var msgs []*pbv1.SeatMsg
+	grace := time.After(300 * time.Millisecond)
+drain:
+	for { // 不关 got——Attach 处理流可能仍在收（关→panic）
+		select {
+		case m := <-stub.got:
+			msgs = append(msgs, m)
+		case <-grace:
+			break drain
+		}
+	}
+	return code, msgs
+}
+
+// runSeatSessionAsync runSeatSession 协程化变体（票0045）：返回桩网关与
+// run 完结通道——静默壳锚须子进程存活期内探桩（run 未返时帧已入桩＝
+// watcher 泵实证，非 Wait 后兜底产物）。
+func runSeatSessionAsync(t *testing.T, role, artDir string,
+	ad adapter.Adapter) (*stubSeatGW, chan int) {
+	t.Helper()
 	dir := t.TempDir()
 	gsock := filepath.Join(dir, "g.sock")
 	stub := &stubSeatGW{got: make(chan *pbv1.SeatMsg, 32)}
@@ -256,19 +278,26 @@ func runSeatSession(t *testing.T, role, artDir string, ad adapter.Adapter) (int,
 		adopted: make(chan struct{}, 1),
 		ackCh:   make(chan struct{}, 1),
 	}
-	code := s.run()
-	var msgs []*pbv1.SeatMsg
-	grace := time.After(300 * time.Millisecond)
-drain:
-	for { // 不关 got——Attach 处理流可能仍在收（关→panic）
+	done := make(chan int, 1)
+	go func() { done <- s.run() }()
+	return stub, done
+}
+
+// waitFrame 限窗探桩网关帧流：命中的 SeatMsg 返回，超窗 nil——
+// 窗内吞弃未命中帧（只证有无，不保全量序）。
+func waitFrame(stub *stubSeatGW, within time.Duration,
+	match func(*pbv1.SeatMsg) bool) *pbv1.SeatMsg {
+	to := time.After(within)
+	for {
 		select {
 		case m := <-stub.got:
-			msgs = append(msgs, m)
-		case <-grace:
-			break drain
+			if match(m) {
+				return m
+			}
+		case <-to:
+			return nil
 		}
 	}
-	return code, msgs
 }
 
 func hasDeliver(msgs []*pbv1.SeatMsg) *pbv1.Deliver {

@@ -28,5 +28,18 @@ cp file.go /tmp/x.bak && sed -i '锚行变异' file.go && go test -run 锚 ./pkg
 一句话：**变异验证的红必须是 `--- FAIL: <锚测名>` 断言行**；出的若是
 `[build failed]`，换保编译的变异重做。
 
+## 补记（2026-11-02·票0045 双头坑型再踩）：tracked/untracked 两路都咬
+
+同一回退命令在两类文件上方向相反、都会出假绿：
+- **tracked 文件**：`git checkout <f>` 恢复 HEAD——本票未提交改动整件蒸发
+  （seat.go 五处改动全丢，且 `gofmt/build/vet/test` 全过＝全量假绿，
+  是 `grep 关键符号` 抽查才发现码没了）。
+- **untracked 文件**（本票新件）：`git checkout <f>` 报 pathspec 不匹配
+  **静默失败**——变异残留在位，后续测试跑在变异码上也是假绿。
+
+收口律：变异回退用 `cp` 备份/恢复；回退后必 `git diff`/`grep` 确认改动
+本体还在，再跑一遍绿。变异验证的绿只有「对未变异码跑出」才算数。
+
 ## 引用
 票0009 施工过程；commit t0009。票0021 对抗锚①复验（commit a275f9c 接替复跑）。
+票0045 对抗提名位复验双踩（tracked 回退丢码＋untracked 变异残留）。
