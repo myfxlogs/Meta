@@ -442,9 +442,14 @@ func (g *Gateway) handleSecret(ctx context.Context, st *runState, stream pbv1.Se
 				// （目录0700 文件0600），席位经 HOME/seat-secrets 只读挂载
 				// 径读——值仍随流回执（兼容既有消费面）。
 				secDir := filepath.Join(g.cfg.RunDir, "secrets", st.run.RunID)
+				// T18①真只读：目录临时松 0700 写文件 0444→回落 0555——
+				// 同 uid 席 open(O_WRONLY)/新建文件俱 EACCES（chmod 回改
+				// 是二步升级，符号链近似面收敛为权限位闸）。
 				_ = os.MkdirAll(secDir, 0o700)
 				_ = os.Chmod(secDir, 0o700)
-				if werr := os.WriteFile(filepath.Join(secDir, req.Name), plain, 0o600); werr != nil {
+				werr := os.WriteFile(filepath.Join(secDir, req.Name), plain, 0o444)
+				_ = os.Chmod(secDir, 0o555)
+				if werr != nil {
 					_ = g.database.AppendEvent(ctx, st.run.TicketID, "secret_write_failed", db.Event{
 						Actor: "gateway", Note: req.Name + ": " + werr.Error()})
 				}
@@ -518,8 +523,9 @@ func (g *Gateway) maybeDeclareDead(st *runState) {
 func (g *Gateway) onRunDead(st *runState) {
 	ctx := context.Background()
 	_ = g.database.MarkDead(ctx, st.run.RunID)
-	// T7 死席凭据目录回收：run/secrets/<runid> 全删——凭据作用域=run 生命周期。
-	_ = os.RemoveAll(filepath.Join(g.cfg.RunDir, "secrets", st.run.RunID))
+	// T7/T18 死席凭据目录回收：run/secrets/<runid> 全删——凭据作用域
+	// =run 生命周期；wipeSecretsDir 先回权限位再删（T18 只读面）。
+	g.wipeSecretsDir(st.run.RunID)
 
 	if st.attempt.Shell != "" {
 		g.mu.Lock()
