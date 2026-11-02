@@ -483,13 +483,27 @@ func cageArgv(img string, argv []string, workDir string, env []string) []string 
 	// T15返修3：笼内壳 CLI 通径（方案 b 宿主二进 ro 挂）——LookPath 解
 	// 宿主实径→其目录 ro 挂同径（PATH 不变即达）；shebang 解释器（node/
 	// bun 系）连带挂。镜像裸跑 executable not found 夜间实证根修。
+	seen := map[string]bool{}
 	for _, bin := range []string{argv[0], shebangOf(argv[0])} {
 		if bin == "" {
 			continue
 		}
-		if p, err := exec.LookPath(bin); err == nil {
-			d := filepath.Dir(p)
-			out = append(out, "-v", d+":"+d+":ro")
+		p, err := exec.LookPath(bin)
+		if err != nil {
+			continue
+		}
+		dirs := []string{filepath.Dir(p)}
+		// T15返修：EvalSymlinks 解链——链接目录（PATH 查名要）＋真身
+		// 目录（解释器/本体要）双 ro 挂，缺一即死（devin/claude 软链
+		// 型 CLI 两目录分离实证：单挂链接目录笼内悬链）。
+		if rp, err := filepath.EvalSymlinks(p); err == nil && rp != p {
+			dirs = append(dirs, filepath.Dir(rp))
+		}
+		for _, d := range dirs {
+			if !seen[d] {
+				seen[d] = true
+				out = append(out, "-v", d+":"+d+":ro")
+			}
 		}
 	}
 	wl := map[string]bool{"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true}
