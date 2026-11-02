@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -28,8 +29,18 @@ var newAdapter = adapter.New
 // patrolFeed emit 末位钩：kind 命中订阅→批收道（非阻塞——满则丢＋
 // patrol_drop 事件行；patrol_drop 自身不入种行零递归）。subs 启动装载后
 // 只读，直读无锁。
+// patrolMachineKinds T24-D 泵去自续：机器事件不喂巡检泵派发径——
+// 监工上岗/死亡事件回流泵→再派→再生死成风暴源（与 reconSilentKinds
+// 同哲学：记账面不驱动）。
+var patrolMachineKinds = map[string]bool{
+	"adjunct_claim": true, "adjunct_dead": true, "adjunct_deliver": true,
+	"adjunct_yield": true, "patrol_skip": true, "patrol_drop": true,
+	"patrol_dead_cap": true, "seat_dead": true, "seat_err": true,
+	"dispatch": true, "claim": true,
+}
+
 func (g *Gateway) patrolFeed(e Event) {
-	if len(g.subs[e.Kind]) == 0 {
+	if len(g.subs[e.Kind]) == 0 || patrolMachineKinds[e.Kind] {
 		return
 	}
 	select {
@@ -274,6 +285,21 @@ func (g *Gateway) routeSignal(ctx context.Context, e Event, role string) {
 		}
 		return
 	}
+	// T24-A 范围闸：监工只盯「值得盯」相位——待部署/部署中/待审
+	// 不派无增值监工（B1 串行已护，监工上岗只烧 token）。
+	if t, err := g.database.GetTicket(ctx, tid); err == nil && t != nil {
+		switch t.Phase {
+		case db.PhaseToDeploy, db.PhaseDeploying, db.PhaseReview:
+			_ = g.database.AppendEvent(ctx, tid, "patrol_skip", db.Event{
+				Actor: "gateway", Note: "相位不值得盯: " + string(t.Phase)})
+			return
+		}
+	}
+	// T24-C 退避闸：同票窗内监工死≥3→停派＋一次性 notify CEO（总闸
+	// 防未知形状循环）。
+	if g.patrolDeadOver(tid) {
+		return
+	}
 	pf, err := g.patrolPromptFile(tid, e)
 	if err != nil {
 		_ = g.database.AppendEvent(ctx, tid, "patrol_skip", db.Event{
@@ -406,4 +432,39 @@ func (g *Gateway) patrolDutyPromptFile(ctx context.Context, ticketID, role strin
 		"META_DELIVER:<ref>\n")
 	return g.patrolFile(fmt.Sprintf("duty-%s-%s-%d.md", ticketID, role,
 		time.Now().UnixNano()), b.String())
+}
+
+// patrolDeaths 同票监工死时戳账（T24-C 退避源；进程级即够——重启计数
+// 清空属可接受降级）。
+var patrolDeaths = map[string][]time.Time{}
+var patrolDeathsMu sync.Mutex
+var patrolDeadNotified = map[string]bool{}
+
+// patrolDeathBump 死席计数（onRunDead 调用点）：记时戳；过帽→一次性
+// patrol_dead_cap 通知 CEO（不重发）。
+func (g *Gateway) patrolDeathBump(tid string) {
+	patrolDeathsMu.Lock()
+	defer patrolDeathsMu.Unlock()
+	cut := time.Now().Add(-10 * time.Minute)
+	var alive []time.Time
+	for _, t := range patrolDeaths[tid] {
+		if t.After(cut) {
+			alive = append(alive, t)
+		}
+	}
+	patrolDeaths[tid] = append(alive, time.Now())
+	if len(patrolDeaths[tid]) >= 3 && !patrolDeadNotified[tid] {
+		patrolDeadNotified[tid] = true
+		note := "票 " + tid + " 监工 10min 内 3 死——停派巡检（退避帽）"
+		_ = g.database.AppendEvent(context.Background(), tid, "patrol_dead_cap", db.Event{
+			Actor: "gateway", Note: note})
+		g.emit(Event{Kind: "patrol_dead_cap", TicketID: tid, Role: "CEO", Note: note})
+	}
+}
+
+// patrolDeadOver 退避帽判：同票窗内死≥3→真（routeSignal 调用点）。
+func (g *Gateway) patrolDeadOver(tid string) bool {
+	patrolDeathsMu.Lock()
+	defer patrolDeathsMu.Unlock()
+	return len(patrolDeaths[tid]) >= 3
 }
