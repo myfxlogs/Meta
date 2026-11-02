@@ -112,6 +112,17 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 			}
 			switch t.Phase {
 			case db.PhaseToDeploy:
+				// 空项目自动补挂（票0018 实证：过闸票 project 空→exec 闸全拒
+				// deploy_failed）。补挂必须在本点——锁取前改键则 B1 锁泄/双骑。
+				// 唯一登记配方才可安挂：多项目时语义歧义，留空让闸 fail-closed。
+				if t.Project == "" {
+					if ids, err := g.database.ProjectIDs(ctx); err == nil && len(ids) == 1 {
+						_ = g.database.SetTicketProject(ctx, ticketID, ids[0])
+						_ = g.database.AppendEvent(ctx, ticketID, "project_auto_attach", db.Event{
+							Actor: "gateway", Note: "待部署空项目→唯一登记 " + ids[0]})
+						t.Project = ids[0]
+					}
+				}
 				if err := lockGate([]string{lockIntegrate, lockDeploy}, "部署/集成"); err != nil {
 					return err
 				}

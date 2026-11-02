@@ -88,6 +88,24 @@ func (d *DB) SetTicketProject(ctx context.Context, id, project string) error {
 	return err
 }
 
+// ProjectIDs 全登记项目 id——派发点自动补挂的唯一性判据（单配方则空票可安挂）。
+func (d *DB) ProjectIDs(ctx context.Context) ([]string, error) {
+	rows, err := d.db.QueryContext(ctx, `SELECT id FROM project`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // TicketsByProjectPhase 同项目指定相位票集（项目锁释放后的 spawn 补发源）。
 func (d *DB) TicketsByProjectPhase(ctx context.Context, project string, phases []Phase) ([]*Ticket, error) {
 	if len(phases) == 0 {
