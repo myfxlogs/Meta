@@ -19,8 +19,9 @@ seg2(){ # shellbin 副本（裁定3 禁穿家）＋鉴权档（必补A）
   done
   # 必补A：鉴权档副本（真调验证前必备）
   for d in .local/share/devin .claude .config/opencode; do
-    [ -d /home/mluser/$d ] && cp -a /home/mluser/$d "$HOME_MS/${d%/*}" 2>/dev/null || true
+    if [ -d /home/mluser/$d ]; then mkdir -p "$HOME_MS/${d%/*}" && cp -a /home/mluser/$d "$HOME_MS/${d%/*}/" || log "WARN: 鉴权档 $d 拷贝失败——seg2 不许过，人工查"; fi
   done
+  ls "$HOME_MS/.local/share/devin" "$HOME_MS/.claude" "$HOME_MS/.config/opencode" >/dev/null 2>&1 || { log "FAIL: 鉴权档三件有缺——必补A 未达，seg2 中止"; exit 3; }
   chown -R metaseat:metaseat $META/shellbin "$HOME_MS" 2>/dev/null || true
   log "seg2 ok"; }
 
@@ -43,7 +44,8 @@ seg4(){ # 写域迁（裁定4 只迁 run/）＋docker 组（必补B）
 seg5(){ # 启服验真
   systemctl --user -M metaseat@ enable --now meta-gateway meta-caster 2>/dev/null || \
     sudo -u metaseat XDG_RUNTIME_DIR=/run/user/$(id -u metaseat) systemctl --user enable --now meta-gateway meta-caster
-  systemctl --user stop meta-gateway meta-caster 2>/dev/null || true  # mluser 侧停旧
+  runuser -u mluser -- systemctl --user disable --now meta-gateway meta-caster || log "WARN: mluser 旧单元停用失败——双网关风险，verify 前必查"; 
+  runuser -u mluser -- systemctl --user is-active meta-gateway >/dev/null 2>&1 && { log "FAIL: mluser 旧单元仍活——防双写闸未闭合，seg5 中止"; exit 4; }
   sleep 2; $META/bin/meta version >/dev/null && log "seg5 启服——跑 verify"; }
 
 rollback(){ # §4 回退
@@ -58,6 +60,8 @@ verify(){ # 验真清单
   log "== docker 组 =="; id metaseat | grep -q docker && echo "docker 组 ok"
   log "== run 归属 =="; stat -c '%U:%G %a %n' $META/run/vault.key $META/run/meta.db | head -3
   log "== 单元态 =="; systemctl --user -M metaseat@ is-active meta-gateway 2>/dev/null || true
-  log "== socket =="; $META/bin/meta phase --socket $META/run/meta.sock 2>&1 | head -3; }
+  log "== socket =="; $META/bin/meta phase --socket $META/run/meta.sock 2>&1 | head -3
+  log "== 鉴权档 =="; ls "$HOME_MS/.local/share/devin" >/dev/null 2>&1 && echo "devin 鉴权档在" || echo "缺 devin 鉴权档"
+  log "== 旧单元 =="; runuser -u mluser -- systemctl --user is-active meta-gateway >/dev/null 2>&1 && echo "!! mluser 旧单元仍活（双网关风险）" || echo "旧单元已死透"; }
 
 case "${1:-}" in seg1|seg2|seg3|seg4|seg5|rollback|verify) "$1" ;; *) echo "usage: $0 seg1|seg2|seg3|seg4|seg5|rollback|verify" ;; esac
