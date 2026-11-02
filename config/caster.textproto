@@ -67,10 +67,8 @@ routes { kind: "ceo_last_resort" note: "无头唤起连败呼救（D3 径；通�
   actions { notify { template: "【Meta】⚠️CEO呼救：{{note}}" } } }
 # ——通知面（决策41 新格式）——
 routes { kind: "shell_limited" note: "壳限流/日限打穿（决策17 配额面）" actions { notify { template: "【Meta】⚠️{{note}}限流打穿——今日退席，明日自愈" } } }
-routes { kind: "claim"             actions { notify { template: "【Meta】{{role}}:接单[{{ticket_id}}]" } } }
 routes { kind: "project_set"       actions { notify { template: "【Meta】系统:项目挂接[{{ticket_id}}] {{note}}" } } }
 routes { kind: "shells_exhausted"  actions { notify { template: "【Meta】⚠️全壳耗尽[{{ticket_id}}]——换班链走完仍失败" } } }
-routes { kind: "dispatch"          actions { notify { template: "【Meta】系统:派单[{{ticket_id}}]" } } }
 routes { kind: "ruling"            actions { notify { template: "【Meta】{{role}}:裁决完毕[{{ticket_id}}]" } } }
 # ——表外兜底通知（令#E13 铁律②：表外事件只通知不处置）——
 # 无路由行匹配且 kind 命中种子集→至少通知；同 resync 批 (kind,ticket) 降噪只报首枚。
