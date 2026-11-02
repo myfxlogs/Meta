@@ -16,29 +16,85 @@ const FeishuCredName = "secret.feishu.app"
 // FeishuInbound 飞书入站馈口（0011 泵接口消费端）：owner 消息→
 // feishu_inbound 事件行（ticket_id 空串行）＋emit——泵按 ceo_spawn_kinds
 // 唤起无头化身；provenance=feishu:<open_id>（D9 链戳起点，spawn 沿此戳）。
-func (g *Gateway) FeishuInbound(senderOpenID, text string) {
+func (g *Gateway) FeishuInbound(senderOpenID, text, parentID string) {
 	prov := "feishu:" + senderOpenID
 	ctx := context.Background()
 	_ = g.database.AppendEvent(ctx, "", "feishu_inbound", db.Event{
 		Actor: "feishu", Note: text, Provenance: prov})
 	g.emit(Event{Kind: "feishu_inbound", Note: text, Provenance: prov})
-	// T22 评注挂票：入站文本含唯一在途票号→原句挂票内留言
-	// （票内留言段随派发/续会注入带走；多票号歧义不挂——留 CEO
-	// 入站径裁决，防误绑）。
-	if ts, err := g.database.NonTerminalTickets(ctx); err == nil {
-		hit := ""
-		n := 0
-		for _, t := range ts {
-			if strings.Contains(text, t.ID) {
-				hit, n = t.ID, n+1
-			}
+	// T28① 回复线程挂票：parent_id→feishu_card 反查父票→原句挂票内
+	// 留言（回复即指向，不经票号匹配）。
+	if parentID != "" {
+		if hit, err := g.database.TicketByCardMsg(ctx, parentID); err == nil && hit != "" {
+			_, _ = g.database.AppendMsg(ctx, hit, prov, text)
+			_ = g.database.AppendEvent(ctx, hit, "msg_posted", db.Event{
+				Actor: "gateway", Note: "飞书回复挂票 " + prov + " parent=" + parentID})
+			return
 		}
-		if n == 1 {
+	}
+	// T22 评注挂票（T28②③ 修配）：入站文本含在途票号→原句挂票内留言。
+	// 最长匹配（0034-p1 提及不被 0034 歧义弃挂）＋边界匹配（长数字内嵌
+	// 防误挂）；等长异号歧义不挂——留 CEO 入站径裁决。
+	if ts, err := g.database.NonTerminalTickets(ctx); err == nil {
+		var ids []string
+		for _, t := range ts {
+			ids = append(ids, t.ID)
+		}
+		if hit := ticketHit(text, ids); hit != "" {
 			_, _ = g.database.AppendMsg(ctx, hit, prov, text)
 			_ = g.database.AppendEvent(ctx, hit, "msg_posted", db.Event{
 				Actor: "gateway", Note: "飞书评注挂票 " + prov})
 		}
 	}
+}
+
+// ticketHit 票号挂票匹配（T28②③，纯函数锚）：边界合法命中中取最长票号；
+// 等长异号＝歧义弃挂（""）。
+func ticketHit(text string, ids []string) string {
+	best, amb := "", false
+	for _, id := range ids {
+		if id == "" || !containsBounded(text, id) {
+			continue
+		}
+		switch {
+		case len(id) > len(best):
+			best, amb = id, false
+		case len(id) == len(best) && id != best:
+			amb = true
+		}
+	}
+	if amb {
+		return ""
+	}
+	return best
+}
+
+// containsBounded 边界匹配（T28③）：票号前后不得接字母/数字/连字符
+// （连字符在内＝"0034-p1" 中 "0034" 段仍算提及——歧义由最长匹配消解；
+// 内嵌长数字如 "1230034" 前接数字判误挂剔除）。
+func containsBounded(text, id string) bool {
+	for off := 0; ; {
+		i := strings.Index(text[off:], id)
+		if i < 0 {
+			return false
+		}
+		i += off
+		var b, a byte
+		if i > 0 {
+			b = text[i-1]
+		}
+		if i+len(id) < len(text) {
+			a = text[i+len(id)]
+		}
+		if !isIDChar(b) && !isIDChar(a) {
+			return true
+		}
+		off = i + 1
+	}
+}
+
+func isIDChar(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-'
 }
 
 // FeishuChannel 凭证自解＋通道装配（不起环——测试/核检径可直调）。
