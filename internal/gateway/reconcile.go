@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -33,9 +34,14 @@ func (g *Gateway) reconcile(ctx context.Context) {
 			// 半结构约定（防漂，§14）：note「对账补发: <支线>」
 			// （施工/审计/CTO-A 设计支/CTO-B 部署支）是播报员路由表
 			// spawn_needed+note_contains 行的消费契约——改文案必须同步改表。
+			// patrol-* 值班票恒巡检（票0030 实证：phase 映射不含巡逻角色）。
 			role := roleForPhase(t.Phase)
+			line := spawnLine(t.Phase)
+			if strings.HasPrefix(t.ID, "patrol-") {
+				role, line = "巡检", "巡检"
+			}
 			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-				Actor: "gateway", Note: "对账补发: " + spawnLine(t.Phase),
+				Actor: "gateway", Note: "对账补发: " + line,
 			})
 			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
 		case db.PhaseWorking, db.PhaseDesigning, db.PhaseAuditing, db.PhaseDeploying:
@@ -162,13 +168,18 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	// 补发角色由回退后相位定（D-51 修后：设计席死回 已立→CTO，与主环
 	// PhaseCreated 支同契约）；note 用 spawnLine 支线标——§14 半结构
 	// 契约消费端＝路由表 note_contains（已立行须「CTO-A」非角色本名）。
+	// patrol-* 值班票恒巡检（票0030 实证：phase 映射不含巡逻角色）。
 	role := roleForPhase(to)
 	if to == db.PhaseCreated {
 		role = "CTO"
 	}
+	line := spawnLine(to)
+	if strings.HasPrefix(t.ID, "patrol-") {
+		role, line = "巡检", "巡检"
+	}
 	if role != "" {
 		_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "对账补发: " + spawnLine(to),
+			Actor: "gateway", Note: "对账补发: " + line,
 		})
 		g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
 	}

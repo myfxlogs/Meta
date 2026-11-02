@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -140,6 +141,11 @@ func (g *Gateway) cheapFilter(ctx context.Context, evs []Event) ([]Event, error)
 	}
 	keep, ok := parseKeepAll(string(out), len(evs))
 	if !ok {
+		// JSONL 壳兜底（实证 opencode --format json）：裸文本判不出→
+		// 逐行 JSON 解字符串字段重扫——KEEP/DROP 藏在助手文本载荷里。
+		keep, ok = parseKeepAll(jsonlText(string(out)), len(evs))
+	}
+	if !ok {
 		return nil, fmt.Errorf("过滤壳输出不可判（无 KEEP/DROP 行）")
 	}
 	var sig []Event
@@ -180,6 +186,40 @@ func parseKeepAll(out string, n int) (map[int]bool, bool) {
 		}
 	}
 	return keep, seen
+}
+
+// jsonlText JSONL 行集→文本载荷：每行按 JSON 对象解码、递归抽全部字符串
+// 值拼接（opencode --format json / claude stream-json 的助手文本都在
+// 字符串字段里——裸扫描判不出 KEEP/DROP 行首）。
+func jsonlText(out string) string {
+	var b strings.Builder
+	var walk func(v any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case string:
+			b.WriteString(t)
+			b.WriteByte('\n')
+		case map[string]any:
+			for _, x := range t {
+				walk(x)
+			}
+		case []any:
+			for _, x := range t {
+				walk(x)
+			}
+		}
+	}
+	for _, ln := range strings.Split(out, "\n") {
+		ln = strings.TrimSpace(ln)
+		if !strings.HasPrefix(ln, "{") {
+			continue
+		}
+		var v any
+		if err := json.Unmarshal([]byte(ln), &v); err == nil {
+			walk(v)
+		}
+	}
+	return b.String()
 }
 
 // routeSignal 信号→席位：带票事件→adjunct 巡检席（同票同角色去重闸天然
@@ -225,14 +265,14 @@ func (g *Gateway) patrolTicketFor(ctx context.Context) string {
 		}
 	}
 	spec := &pbv1.TicketSpec{
-		Goal:    "巡检事件处置：调查订阅命中的异常信号，真问题用 meta ticket new 自立案，交付诊断报告",
-		Why:     "巡检订阅命中无归属票的信号（patrol_tick 心跳/票外异常）——本票是其载体与归并点",
-		Scope:   "读信号→meta events/runs/phase 查证→真问题立案→报告；多信号同票归并处理",
+		Goal:       "巡检事件处置：调查订阅命中的异常信号，真问题用 meta ticket new 自立案，交付诊断报告",
+		Why:        "巡检订阅命中无归属票的信号（patrol_tick 心跳/票外异常）——本票是其载体与归并点",
+		Scope:      "读信号→meta events/runs/phase 查证→真问题立案→报告；多信号同票归并处理",
 		OutOfScope: "不改业务代码、不部署、不并 master、不替 CEO 裁决；诊断外动作一律立案移交",
-		Refs:    "票0030 巡检席设计-0030；subscription 表；CLI socket＝$META_GATEWAY_SOCK",
-		Anchors: "每条信号有判定与去向（立案票号/噪声理由）；漏报信号＝瞒报同罪",
-		Verify:  "报告含信号清单＋逐条判定＋已立票号列",
-		Deliver: "交付摘要列信号处置表；META_DELIVER:<ref> 哨兵照旧",
+		Refs:       "票0030 巡检席设计-0030；subscription 表；CLI socket＝$META_GATEWAY_SOCK",
+		Anchors:    "每条信号有判定与去向（立案票号/噪声理由）；漏报信号＝瞒报同罪",
+		Verify:     "报告含信号清单＋逐条判定＋已立票号列",
+		Deliver:    "交付摘要列信号处置表；META_DELIVER:<ref> 哨兵照旧",
 	}
 	blob, err := proto.Marshal(spec)
 	if err != nil {
