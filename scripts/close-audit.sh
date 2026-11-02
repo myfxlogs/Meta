@@ -6,9 +6,10 @@ DB=/opt/meta/run/meta.db
 K=/opt/meta/docs/经验库
 D=/opt/meta/docs/实现/债务台账.md
 fail=0
-# 决策账真源＝DB ceo_memory 表（md 已归档 ceo_memory.archived.md，D-83 修复）。
+# 决策账真源＝DB ceo_memory 表（T27③ 陈账：改 meta memory CLI 读——
+# 不经 socket 以外死指针；md 已归档 ceo_memory.archived.md）。
 M=$(mktemp /tmp/ceo-mem.XXXXXX); trap 'rm -f "$M"' EXIT
-sqlite3 "$DB" "SELECT '### '||title||char(10)||content FROM ceo_memory WHERE kind='decision' ORDER BY id" > "$M"
+/opt/meta/bin/meta memory --socket /opt/meta/run/meta.sock --kind decision --limit 100000 > "$M"
 # ① 同生原则（水位：决策 69 起，既往不咎）：带坑档标签的行须含真实路径
 awk '/^### /{n=0; t=$0; sub(".*决策 ?","",t); if(t ~ /^[0-9]+/){sub("[^0-9].*","",t); n=t}} n>=69{print}' "$M" | { grep -oE '坑档[：:][^ ]*|经验库＋[^ ]*' || true; } | while IFS= read -r ln; do
   echo "$ln" | grep -qE '\.md|经验库/' || { echo "✗ 同生违反（决策69后）：$ln"; exit 1; }

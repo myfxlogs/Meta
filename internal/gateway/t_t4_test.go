@@ -16,12 +16,19 @@ func TestT4_ChainDepth(t *testing.T) {
 	}
 	g, _ := newTestGateway(t, nil)
 	ctx := context.Background()
-	mkTicketAt(t, g, "x-p1-p1-p1", db.PhaseAssigned)
-	if err := g.DispatchSeat(ctx, "x-p1-p1-p1", "施工", SeatSpec{}); err == nil {
-		t.Fatal("深 3 票竟放行")
+	// T27/D-87：判据由段数改族员计数——深名票建齐族 {x,x-p1,x-p1-p1,…}
+	// 达 3 员才截断；兄弟新编号同层入族（绕闸实证修法）。
+	for _, id := range []string{"xx", "xx-p1", "xx-p1-p1"} {
+		if err := g.DB().CreateTicket(ctx, id, id, nil); err != nil {
+			t.Fatal(err)
+		}
 	}
-	waitEvent(t, g, "chain_depth_limit", "x-p1-p1-p1", 3*time.Second)
-	evs, _ := g.DB().Events(ctx, "x-p1-p1-p1")
+	mkTicketAt(t, g, "xx-p1-p1-p1", db.PhaseAssigned)
+	if err := g.DispatchSeat(ctx, "xx-p1-p1-p1", "施工", SeatSpec{}); err == nil {
+		t.Fatal("族满 3 员深链票竟放行")
+	}
+	waitEvent(t, g, "chain_depth_limit", "xx-p1-p1-p1", 3*time.Second)
+	evs, _ := g.DB().Events(ctx, "xx-p1-p1-p1")
 	var saw bool
 	for _, e := range evs {
 		saw = saw || e.Kind == "chain_depth_limit"

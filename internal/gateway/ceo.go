@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -772,6 +773,16 @@ func (g *Gateway) handleAdmin(ctx context.Context, st *runState, stream pbv1.Sea
 		} else if p == nil {
 			return resp(false, "项目 "+project+" 无配方登记——票不立")
 		}
+		// T27② 同题查重：自立案前查在途同题（标题相似/同病根关键词
+		// ≥2）——重复立案直接并档返既有票号不立新票（0034-p4/0043
+		// 同题实证）。对抗锚提名行：dupTicketFor 调用——删则同题票复立。
+		if dup := g.dupTicketFor(ctx, nt.Title, st.run.TicketID); dup != "" {
+			note := "同题并档: " + nt.Title + " → " + dup
+			_ = g.database.AppendEvent(ctx, st.run.TicketID, "ticket_dup", db.Event{
+				Actor: st.run.RunID, Note: note, Provenance: st.run.Provenance})
+			g.emit(Event{Kind: "ticket_dup", TicketID: st.run.TicketID, Note: note})
+			return resp(true, "ticket 同题并档 "+dup)
+		}
 		// 子票 created 行同戳（§1.3：戳沿链不沿自报）。
 		if err := g.database.CreateTicketProv(ctx, nt.Id, nt.Title, nt.Spec, st.run.Provenance, project); err != nil {
 			return resp(false, err.Error())
@@ -873,4 +884,73 @@ func (g *Gateway) ceoDeadHook(ctx context.Context, st *runState) {
 	g.ceoGapCheck(ctx, st.run.RunID)
 	// CEO run 死亡后若仍有 pending，下个 spawn_kind 事件自然再唤起——
 	// 此处不主动重唤起（无新需求，旧事件已在队列）。
+}
+
+// dupTicketFor 立案同题查重（T27②）：在途票（非终态）中与拟立标题相似
+// 者返其票号；无似返 ""。skipID＝立案席本票（父票与子票题面近似是常态，
+// 父票不参与查重）。
+func (g *Gateway) dupTicketFor(ctx context.Context, title, skipID string) string {
+	ts, err := g.database.NonTerminalTickets(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, t := range ts {
+		if t.ID == skipID {
+			continue
+		}
+		if titleSimilar(title, t.Title) {
+			return t.ID
+		}
+	}
+	return ""
+}
+
+// titleSimilar 标题相似判（T27②，纯函数锚）：全等／长串互含（≥8 字符）／
+// 关键词交集 ≥2（关键词＝字母/数字段 ≥2 字，CJK 同属字母）。
+func titleSimilar(a, b string) bool {
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	if len(a) >= 8 && len(b) >= 8 && (strings.Contains(a, b) || strings.Contains(b, a)) {
+		return true
+	}
+	ka, kb := titleKeywords(a), titleKeywords(b)
+	hit := 0
+	for k := range ka {
+		if kb[k] {
+			hit++
+		}
+	}
+	return hit >= 2
+}
+
+func titleKeywords(s string) map[string]bool {
+	out := map[string]bool{}
+	for _, w := range strings.FieldsFunc(s, func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r))
+	}) {
+		rs := []rune(w)
+		if len(rs) >= 2 {
+			out[w] = true
+		}
+		// CJK 连写整词无解词器——含汉字的长词补二字滑窗，使
+		// 「哨兵泵断流」与「断流致部署」仍共享 断流 等病根词。
+		cjk := false
+		for _, r := range rs {
+			if unicode.Is(unicode.Han, r) {
+				cjk = true
+				break
+			}
+		}
+		if cjk && len(rs) > 2 {
+			for i := 0; i+2 <= len(rs); i++ {
+				out[string(rs[i:i+2])] = true
+			}
+		}
+	}
+	return out
 }

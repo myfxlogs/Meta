@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -375,4 +376,16 @@ func boolInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// FamilyTicketCount 补票族成员计数（T27 立案径①）：id==root 或
+// id 形如 root-p*（-pN 尾段）全族计——兄弟编号同层也入族，
+// -pN 段数判被绕闸（0034 族 p4 实证）的修法。
+func (d *DB) FamilyTicketCount(ctx context.Context, root string) (int, error) {
+	pat := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(root) + "-p%"
+	var n int
+	err := d.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM ticket WHERE id=? OR id LIKE ? ESCAPE '\'`,
+		root, pat).Scan(&n)
+	return n, err
 }
