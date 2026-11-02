@@ -597,3 +597,14 @@
 - **修**：票 25（E17 触发器：计数门/排空门/事件核账/强推 override＋三条对抗锚）
 - **教训入册**：纸面率标注从「件级」降为「条款级」——一件多条款的交付，每条各自验
 署名：claude/GLM（业主上身·对话态）
+
+### 决策 79：外派刀九连并＋锚二换装（接 claude 残局，业主令「外部打通死结」）
+- 触发：业主令——「能外派就外派，一直让系统自循环是死循环」
+- 并入：t/0013 飞书→t/0014 席位卡→t/0019 UTF-8 三层→c/0019-design→t/0021 通知分线+对账径→t/0022 审计壳偏→t/0023 board-verify→c/0024-design→t/0026 无头CEO路由——九支全入主干
+- 冲突解记：① seat.go=D-42 双通道保＋0019 净化并入 `scanSentinel` 头（双签名变 string+fromFile）② ticket.go=0015 六参 project 签名＋0019 validSpecBlob/cargs 并集；0019 带回的旧 SetProject 弃（被 SetTicketProject 取代）③ proto=并集保 SetTicketProject+Reconcile 两 RPC，pb 全取 theirs 再重生成 ④ caster 同名 TestConnClose 取 0021 版（同 D-35 锚不同引擎面）；0019 测试签名补丁两处（CreateTicketProv 六参/scanSentinel 双参）
+- 验证：196 测试全绿＋selfcheck 绿＋全类型冲突标记扫描清零；bin 换装锚二提交（7b17f87），网关重启健康
+- **意外战果**：① 票 25 事件流自复——0019 上线后毒行不再崩序列化，存量清毒手术降级为可选 ② 对账自愈实证——重启杀掉的 27/28 审计席、25/0018 的 spawn_needed 全部由对账补发＋caster 路由自动重派，零人工
+- **活席全景**：部署席×3（20/26/0019 在试闸）、审计席×4（25/27/28/0018）
+- **剩余唯一硬结**：sudoers 行——配方四步 run_as=mluser 也走 `sudo -n -u`，无行全步红。业主亲手件：`/etc/sudoers.d/meta-runner` 需放 `mluser ALL=(metaseat) NOPASSWD: /usr/bin/sudo`＋`mluser ALL=(mluser) NOPASSWD: /usr/bin/sudo`（本机会话实证：exec.go 恒走 sudo 无身份短路）
+- 16 张待部署票代码已全在主干——闸一通即「核实即完成」批过
+署名：devin/SWE-2-Max（业主上身·对话态，接 claude 离线残局）
