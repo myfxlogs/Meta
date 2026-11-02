@@ -14,6 +14,7 @@ var expectedEdges = []Edge{
 	{PhaseDesigning, PhaseAssigned, EdgeDispatch},
 	{PhaseAssigned, PhaseWorking, EdgeClaim},
 	{PhaseWorking, PhaseReview, EdgeDeliver},
+	{PhaseWorking, PhaseDone, EdgePatrolDone},
 	{PhaseReview, PhaseAuditing, EdgeAuditStart},
 	{PhaseAuditing, PhaseToDeploy, EdgeAuditPass},
 	{PhaseToDeploy, PhaseDeploying, EdgeDeployStart},
@@ -41,7 +42,7 @@ var expectedEdges = []Edge{
 var allKinds = []EdgeKind{
 	EdgeDesignStart, EdgeDispatch, EdgeClaim, EdgeDeliver, EdgeAuditStart,
 	EdgeAuditPass, EdgeDeployStart, EdgeDeployDone, EdgeRequeue, EdgeReject,
-	EdgeDesignDead, EdgeDeployFailed, EdgeAuditDead, EdgeYield, EdgeReqPending, EdgeVoid,
+	EdgeDesignDead, EdgeDeployFailed, EdgeAuditDead, EdgeYield, EdgeReqPending, EdgeVoid, EdgePatrolDone,
 }
 
 func allPhases() []Phase { return append(append([]Phase{}, NonTerminal...), Terminal...) }

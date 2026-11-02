@@ -364,6 +364,17 @@ func (g *Gateway) handleDeliver(ctx context.Context, st *runState, stream pbv1.S
 			return ack("deploy " + string(kind))
 		}
 	}
+	// T5 票种闸（D-62）：patrol-* 系统票无施工产物——deliver 直转完成，
+	// 免审免部署（全生命周期径是业务票的，不该把巡检席塞进审计/部署）。
+	// 对抗性锚提名行：删此支 patrol 票回撞待审。
+	if strings.HasPrefix(st.run.TicketID, "patrol-") {
+		if err := g.transition(ctx, st.run.TicketID, db.PhaseDone, db.EdgePatrolDone,
+			st.run.RunID, d.Ref+" "+d.Note); err != nil {
+			return status.Error(codes.Internal, err.Error())
+		}
+		g.cancelAlarm(st.run.TicketID)
+		return ack("patrol_done")
+	}
 	if err := g.transition(ctx, st.run.TicketID, db.PhaseReview, db.EdgeDeliver,
 		st.run.RunID, d.Ref+" "+d.Note); err != nil {
 		var ille *db.ErrIllegalEdge
