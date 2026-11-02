@@ -4458,8 +4458,13 @@ type GatewayConfig struct {
 	Subscribe            []*PatrolSub           `protobuf:"bytes,17,rep,name=subscribe,proto3" json:"subscribe,omitempty"`                                                        // 巡检订阅种子（票0030）：kind→role，种入 subscription 表
 	FilterShell          *FilterShell           `protobuf:"bytes,18,opt,name=filter_shell,json=filterShell,proto3" json:"filter_shell,omitempty"`                                 // 两级过滤便宜壳（票0030）：name 空＝过滤关全放行
 	ReconcileDebounce    *durationpb.Duration   `protobuf:"bytes,19,opt,name=reconcile_debounce,json=reconcileDebounce,proto3" json:"reconcile_debounce,omitempty"`               // 立票点火去抖窗（票0039/T11）：票事件落账重置，缺省 30s
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// 票0033/T8 席位容器笼出闸种子（码面未接前纯配置态——钦定径禁即刻生效）：
+	SeatImage      string   `protobuf:"bytes,20,opt,name=seat_image,json=seatImage,proto3" json:"seat_image,omitempty"`                  // 笼镜像（空＝笼关旧径活）
+	SeatNet        string   `protobuf:"bytes,21,opt,name=seat_net,json=seatNet,proto3" json:"seat_net,omitempty"`                        // 笼网（meta-seat，egress 照旧非 internal）
+	SeatMountMask  []string `protobuf:"bytes,22,rep,name=seat_mount_mask,json=seatMountMask,proto3" json:"seat_mount_mask,omitempty"`    // tmpfs 遮罩径（run/ 等宿主件不入笼）
+	SeatExtraMount []string `protobuf:"bytes,23,rep,name=seat_extra_mount,json=seatExtraMount,proto3" json:"seat_extra_mount,omitempty"` // 额外挂载 "src:dst[:ro]"
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GatewayConfig) Reset() {
@@ -4621,6 +4626,34 @@ func (x *GatewayConfig) GetFilterShell() *FilterShell {
 func (x *GatewayConfig) GetReconcileDebounce() *durationpb.Duration {
 	if x != nil {
 		return x.ReconcileDebounce
+	}
+	return nil
+}
+
+func (x *GatewayConfig) GetSeatImage() string {
+	if x != nil {
+		return x.SeatImage
+	}
+	return ""
+}
+
+func (x *GatewayConfig) GetSeatNet() string {
+	if x != nil {
+		return x.SeatNet
+	}
+	return ""
+}
+
+func (x *GatewayConfig) GetSeatMountMask() []string {
+	if x != nil {
+		return x.SeatMountMask
+	}
+	return nil
+}
+
+func (x *GatewayConfig) GetSeatExtraMount() []string {
+	if x != nil {
+		return x.SeatExtraMount
 	}
 	return nil
 }
@@ -5717,7 +5750,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\bwork_dir\x18\x03 \x01(\tR\aworkDir\x12!\n" +
 	"\fprefer_shell\x18\x04 \x01(\tR\vpreferShell\x12\x18\n" +
 	"\aadjunct\x18\x05 \x01(\bR\aadjunct\x12\x18\n" +
-	"\aproject\x18\x06 \x01(\tR\aproject\"\xcb\a\n" +
+	"\aproject\x18\x06 \x01(\tR\aproject\"\xd7\b\n" +
 	"\rGatewayConfig\x12D\n" +
 	"\x10progress_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0fprogressTimeout\x12<\n" +
 	"\fauth_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\vauthTimeout\x12G\n" +
@@ -5742,7 +5775,12 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\x17audit_shell_skip_streak\x18\x10 \x01(\x05R\x14auditShellSkipStreak\x120\n" +
 	"\tsubscribe\x18\x11 \x03(\v2\x12.meta.v1.PatrolSubR\tsubscribe\x127\n" +
 	"\ffilter_shell\x18\x12 \x01(\v2\x14.meta.v1.FilterShellR\vfilterShell\x12H\n" +
-	"\x12reconcile_debounce\x18\x13 \x01(\v2\x19.google.protobuf.DurationR\x11reconcileDebounce\"3\n" +
+	"\x12reconcile_debounce\x18\x13 \x01(\v2\x19.google.protobuf.DurationR\x11reconcileDebounce\x12\x1d\n" +
+	"\n" +
+	"seat_image\x18\x14 \x01(\tR\tseatImage\x12\x19\n" +
+	"\bseat_net\x18\x15 \x01(\tR\aseatNet\x12&\n" +
+	"\x0fseat_mount_mask\x18\x16 \x03(\tR\rseatMountMask\x12(\n" +
+	"\x10seat_extra_mount\x18\x17 \x03(\tR\x0eseatExtraMount\"3\n" +
 	"\tPatrolSub\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\"\xc7\x01\n" +

@@ -99,3 +99,10 @@ filter_shell {                          # 两级过滤便宜壳：空 name＝关
 shell { name: "claude"   role: "巡检" priority: 10 }
 shell { name: "devin"    model: "swe-2-max" role: "巡检" priority: 20 }
 shell { name: "opencode" role: "巡检" priority: 30 attempt_cap: 8000000 note: "每日限量低帽" }
+
+# 票0033/T8 席位容器笼出闸种子（纯配置态——笼码面 0031/0032 未落 master，
+# 种子随部署生效，禁即刻生效钦定径不违）：
+seat_image: "golang:1.27"
+seat_net: "meta-seat"
+seat_mount_mask: "run"
+seat_extra_mount: "run/logs:run/logs:ro"

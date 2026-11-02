@@ -534,6 +534,12 @@ message GatewayConfig {
   repeated PatrolSub subscribe = 17;    // 巡检订阅种子（票0030）：kind→role，种入 subscription 表
   FilterShell filter_shell = 18;        // 两级过滤便宜壳（票0030）：name 空＝过滤关全放行
   google.protobuf.Duration reconcile_debounce = 19; // 立票点火去抖窗（票0039/T11）：票事件落账重置，缺省 30s
+
+  // 票0033/T8 席位容器笼出闸种子（码面未接前纯配置态——钦定径禁即刻生效）：
+  string seat_image = 20;                 // 笼镜像（空＝笼关旧径活）
+  string seat_net = 21;                   // 笼网（meta-seat，egress 照旧非 internal）
+  repeated string seat_mount_mask = 22;   // tmpfs 遮罩径（run/ 等宿主件不入笼）
+  repeated string seat_extra_mount = 23;  // 额外挂载 "src:dst[:ro]"
 }
 
 // PatrolSub 巡检订阅种行（票0030）：事件 kind→派发角色；种入 subscription
