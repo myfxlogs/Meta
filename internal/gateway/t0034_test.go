@@ -160,7 +160,7 @@ func TestT34_PatrolDutyFallback(t *testing.T) {
 	if pid == "" {
 		t.Fatal("patrol_tick 未立值班票")
 	}
-	waitEvent(t, g, "shells_exhausted", pid, 15*time.Second)
+	waitEvent(t, g, "shells_degraded", pid, 15*time.Second)
 	evs, _ := d.Events(ctx, pid)
 	for _, e := range evs {
 		if e.Kind == "spawn_blocked" && strings.Contains(e.Note, "空提示") {
@@ -189,7 +189,7 @@ func TestT34_PatrolDutyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitEvent(t, g2, "inject_failed", "patrol-t34b", 8*time.Second)
-	waitEvent(t, g2, "shells_exhausted", "patrol-t34b", 15*time.Second)
+	waitEvent(t, g2, "shells_degraded", "patrol-t34b", 15*time.Second)
 	pfs2, err := filepath.Glob(filepath.Join(dir2, "run", "inject", "duty-*.md"))
 	if err != nil || len(pfs2) == 0 {
 		t.Fatalf("注入败后兜底件未落盘: %v %v", pfs2, err)

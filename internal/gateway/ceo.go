@@ -332,7 +332,7 @@ func (g *Gateway) ceoGapCheck(ctx context.Context, runID string) {
 	if writes > 0 {
 		return
 	}
-	note := fmt.Sprintf("run=%s 处理事件 %d 而 ceo_memory 零写（D-22 收口缺）", runID, dispatched)
+	note := fmt.Sprintf("席 %s 处理事件 %d 而决策账零写（D-22 收口缺）", runID, dispatched)
 	_ = g.database.AppendEvent(ctx, "", "ceo_gap", db.Event{
 		Actor: "gateway", Note: note})
 	g.emit(Event{Kind: "ceo_gap", RunID: runID, Note: note})

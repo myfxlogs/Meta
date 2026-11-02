@@ -392,8 +392,56 @@ func actionZh(kind string) string {
 		return "卡死已裁"
 	case "shells_exhausted":
 		return "换壳链尽"
+	case "shells_degraded":
+		return "本票候选尽（非全荒）"
+	case "shell_limited":
+		return "壳被限流降级"
+	case "shell_dead":
+		return "壳标不可用"
+	case "shell_recovered":
+		return "壳探回可用"
 	case "spawn_needed":
 		return "待派单"
+	case "adjunct_dead":
+		return "协从席中断"
+	case "adjunct_yield":
+		return "协从席退牌"
+	case "yield":
+		return "席退牌"
+	case "seat_err":
+		return "席位异常退"
+	case "seat_dead":
+		return "席位终止"
+	case "seat_up":
+		return "席位上线"
+	case "void":
+		return "票作废"
+	case "requeue":
+		return "回队重排"
+	case "exec_denied":
+		return "代跑被闸拒"
+	case "deploy_failed":
+		return "部署失败"
+	case "merge_conflict":
+		return "合码冲突"
+	case "spawn_blocked":
+		return "起席被闸拦"
+	case "inject_failed":
+		return "注入组装败"
+	case "dispatch_failed":
+		return "派发失败"
+	case "filter_degraded":
+		return "过滤壳异常放行"
+	case "audit_dead":
+		return "审计席中断"
+	case "design_dead":
+		return "设计席中断"
+	case "msg":
+		return "票内留言"
+	case "patrol_tick":
+		return "巡检心跳"
+	case "stall":
+		return "疑似卡死"
 	}
 	return kind
 }
