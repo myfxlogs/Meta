@@ -225,3 +225,29 @@ func TestRenderFace(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderCatchLine 票0038-p1 对抗锚7提名用例：自捕率行＋口径 note
+// 元素全在 JSON 内——删 renderCard 自捕率行/note 元素本条必红。
+// 顺带钉「暂无」支（Catch 空串装配缺省同文案，不显示 0%）。
+func TestRenderCatchLine(t *testing.T) {
+	v := testView("0038", "施工中", "自测", "自测 跑锚")
+	v.Catch = "50%（近 2 判）"
+	s := renderCard(v)
+	for _, want := range []string{
+		"**自捕率**：50%（近 2 判）", `"tag":"note"`, "自捕率口径：分母＝近20判窗口",
+		"非patrol-前缀自立案不计",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("卡面缺自捕率要素 %q: %s", want, s)
+		}
+	}
+	v.Catch = ""
+	if s := renderCard(v); !strings.Contains(s, "**自捕率**：暂无") ||
+		strings.Contains(s, "**自捕率**：0%") {
+		t.Fatalf("暂无支渲染错: %s", s)
+	}
+	v.Catch = "100%（近 1 判）"
+	t.Logf("演练对照卡 JSON（拒判前）:\n%s", renderCard(v))
+	v.Catch = "50%（近 2 判）"
+	t.Logf("演练对照卡 JSON（拒判后）:\n%s", renderCard(v))
+}

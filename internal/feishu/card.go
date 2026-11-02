@@ -37,6 +37,7 @@ type CardView struct {
 	Terminal  bool      // 终态票（完成/作废）——懒创建闸：终态无卡不补
 	At        time.Time // 卡面「时间」＝票上最近活性时刻（状态派生——
 	// 渲染墙钟会击穿哈希闸：内容永变则每事件 PATCH，合并刷帧失效）
+	Catch string // 自捕率行内文（票0038-p1 预格式化：「N%（近 M 判）」/「暂无」；空串按暂无渲）
 }
 
 // CardConfig 卡消费者装配参数；Create/Patch/View 等为注入缝
@@ -158,8 +159,12 @@ func (c *Cards) Reconcile(ctx context.Context) {
 
 // ---------- 渲染（票+相位+席+stage+用量+驳回数+时间→卡片 JSON） ----------
 
+// catchNote 自捕率口径附注（票0038-p1/设计-0038 §2 写死，可后调）——
+// 卡面口径自证：外捕三类＋自捕定义＋窗口上限＋两条已知偏差。
+const catchNote = "自捕率口径：分母＝近20判窗口（外捕∪自捕并集按事件序取新）。外捕＝审计驳回/部署失败/巡检立案（patrol-*票）；自捕＝「坑档：<repo相对路径>」自报标签（同票同径去重、同票后驳失格）。已知偏差：非patrol-前缀自立案不计；「同类问题被驳」机械不可判→同票任意后驳即失格（保守近似）。"
+
 // renderCard 全卡重渲（无 diff——哈希闸在外层挡 PATCH）。
-// 经典卡片结构：header 票号·标题＋六行要素 div。
+// 经典卡片结构：header 票号·标题＋六行要素 div＋自捕率行＋口径 note。
 func renderCard(v *CardView) string {
 	seat := "—"
 	if v.Role != "" {
@@ -174,6 +179,10 @@ func renderCard(v *CardView) string {
 	note := v.Note
 	if note == "" {
 		note = "—"
+	}
+	catch := v.Catch
+	if catch == "" {
+		catch = "暂无" // 装配缺省/零判例同文案（锚3：不显示 0%）
 	}
 	card := map[string]any{
 		"config": map[string]any{"wide_screen_mode": true},
@@ -191,6 +200,10 @@ func renderCard(v *CardView) string {
 			mdLine(fmt.Sprintf("**用量**：%d（累计 %d）", v.Used, v.UsedTotal)),
 			mdLine(fmt.Sprintf("**驳回**：%d", v.Rejects)),
 			mdLine("**时间**：" + v.At.Format("2006-01-02 15:04:05")),
+			mdLine("**自捕率**：" + catch), // 对抗锚7提名行（删之＝快照用例必红）
+			map[string]any{"tag": "note", "elements": []any{
+				map[string]any{"tag": "plain_text", "content": catchNote},
+			}},
 		},
 	}
 	b, err := json.Marshal(card)

@@ -87,6 +87,12 @@ func (g *Gateway) cardView(ctx context.Context, ticketID string) (*feishu.CardVi
 	if at, err := g.database.LastActivityAt(ctx, ticketID); err == nil {
 		v.At = at
 	}
+	// 自捕率行（票0038-p1/设计-0038 §3 挂点裁定 cardView——纯读径：
+	// 判例流只在 ticket_event 读行不写行；非判例事件重算同值由
+	// 下游哈希闸挡 PATCH）。读败留空＝卡面「暂无」（既有同构容错）。
+	if rows, err := g.database.CatchRows(ctx, catchScanLimit); err == nil {
+		v.Catch = classifyCatch(rows).line()
+	}
 	return v, nil
 }
 
