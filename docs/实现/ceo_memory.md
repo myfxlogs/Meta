@@ -618,3 +618,13 @@
 - 票面偏差申报：container_image 由标量细化 `step_container_image` map（按步置笼是票面本意）；GOFLAGS=-buildvcs=false 容器内 git 属主链——VCS 戳损失已申报
 - 票 29 走完整生命周期当首验：交付席→审计席→部署席真过闸（check 真在容器跑 build/vet/test），过则 16 张存量票「核实即完成」开闸
 署名：devin/SWE-2-Max（业主上身·对话态）
+
+### 决策 81：连环炸实证＋配方完整性三修＋claude 意图传承评估（同日）
+- **事故**：0009 部署席跑旧配方→`bash scripts/meta-deploy.sh` 在票 clone 解析→构建 0009 支老码→换装+重启→旧二进制读不了 `step_container_image`→崩溃循环网关死（restart counter 满）
+- **更深逃逸**（本席自查出，比炸更该记）：deploy/probe 名义「可信脚本」实拉**票交付码**——票自带 meta-deploy.sh 即可出笼执行，笼在部署步形同虚设
+- **修复 2aea9d5**：deploy/probe→`/opt/meta/` 绝对路径（步只跑活仓固定件）；meta-deploy.sh 构建对象=活 master（「部署什么」=主干现状非票时点）；integrate 幂等化（merge-base --is-ancestor 兜底）；DB 配方行热更
+- **教训入册**：①仓内脚本相对路径＝票码通道——凡「可信步」必须绝对路径或仓外件；②配置新字段与票 ref 期二进制不兼容是换装类事故新面——deploy 装旧码重启即死，回退机制救不了（prev 也读不了新配置）；③查码没查技能库＝查面不全——metaseat 在码里零消费者但小屋档有意图，差点误删设计基建
+- **claude 意图传承裁决**：席位隔离（小屋档）意图成立且洞比 check 更大——席位至今全跑 mluser 是真未堵洞；实现径升级容器笼（他的 uid 切换案备而未接＋维护面重）；metaseat 用户业主已删——无活消费者，重建成本=runbook 一遍
+- **需求票 req-f88ce228927f** 已立→CTO-A 设计席在跑（席位容器化：一席一 docker run、worktree 挂载、scoped 凭据注入、零 home 可读）
+- 票 29 审计过→待部署；0010 部署席在骑新配方（首验在途）
+署名：devin/SWE-2-Max（业主上身·对话态）
