@@ -54,6 +54,18 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 	if role == "CEO" {
 		return fmt.Errorf("dispatch: role=CEO 永拒（禁区#10：CEO 只经内部唤起）")
 	}
+	// T4 链深闸（D-69）：票号 -pN 补票链段数≥3 不派单——三层链实证
+	// （0034→p1→p1-p1）；发 chain_depth_limit 事件（既有 notify 面到
+	// CEO），不静默吞。对抗性锚提名行：删此闸深链票直通。
+	if depth := chainDepth(ticketID); depth >= 3 {
+		note := fmt.Sprintf("票 %s 补票链深 %d ≥3 截断——人工裁定去向",
+			ticketID, depth)
+		_ = g.database.AppendEvent(ctx, ticketID, "chain_depth_limit", db.Event{
+			Actor: "gateway", Note: note})
+		g.emit(Event{Kind: "chain_depth_limit", TicketID: ticketID, Role: "CEO",
+			Note: note})
+		return fmt.Errorf("dispatch: %s", note)
+	}
 	t, err := g.database.GetTicket(ctx, ticketID)
 	if err != nil {
 		return err
@@ -576,6 +588,19 @@ func logTail(path string, n int64) string {
 	// 出口净化（决策 67 实证毒源）：日志尾原文含毒字节，进 seat_err note
 	// 即埋雷——事件流 marshal 必炸。clean 后 TrimSpace。
 	return strings.TrimSpace(clean(string(b)))
+}
+
+// chainDepth 票号补票链深（T4）："-pN" 尾缀计数——req-xxx-p1-p1-p1=3。
+// 纯函数测试锚。
+func chainDepth(ticketID string) int {
+	depth := 0
+	for i := 0; i+1 < len(ticketID); i++ {
+		if ticketID[i] == '-' && ticketID[i+1] == 'p' &&
+			i+2 < len(ticketID) && ticketID[i+2] >= '0' && ticketID[i+2] <= '9' {
+			depth++
+		}
+	}
+	return depth
 }
 
 // shellsExhausted 全壳耗尽：事件→CEO（§8.1 必报）。CTO 部署支连席都起
