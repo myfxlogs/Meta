@@ -123,6 +123,12 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	switch t.Phase {
 	case db.PhaseWorking:
 		to, kind = db.PhaseAssigned, db.EdgeRequeue
+		// D-51：施工中相位含两类行动者——CTO 设计席（需求票设计链未完）
+		// 与施工席。死席是 CTO 非 adjunct＝设计链断点，须回 已立 补 CTO-A；
+		// 相位推角色（一律回已派补施工）即 req-f88 错配实证。
+		if run != nil && run.Role == "CTO" && !run.Adjunct {
+			to, kind = db.PhaseCreated, db.EdgeDesignDead
+		}
 	case db.PhaseDesigning:
 		to, kind = db.PhaseCreated, db.EdgeDesignDead
 	case db.PhaseAuditing:
@@ -153,10 +159,16 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	if kind == db.EdgeDeployFailed {
 		return
 	}
+	// 补发角色由回退后相位定（D-51 修后：设计席死回 已立→CTO，与主环
+	// PhaseCreated 支同契约）；note 用 spawnLine 支线标——§14 半结构
+	// 契约消费端＝路由表 note_contains（已立行须「CTO-A」非角色本名）。
 	role := roleForPhase(to)
+	if to == db.PhaseCreated {
+		role = "CTO"
+	}
 	if role != "" {
 		_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "对账补发: " + role,
+			Actor: "gateway", Note: "对账补发: " + spawnLine(to),
 		})
 		g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
 	}
