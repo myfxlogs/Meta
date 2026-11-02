@@ -28,29 +28,42 @@ type Attempt struct {
 }
 
 // Candidates 把角色登记行展开成 spawn 尝试序：
-//   - 按优先序升序（priority 小者优先）——对抗性锚提名行在下方 sort 比较式；
-//   - 健康行（ok/unknown）＝正常尝试；
+//   - 健康行（ok/unknown）＝正常尝试——按 priority 序轮转（rotate 位起
+//     循环，T20 健康加权分摊：同角色多壳均摊不再恒吃首选；单壳瘸自动
+//     让位——非健康行排尾懒探）；
 //   - 非健康行＝懒探（每轮每行至多一枚；探成即由调用方复标 ok）；
 //   - exclude 行键（本票已失败的壳）整行跳过——换壳=下一行（票级重做）；
 //   - limited 行的尝试带 Stagger——②a 限流错峰。
-func Candidates(rows []db.Shell, exclude map[string]bool, stagger time.Duration) []Attempt {
+// rotate<0 退回 priority 静态序（兼容旧调用面）。
+func Candidates(rows []db.Shell, exclude map[string]bool, stagger time.Duration, rotate int) []Attempt {
 	sorted := append([]db.Shell(nil), rows...)
 	sort.SliceStable(sorted, func(i, j int) bool {
-		return sorted[i].Priority < sorted[j].Priority // 对抗性锚提名行：优先序比较
+		return sorted[i].Priority < sorted[j].Priority
 	})
-	var out []Attempt
+	var healthy, probes []db.Shell
 	for _, r := range sorted {
 		if exclude[r.ShellKey()] {
 			continue
 		}
-		a := Attempt{Shell: r.Name, Model: r.Model}
 		switch r.Health {
 		case "", HealthOK, HealthUnknown:
-			// 正常候选
-		case HealthLimited:
-			a.Probe, a.Stagger = true, stagger
-		default: // dead 及其余未知态：懒探一次
-			a.Probe = true
+			healthy = append(healthy, r)
+		default:
+			probes = append(probes, r)
+		}
+	}
+	if rotate >= 0 && len(healthy) > 1 {
+		rotate %= len(healthy)
+		healthy = append(healthy[rotate:], healthy[:rotate]...)
+	}
+	var out []Attempt
+	for _, r := range healthy {
+		out = append(out, Attempt{Shell: r.Name, Model: r.Model})
+	}
+	for _, r := range probes {
+		a := Attempt{Shell: r.Name, Model: r.Model, Probe: true}
+		if r.Health == HealthLimited {
+			a.Stagger = stagger
 		}
 		out = append(out, a)
 	}

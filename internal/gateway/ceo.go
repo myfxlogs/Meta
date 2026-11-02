@@ -199,7 +199,11 @@ func (g *Gateway) ensureCEO(ctx context.Context, e Event) {
 	if err != nil {
 		return
 	}
-	attempts := route.Candidates(rows, nil, g.cfg.Stagger)
+	g.mu.Lock()
+	rot := g.spreadCnt["CEO"]
+	g.spreadCnt["CEO"]++
+	g.mu.Unlock()
+	attempts := route.Candidates(rows, nil, g.cfg.Stagger, rot)
 	if len(attempts) == 0 {
 		g.ceoSpawnFailed(ctx, e, "无 CEO 壳行")
 		return
