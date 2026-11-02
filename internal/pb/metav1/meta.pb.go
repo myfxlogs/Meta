@@ -4368,7 +4368,8 @@ type DispatchAction struct {
 	WorkDir        string                 `protobuf:"bytes,3,opt,name=work_dir,json=workDir,proto3" json:"work_dir,omitempty"`
 	PreferShell    string                 `protobuf:"bytes,4,opt,name=prefer_shell,json=preferShell,proto3" json:"prefer_shell,omitempty"`
 	Adjunct        bool                   `protobuf:"varint,5,opt,name=adjunct,proto3" json:"adjunct,omitempty"`
-	Project        string                 `protobuf:"bytes,6,opt,name=project,proto3" json:"project,omitempty"` // 派发径挂接口（字段留口；隐式挂接行为显式化前不进路由表行）
+	Project        string                 `protobuf:"bytes,6,opt,name=project,proto3" json:"project,omitempty"`                    // 派发径挂接口（字段留口；隐式挂接行为显式化前不进路由表行）
+	CliDrive       bool                   `protobuf:"varint,7,opt,name=cli_drive,json=cliDrive,proto3" json:"cli_drive,omitempty"` // T26：CLI 直驱席（seat-drive 机械四步——部署径钦定，透传 DispatchReq.cli_drive）
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -4443,6 +4444,13 @@ func (x *DispatchAction) GetProject() string {
 		return x.Project
 	}
 	return ""
+}
+
+func (x *DispatchAction) GetCliDrive() bool {
+	if x != nil {
+		return x.CliDrive
+	}
+	return false
 }
 
 type GatewayConfig struct {
@@ -5752,14 +5760,15 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\bdispatch\x18\x02 \x01(\v2\x17.meta.v1.DispatchActionH\x00R\bdispatchB\x06\n" +
 	"\x04body\"*\n" +
 	"\fNotifyAction\x12\x1a\n" +
-	"\btemplate\x18\x01 \x01(\tR\btemplate\"\xbf\x01\n" +
+	"\btemplate\x18\x01 \x01(\tR\btemplate\"\xdc\x01\n" +
 	"\x0eDispatchAction\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12'\n" +
 	"\x0fprompt_template\x18\x02 \x01(\tR\x0epromptTemplate\x12\x19\n" +
 	"\bwork_dir\x18\x03 \x01(\tR\aworkDir\x12!\n" +
 	"\fprefer_shell\x18\x04 \x01(\tR\vpreferShell\x12\x18\n" +
 	"\aadjunct\x18\x05 \x01(\bR\aadjunct\x12\x18\n" +
-	"\aproject\x18\x06 \x01(\tR\aproject\"\xd7\b\n" +
+	"\aproject\x18\x06 \x01(\tR\aproject\x12\x1b\n" +
+	"\tcli_drive\x18\a \x01(\bR\bcliDrive\"\xd7\b\n" +
 	"\rGatewayConfig\x12D\n" +
 	"\x10progress_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0fprogressTimeout\x12<\n" +
 	"\fauth_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\vauthTimeout\x12G\n" +

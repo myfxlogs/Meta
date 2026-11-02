@@ -30,6 +30,16 @@ func TestT3_逐壳判荒(t *testing.T) {
 	g.mu.Lock()
 	g.failSet["tq"] = map[string]bool{db.Shell{Name: "a", Model: "m1", Role: "施工"}.ShellKey(): true}
 	g.mu.Unlock()
+	// T26 病5：首尽＝degraded_retry（清 failSet 回落重试，非误报全荒）；
+	// 再尽才 shells_degraded——无 spec 重试消费端撞「无派发参数」闸不真起席。
+	g.shellsExhausted(ctx, spawnReq{ticketID: "tq", role: "施工"})
+	waitEvent(t, g, "degraded_retry", "tq", 3*time.Second)
+	g.mu.Lock()
+	if len(g.failSet["tq"]) != 0 {
+		g.mu.Unlock()
+		t.Fatal("degraded_retry 应清 failSet 回落重试")
+	}
+	g.mu.Unlock()
 	g.shellsExhausted(ctx, spawnReq{ticketID: "tq", role: "施工"})
 	waitEvent(t, g, "shells_degraded", "tq", 3*time.Second)
 	evs, _ := g.DB().Events(ctx, "tq")

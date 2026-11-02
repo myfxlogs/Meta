@@ -209,6 +209,12 @@ type Gateway struct {
 	done         chan struct{}
 	closed       bool
 
+	// T26 派发/部署径收口件：
+	dispatchMu      sync.Mutex             // DispatchSeat 闸段互斥——去重判/相位读/锁取占同临界区（病1）
+	degradedRetried map[string]bool        // tid → failSet 已回落重试过（病5 降级出路有界）
+	stallFalls      map[string]int         // tid → 僵尸席处决计数（病7：≥3 止杀只报）
+	cloneLocks      map[string]*sync.Mutex // tid → 部署克隆互斥（病3 同票级）
+
 	// CEO 面（票0011）：锁＝连接登记非 DB 旗（禁区#10/B8）。
 	ceoSub        chan Event                                                    // 活跃 Events 订阅的派发道；nil＝无订阅
 	ceoSubRunID   string                                                        // 当前订阅属哪条 run（D-22 计数分账）
@@ -261,6 +267,10 @@ func New(cfg Config) (*Gateway, error) {
 		projectLocks: map[string]map[string]bool{},
 		spawnQ:       make(chan spawnReq, 64),
 		done:         make(chan struct{}),
+
+		degradedRetried: map[string]bool{},
+		stallFalls:      map[string]int{},
+		cloneLocks:      map[string]*sync.Mutex{},
 
 		ceoDispatched: map[string]int{},
 		designLocks:   map[string]string{},
@@ -612,20 +622,65 @@ func (g *Gateway) cancelAlarm(ticketID string) {
 	}
 }
 
-// onStall 进度闹钟响：不杀——发「疑似卡死」事件归 CTO 裁（§5.2）。
+// onStall 进度闹钟响：发「疑似卡死」事件归 CTO 裁（§5.2）。
 // note 带 run=<最新活 non-adjunct runid>：路由表把行喂给裁决席提示模板（§5 时序1）。
+// T26 病7+病6：部署票（CTO 部署支）僵尸席＝CliDrive 钦定兜底径——处决
+// 挂席（四步已齐先落 deploy_done），死判径（onRunDead）放锁＋spawn_needed
+// 自动转 CliDrive 重派；同票处决 2 次后止杀只报（防处决循环烧票）。
+// 对抗锚提名行：CTO 部署票处决分支——删则僵尸席只报不死、部署停摆。
 func (g *Gateway) onStall(ticketID string) {
 	ctx := context.Background()
 	note := "进度帧超时未至"
-	runID := ""
-	if run, _ := g.database.ActiveRunForTicket(ctx, ticketID); run != nil {
-		runID = run.RunID
+	var run *db.Run
+	if r, _ := g.database.ActiveRunForTicket(ctx, ticketID); r != nil {
+		run = r
 		note += " 席=" + run.RunID // T3 去 run= 术语（裁决席同径读行）
 	}
 	_ = g.database.AppendEvent(ctx, ticketID, "stall_suspect", db.Event{
 		Actor: "gateway", Note: note,
 	})
+	runID := ""
+	if run != nil {
+		runID = run.RunID
+	}
 	g.emit(Event{Kind: "stall_suspect", TicketID: ticketID, RunID: runID})
+
+	if run == nil || run.Role != "CTO" || run.Adjunct {
+		return // 非部署席照旧只报不杀，归 CTO 裁
+	}
+	phase, err := g.database.PhaseOf(ctx, ticketID)
+	if err != nil || (phase != db.PhaseToDeploy && phase != db.PhaseDeploying) {
+		return
+	}
+	g.mu.Lock()
+	g.stallFalls[ticketID]++
+	falls := g.stallFalls[ticketID]
+	g.mu.Unlock()
+	if falls > 2 {
+		return // 处决 2 次仍僵＝系统性故障——只报归裁，不再循环杀
+	}
+	// 四步已齐＝部署实成在前、席僵在后——直接落 deploy_done（病4 事件驱动
+	// 收口同径），不冤杀已成功部署。
+	if phase == db.PhaseDeploying && g.deployStepsDone(ctx, ticketID) {
+		if g.deployDone(ctx, ticketID, "停滞钟响：四步已齐——席僵不挡收口") {
+			return
+		}
+	}
+	if phase == db.PhaseDeploying {
+		// 先落 deploy_failed 回 待部署（锁随 transition 释），再杀——
+		// 死判径相位已回 待部署 即走「claim 前死」支补 spawn_needed。
+		if err := g.transition(ctx, ticketID, db.PhaseToDeploy, db.EdgeDeployFailed,
+			"gateway", "停滞处决：部署席挂起→CliDrive 钦定兜底（先核回滚态 run="+run.RunID+")"); err != nil {
+			return
+		}
+	}
+	note2 := "停滞处决：僵尸部署席→CliDrive 钦定兜底"
+	_ = g.database.AppendEvent(ctx, ticketID, "stall_kill", db.Event{
+		Actor: "gateway", Note: note2 + " run=" + run.RunID})
+	g.emit(Event{Kind: "stall_kill", TicketID: ticketID, RunID: run.RunID, Note: note2})
+	st := g.bindRun(run)
+	st.noRespawn = false // 处决非禁重派——onRunDead 补发径负责拉起 CliDrive
+	g.killRun(st)
 }
 
 // transition 全相位迁移收口（票0004 §6）：迁移成功后发 phase:<edge> 门铃

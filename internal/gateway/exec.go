@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -203,6 +204,11 @@ func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Projec
 			Note:  fmt.Sprintf("step=%s run_as=%s exit=%d out=%s %s", step, runAs, code, outPath, note)})
 		g.emit(Event{Kind: "exec", TicketID: tid, RunID: st.run.RunID, Role: st.run.Role,
 			Note: fmt.Sprintf("step=%s exit=%d", step, code)})
+		// T26 病4 完成态判事件化：步落账即查四步齐——cmd_run 持久账跨
+		// restart 存活，判定不依赖席位死活/哨兵尾帧（0044/0043 蒸发病根）。
+		if code == 0 {
+			g.maybeDeployDone(ctx, tid)
+		}
 		return &pbv1.ExecResp{Step: step, ExitCode: int32(code), OutPath: outPath, Tail: tail, Note: note}
 	}
 	if cerr != nil {
@@ -290,6 +296,18 @@ func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Projec
 	return rec(code, outPath, tailOfFile(outPath, 4096), g.diffFiles(workDir), "")
 }
 
+// cloneLockFor 同票级克隆互斥（T26 病3）：并发 exec（残席重发/双席并跑
+// 残留）撞同一 deploy clone 目录→clone 红实证根。锁粒度=票——同票串行、
+// 异票并行（clone 目录本就按票分）。
+func (g *Gateway) cloneLockFor(tid string) *sync.Mutex {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.cloneLocks[tid] == nil {
+		g.cloneLocks[tid] = &sync.Mutex{}
+	}
+	return g.cloneLocks[tid]
+}
+
 // ensureDeployClone 部署 cwd＝克隆（run/deploy/<tid>）同步到主线顶（T13：
 // 「每 attempt 同步到 <default_branch>」——存在即复用钉死在首尝试态、
 // checkout 交付 ref 测旧世界双缺陷实修）。有目录→fetch+checkout+reset
@@ -298,6 +316,9 @@ func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Projec
 // 在主线做完合并；ref 仅作 integrate 输入经 META_EXEC_REF）。repo_url
 // 空＝干净空目录（无仓配方）。clone 是自家仓可信操作，直跑不走 sudo。
 func (g *Gateway) ensureDeployClone(ctx context.Context, tid, repoURL, branch string) (string, error) {
+	mu := g.cloneLockFor(tid)
+	mu.Lock()
+	defer mu.Unlock()
 	dir := filepath.Join(g.cfg.RunDir, "deploy", tid)
 	if repoURL == "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

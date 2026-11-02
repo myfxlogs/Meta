@@ -304,12 +304,14 @@ func (d *DB) LatestStages(ctx context.Context) (map[string]string, error) {
 }
 
 // LastActivityAt 票上最近一次活性事件的墙上时间——闹钟 deadline 由此重算（§5.3 A4）。
-// 活性事件＝进度帧/用量帧/领票；都没有则回退票 updated_at。
+// 活性事件＝进度帧/用量帧/领票/代跑帧（T26：exec 是部署席唯一活性形——
+// 部署席只发 ExecReq，漏算则收养重算钟 deadline 漂旧误报停滞）；
+// 都没有则回退票 updated_at。
 func (d *DB) LastActivityAt(ctx context.Context, ticketID string) (time.Time, error) {
 	var ts sql.NullInt64
 	if err := d.db.QueryRowContext(ctx,
 		`SELECT MAX(created_at) FROM ticket_event
-		 WHERE ticket_id=? AND kind IN ('progress','usage','claim')`, ticketID).Scan(&ts); err != nil {
+		 WHERE ticket_id=? AND kind IN ('progress','usage','claim','exec')`, ticketID).Scan(&ts); err != nil {
 		return time.Time{}, err
 	}
 	if ts.Valid {
@@ -327,7 +329,7 @@ func (d *DB) LastActivityAt(ctx context.Context, ticketID string) (time.Time, er
 // to_phase=phase 变迁事件的 created_at（kind 不拘：变迁即 to_phase 落账，
 // progress/usage 等行 to_phase 为空天然不命中；回摆取本段最近一次，
 // 不累计跨段）。当前相位无对应事件（手术/legacy 异常）→最近一条真实
-// 变迁行（to_phase<>''）；仍无→ticket.updated_at（与 LastActivityAt
+// 变迁行（to_phase<>”）；仍无→ticket.updated_at（与 LastActivityAt
 // 兜底同构）。三步皆确定性、无新表无缓存。
 func (d *DB) PhaseEnteredAt(ctx context.Context, ticketID string, phase Phase) (time.Time, error) {
 	var ts int64
