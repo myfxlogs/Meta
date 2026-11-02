@@ -40,7 +40,7 @@ func TestFeishuInbound(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) { *c = feishuCfg(filepath.Dir(c.DBPath)) })
 	ctx := context.Background()
 
-	g.FeishuInbound("ou_owner1", "做个新功能")
+	g.FeishuInbound("ou_owner1", "", "做个新功能")
 	ev := hasEvent(t, g, "", "feishu_inbound")
 	if ev == nil {
 		t.Fatal("feishu_inbound 行未落账")

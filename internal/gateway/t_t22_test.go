@@ -15,12 +15,12 @@ func TestT22_评注挂票(t *testing.T) {
 	mkTicketAt(t, g, "t22x", db.PhaseWorking)
 	mkTicketAt(t, g, "t22y", db.PhaseWorking)
 
-	g.FeishuInbound("ou_x", "t22x 这个票补一句")
+	g.FeishuInbound("ou_x", "t22x 这个票补一句", "")
 	ms, _ := g.DB().MsgsForTicket(ctx, "t22x", false)
 	if len(ms) == 0 || ms[0].Actor != "feishu:ou_x" {
 		t.Fatal("飞书评注未挂票")
 	}
-	g.FeishuInbound("ou_x", "t22x 和 t22y 都提到")
+	g.FeishuInbound("ou_x", "t22x 和 t22y 都提到", "")
 	if ms2, _ := g.DB().MsgsForTicket(ctx, "t22y", false); len(ms2) != 0 {
 		t.Fatal("多票歧义误挂")
 	}

@@ -1,9 +1,9 @@
 package feishu
 
 import (
-	"fmt"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -28,7 +28,7 @@ func (c *captured) send(_ context.Context, chatID, text string) error {
 	return nil
 }
 
-func (c *captured) feed(sender, text string) {
+func (c *captured) feed(sender, text, parentID string) {
 	c.mu.Lock()
 	c.feeds = append(c.feeds, sender+"|"+text)
 	c.mu.Unlock()
@@ -52,7 +52,7 @@ func TestHandle_Owner(t *testing.T) {
 	ch := New(Config{Cred: testCred(), Send: cap.send, Feed: cap.feed,
 		Logf: func(string, ...any) {}})
 
-	ch.handle("ou_owner", "oc_x", `{"text":"做个新功能"}`)
+	ch.handle("ou_owner", "oc_x", `{"text":"做个新功能"}`, "")
 	if len(cap.feeds) != 1 || cap.feeds[0] != "ou_owner|做个新功能" {
 		t.Fatalf("owner 消息未馈泵: %v", cap.feeds)
 	}
@@ -61,7 +61,7 @@ func TestHandle_Owner(t *testing.T) {
 	}
 
 	// 非业主：拒答回执，馈口零调用（对抗锚 a：白名单等值比较翻→本条红）。
-	ch.handle("ou_stranger", "oc_y", `{"text":"混进来"}`)
+	ch.handle("ou_stranger", "oc_y", `{"text":"混进来"}`, "")
 	if len(cap.feeds) != 1 {
 		t.Fatalf("非业主进了泵: %v", cap.feeds)
 	}
@@ -70,8 +70,8 @@ func TestHandle_Owner(t *testing.T) {
 	}
 
 	// 空正文/非 text 型：静默忽略（无回执无馈）。
-	ch.handle("ou_owner", "oc_x", `{"text":"   "}`)
-	ch.handle("ou_owner", "oc_x", `{"image_key":"img_x"}`)
+	ch.handle("ou_owner", "oc_x", `{"text":"   "}`, "")
+	ch.handle("ou_owner", "oc_x", `{"image_key":"img_x"}`, "")
 	if len(cap.feeds) != 1 || cap.nsent() != 2 {
 		t.Fatalf("空/非文本未静默: feeds=%v sents=%v", cap.feeds, cap.sents)
 	}

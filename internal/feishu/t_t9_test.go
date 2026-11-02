@@ -17,14 +17,14 @@ func TestT9_ReceiptIdent(t *testing.T) {
 	ch := New(Config{Cred: testCred(), Send: cap.send, Feed: cap.feed,
 		Ident: func() string { return "CEO·devin" },
 		Logf:  func(string, ...any) {}})
-	ch.handle("ou_owner", "oc_x", `{"text":"办个事"}`)
+	ch.handle("ou_owner", "oc_x", `{"text":"办个事"}`, "")
 	if cap.nsent() != 1 || !strings.Contains(cap.sents[0], "CEO·devin") {
 		t.Fatalf("回执未带身份: %v", cap.sents)
 	}
 	cap2 := &captured{}
 	ch2 := New(Config{Cred: testCred(), Send: cap2.send, Feed: cap2.feed,
 		Logf: func(string, ...any) {}})
-	ch2.handle("ou_owner", "oc_x", `{"text":"办个事"}`)
+	ch2.handle("ou_owner", "oc_x", `{"text":"办个事"}`, "")
 	if !strings.Contains(cap2.sents[0], "CEO") {
 		t.Fatalf("无 Ident 兜底缺 CEO: %v", cap2.sents)
 	}

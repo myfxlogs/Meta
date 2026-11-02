@@ -37,7 +37,8 @@ const (
 type Config struct {
 	Cred *pbv1.FeishuApp
 	// Feed 入站馈口（网关注入＝0011 泵接口消费端：落 feishu_inbound 事件行＋emit）。
-	Feed func(senderOpenID, text string)
+	// parentID＝回复线程父消息 id（T28：空＝非回复）。
+	Feed func(senderOpenID, text, parentID string)
 	// Ident 接单者身份供给（T9）：回执带壳名；nil/空→"CEO"。
 	Ident func() string
 	// Send 出站发送（chatID→文本）；nil＝lark REST 实发。
@@ -90,7 +91,7 @@ func New(cfg Config) *Channel {
 // handle 入站分诊（对抗锚 a 提名行＝白名单等值比较——翻成 !=/恒真则
 // 非业主也进泵）：业主→Feed 入泵＋机械回执；非业主→礼貌回绝不进泵。
 // 非 text 型（图/文件等）静默忽略（同 v1）。
-func (c *Channel) handle(senderOpenID, chatID, contentJSON string) {
+func (c *Channel) handle(senderOpenID, chatID, contentJSON, parentID string) {
 	if senderOpenID != c.cfg.Cred.OwnerOpenId {
 		c.sendTo(chatID, receiptReject)
 		return
@@ -100,7 +101,7 @@ func (c *Channel) handle(senderOpenID, chatID, contentJSON string) {
 		return
 	}
 	if c.cfg.Feed != nil {
-		c.cfg.Feed(senderOpenID, text)
+		c.cfg.Feed(senderOpenID, text, parentID)
 	}
 	ident := "CEO"
 	if c.cfg.Ident != nil {
@@ -128,7 +129,7 @@ func (c *Channel) dispatcher() *dispatcher.EventDispatcher {
 	if c.hand == nil {
 		c.hand = dispatcher.NewEventDispatcher("", "").
 			OnP2MessageReceiveV1(func(_ context.Context, ev *larkim.P2MessageReceiveV1) error {
-				sender, chat, content := "", "", ""
+				sender, chat, content, parent := "", "", "", ""
 				if ev.Event != nil {
 					if ev.Event.Sender != nil && ev.Event.Sender.SenderId != nil &&
 						ev.Event.Sender.SenderId.OpenId != nil {
@@ -141,9 +142,13 @@ func (c *Channel) dispatcher() *dispatcher.EventDispatcher {
 						if ev.Event.Message.Content != nil {
 							content = *ev.Event.Message.Content
 						}
+						// T28①：回复线程父消息 id（回复挂父票用）
+						if ev.Event.Message.ParentId != nil {
+							parent = *ev.Event.Message.ParentId
+						}
 					}
 				}
-				c.handle(sender, chat, content)
+				c.handle(sender, chat, content, parent)
 				return nil // nil＝SDK 按官方协议自动 ack
 			})
 	}

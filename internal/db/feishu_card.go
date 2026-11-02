@@ -56,3 +56,15 @@ func (d *DB) TouchFeishuCard(ctx context.Context, ticketID string) error {
 		d.now().UnixNano(), ticketID)
 	return err
 }
+
+// TicketByCardMsg 卡 message_id 反查票号（T28① 回复线程挂票：入站
+// parent_id→父票）。无行返回 "",nil。
+func (d *DB) TicketByCardMsg(ctx context.Context, messageID string) (string, error) {
+	var tid string
+	err := d.db.QueryRowContext(ctx,
+		`SELECT ticket_id FROM feishu_card WHERE message_id=?`, messageID).Scan(&tid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return tid, err
+}
