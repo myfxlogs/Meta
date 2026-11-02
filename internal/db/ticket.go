@@ -217,6 +217,25 @@ func (d *DB) EventsAfter(ctx context.Context, sinceID int64, limit int) ([]*Even
 	return scanEvents(rows)
 }
 
+// CatchRows 自捕率判例候选读件（票0038-p1/设计-0038 §3）——单 SQL
+// DESC 取外捕三类＋「坑档：」标签候选行，limit 为扫描上限（候选行数
+// 非判例数，created 稀释行占额）。纯读径：零写零快照（R2/D-56）。
+// 定夺记因：不复用 EventsAfter——其游标页升序（id>since ASC），取
+// 「最新 N 判」须先摸全序尾再倒页，两趟起步；本件单趟 DESC 直达。
+func (d *DB) CatchRows(ctx context.Context, limit int) ([]*Event, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT e.id, e.ticket_id, e.kind, e.from_phase, e.to_phase, e.actor, e.note, e.provenance, e.created_at,
+		        COALESCE(r.role,'')
+		 FROM ticket_event e LEFT JOIN seat_run r ON r.run_id = e.actor
+		 WHERE e.kind IN ('reject','deploy_failed','created') OR e.note LIKE '%坑档：%'
+		 ORDER BY e.id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEvents(rows)
+}
+
 // LatestEventKind 票上最新一条 ticket_event 的 kind（req_pending 泊车标/
 // 对账抑制判据——无行回空串）。
 func (d *DB) LatestEventKind(ctx context.Context, ticketID string) (string, error) {
