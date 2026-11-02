@@ -40,11 +40,18 @@ func (g *Gateway) Attach(stream pbv1.SeatGateway_AttachServer) error {
 
 	st := g.bindRun(run)
 	st.mu.Lock()
-	if !st.attached {
+	newAttach := !st.attached
+	if newAttach {
 		st.attached = true
 		close(st.attachedCh)
 	}
 	st.mu.Unlock()
+	// T17①：attach 即挂停滞钟——挂起席（进程活零输出）必报，
+	// 不等 claim 才起算；收养生不重挂（st.adopted 径——重领不
+	// 算活性防刷钟）。
+	if newAttach && !st.adopted && st.run.TicketID != "" {
+		g.armAlarm(st.run.TicketID, time.Now().Add(g.cfg.ProgressTimeout))
+	}
 	// 票0030：存活流句柄存 runState——PostMsg 的 feed 直投径；发送经
 	// sendToSeat（sendMu 互斥，与本流各回执 Send 并发安全）。
 	st.sendMu.Lock()
@@ -156,7 +163,10 @@ func (g *Gateway) handleClaim(ctx context.Context, st *runState, c *pbv1.Claim) 
 		// 对抗性锚提名行：adjunct claim 的「不转相位」早退分支。
 		_ = g.database.AppendEvent(ctx, st.run.TicketID, "adjunct_claim", db.Event{
 			Actor: st.run.RunID, Note: "role=" + st.run.Role})
-		g.armAlarm(st.run.TicketID, time.Now().Add(g.cfg.ProgressTimeout))
+		// T17②：收养席重领不算活性——adopted 连发不得复位停滞钟。
+		if !st.adopted {
+			g.armAlarm(st.run.TicketID, time.Now().Add(g.cfg.ProgressTimeout))
+		}
 		g.emit(Event{Kind: "adjunct_claim", TicketID: st.run.TicketID, RunID: st.run.RunID,
 			Role: st.run.Role})
 		return nil
