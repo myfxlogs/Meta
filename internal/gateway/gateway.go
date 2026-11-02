@@ -223,9 +223,11 @@ type Gateway struct {
 	// 票0039/T11：立票点火去抖闹钟——票事件落账（db eventHook）重置，
 	// 醒→goroutine 跑既有 reconcile。reconBusy＝对账在飞期抑制自锁环
 	// （对账自产事件不再续命闹钟——否则滞留票 spawn_needed 每窗重放成
-	// 变相周期轮询，违 R2）。
+	// 变相周期轮询，违 R2）；reconDirty＝busy 期非静默事件脏标（判决
+	// 返修：不丢不续命——对账收尾查脏再醒一轮，竞态窗闭合）。
 	reconTimer  *time.Timer
 	reconBusy   bool
+	reconDirty  bool
 	reconcileNow func(ctx context.Context) // 测试注入缝；缺省 g.reconcile
 }
 
@@ -437,7 +439,8 @@ var reconSilentKinds = map[string]bool{
 // armRecon 立票点火去抖闹钟（票0039/T11，R2「随事件重置的一次性闹钟」
 // 钦定形态）：票事件落账（db eventHook，机器记账 kind 滤除）重置——
 // 醒→goroutine 跑既有 reconcile（判别逻辑不动只加触发）。对账在飞期
-// 到达的事件不续命（reconBusy 抑制自锁环）。窗＝cfg.ReconcileDebounce，≤0 关。
+// 到达的事件置 reconDirty（不续命＝不变相轮询，不丢＝竞态窗闭合）；
+// 收尾查脏再醒一轮。窗＝cfg.ReconcileDebounce，≤0 关。
 func (g *Gateway) armRecon(kind string) {
 	if reconSilentKinds[kind] {
 		return
@@ -447,7 +450,14 @@ func (g *Gateway) armRecon(kind string) {
 		return
 	}
 	g.mu.Lock()
-	if g.closed || g.reconBusy {
+	if g.closed {
+		g.mu.Unlock()
+		return
+	}
+	if g.reconBusy {
+		// 判决返修：busy 期事件置脏标不丢不续命——对账收尾查脏再醒
+		// 一轮（抗「先扫后落」竞态窗：重启风暴期立票掉缝=偶现点火洞）。
+		g.reconDirty = true
 		g.mu.Unlock()
 		return
 	}
@@ -460,11 +470,17 @@ func (g *Gateway) armRecon(kind string) {
 		g.mu.Lock()
 		g.reconBusy = true
 		g.reconTimer = nil
+		g.reconDirty = false
 		g.mu.Unlock()
 		g.reconcileNow(context.Background())
 		g.mu.Lock()
 		g.reconBusy = false
+		dirty := g.reconDirty
+		g.reconDirty = false
 		g.mu.Unlock()
+		if dirty {
+			g.armRecon("created") // 收尾查脏：busy 期真事件→再醒一轮
+		}
 	})
 	g.mu.Unlock()
 }
