@@ -304,6 +304,34 @@ func (d *DB) LastActivityAt(ctx context.Context, ticketID string) (time.Time, er
 	return time.Unix(0, upd), nil
 }
 
+// PhaseEnteredAt 相位进入时刻（票0036 卡相位耗时源）——最近一次
+// to_phase=phase 变迁事件的 created_at（kind 不拘：变迁即 to_phase 落账，
+// progress/usage 等行 to_phase 为空天然不命中；回摆取本段最近一次，
+// 不累计跨段）。当前相位无对应事件（手术/legacy 异常）→最近一条真实
+// 变迁行（to_phase<>''）；仍无→ticket.updated_at（与 LastActivityAt
+// 兜底同构）。三步皆确定性、无新表无缓存。
+func (d *DB) PhaseEnteredAt(ctx context.Context, ticketID string, phase Phase) (time.Time, error) {
+	var ts int64
+	err := d.db.QueryRowContext(ctx,
+		`SELECT created_at FROM ticket_event
+		 WHERE ticket_id=? AND to_phase=? ORDER BY id DESC LIMIT 1`,
+		ticketID, string(phase)).Scan(&ts)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = d.db.QueryRowContext(ctx,
+			`SELECT created_at FROM ticket_event
+			 WHERE ticket_id=? AND to_phase<>'' ORDER BY id DESC LIMIT 1`,
+			ticketID).Scan(&ts)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		err = d.db.QueryRowContext(ctx,
+			`SELECT updated_at FROM ticket WHERE id=?`, ticketID).Scan(&ts)
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(0, ts), nil
+}
+
 func scanEvents(rows *sql.Rows) ([]*Event, error) {
 	var out []*Event
 	for rows.Next() {
