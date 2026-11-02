@@ -437,6 +437,7 @@ var reconSilentKinds = map[string]bool{
 	"inject_failed": true, "dispatch_failed": true, "patrol_tick": true,
 	"patrol_drop": true, "patrol_skip": true, "filter_degraded": true,
 	"seat_err": true, "adjunct_dead": true, "progress": true,
+	"adopted": true, // T17③：对账重收养不续命对账闹钟（D-82 自锁环）
 	"usage": true, "msg_delivered": true, "stall_suspect": true,
 }
 
