@@ -124,7 +124,7 @@ func (g *Gateway) handleExec(ctx context.Context, st *runState, stream pbv1.Seat
 			Actor: st.run.RunID, Note: "step=" + req.Step + " " + why})
 		g.emit(Event{Kind: "exec_denied", TicketID: st.run.TicketID, RunID: st.run.RunID,
 			Role: st.run.Role, Note: why})
-		return stream.Send(&pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_ExecResp{
+		return g.sendToSeat(st, &pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_ExecResp{
 			ExecResp: &pbv1.ExecResp{Step: req.Step, ExitCode: -1, Note: why}}})
 	}
 	if st.run.Adjunct || st.run.Role != "CTO" {
@@ -168,7 +168,16 @@ func (g *Gateway) handleExec(ctx context.Context, st *runState, stream pbv1.Seat
 		ref = g.lastDeliverRef(ctx, st.run.TicketID)
 	}
 	resp := g.runExecStep(ctx, st, proj, sb, req.Step, cmd, runAs, ref)
-	return stream.Send(&pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_ExecResp{ExecResp: resp}})
+	// 票0030：integrate 步败＝merge 冲突信号（巡检订阅锚——退码非零即报，
+	// 冲突/编译错同桶归巡检判）。
+	if req.Step == "integrate" && resp.ExitCode != 0 {
+		note := fmt.Sprintf("integrate exit=%d tail=%s", resp.ExitCode, resp.Tail)
+		_ = g.database.AppendEvent(ctx, st.run.TicketID, "merge_conflict", db.Event{
+			Actor: st.run.RunID, Note: note})
+		g.emit(Event{Kind: "merge_conflict", TicketID: st.run.TicketID,
+			RunID: st.run.RunID, Role: st.run.Role, Note: note})
+	}
+	return g.sendToSeat(st, &pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_ExecResp{ExecResp: resp}})
 }
 
 // runExecStep 执行一步：干净 clone（runner 以网关用户自 clone 交付 ref）→

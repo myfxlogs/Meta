@@ -90,3 +90,6 @@ func (d *devin) FinalTokens(s Spec) (int64, bool) {
 func (d *devin) Classify(code int, tail string) ExitClass {
 	return classifyTail(code, tailOf(tail, 2048))
 }
+
+// ResumeOK devin 无头档暂无已验续会旗（票0030：不臆造壳旗，报不支持）。
+func (d *devin) ResumeOK() bool { return false }

@@ -135,6 +135,8 @@ func TestAnchorH_MigrationSmoke(t *testing.T) {
 		"shell": true, "project": true, "ceo_memory": true, "budget": true, "secret": true,
 		"cmd_run":     true, // 票0010 第十表（代跑留痕）
 		"feishu_card": true, // 票0014 第十一表（活票卡 message_id↔票）
+		"ticket_msg":  true, // 票0030 第十二表（票内留言·续传）
+		"subscription": true, // 票0030 第十三表（巡检订阅 kind→role）
 	}
 	if len(tables) != len(want) {
 		t.Fatalf("表数 %d ≠ %d: %v", len(tables), len(want), tables)

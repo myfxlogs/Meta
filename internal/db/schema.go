@@ -135,4 +135,22 @@ CREATE TABLE IF NOT EXISTS feishu_card (
   chat_id    TEXT NOT NULL DEFAULT '',
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ticket_msg (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id  TEXT NOT NULL,
+  actor      TEXT NOT NULL DEFAULT '',
+  text       TEXT NOT NULL,
+  run_id     TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_msg_ticket ON ticket_msg(ticket_id, id);
+
+CREATE TABLE IF NOT EXISTS subscription (
+  kind       TEXT NOT NULL,
+  role       TEXT NOT NULL,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (kind, role)
+);
 `

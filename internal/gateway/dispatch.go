@@ -25,6 +25,7 @@ type SeatSpec struct {
 	Adjunct     bool   // 辅助席（裁决/诊断，§1.3）：不占相位、必给 prompt_file
 	Provenance  string // D9 盖戳源：派发方透传触发事件行/父 run 的戳
 	Project     string // 派发径挂接（票0015）：非空→取锁闸之前 attachProject
+	ResumeSession string // 票0030 续传：非空→壳续会锚（经 META_RESUME_SESSION 透席）
 }
 
 // specKey specs 表键（§15.1）：(票,角色) 共键——审计派发不覆写施工派发参数，
@@ -351,9 +352,23 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 			delete(g.warned, req.ticketID)
 			g.mu.Unlock()
 		}
-		st, code, alive := g.trySpawn(ctx, req, spec, at)
+		// 票0030 续传：同票同角色续会锚命中（前 run 有壳会话 id＋本尝试
+		// 壳同名＋壳支持续会）→换续传提示件＋ResumeSession，免全量重学；
+		// 不中则原 spec（注入前缀全量，票内留言已兜底带走）。
+		aspec := spec
+		if !spec.Adjunct {
+			if rs, ok := g.resumeSpec(ctx, req, at); ok {
+				aspec.PromptFile = rs.promptFile
+				aspec.ResumeSession = rs.sessionID
+			}
+		}
+		st, code, alive := g.trySpawn(ctx, req, aspec, at)
 		if alive { // 席位立住：本票派发完成
 			g.onSeatAlive(ctx, st, at)
+			if !spec.Adjunct {
+				// 未投递留言随本次提示（注入或续传）带走——盖消费戳。
+				g.consumeMsgs(ctx, req.ticketID, st.run.RunID)
+			}
 			return
 		}
 		// 起不来/秒退：分级记 failSet＋健康迁移，换下一行（①②）；
@@ -393,6 +408,9 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 		"META_WORKDIR="+spec.WorkDir,
 		"META_ART_DIR="+artDir,
 	)
+	if spec.ResumeSession != "" { // 票0030：续会锚透席（经 adapter.Spec 进壳 argv）
+		env = append(env, "META_RESUME_SESSION="+spec.ResumeSession)
+	}
 	argv := g.cfg.SeatArgv
 	if len(argv) == 0 {
 		argv = []string{g.cfg.SelfPath, "seat"}
@@ -675,5 +693,87 @@ func waitOnce(d time.Duration, done <-chan struct{}) bool {
 		return true
 	case <-done:
 		return false
+	}
+}
+
+// resumeHit 续会命中件：续传提示文件＋壳会话锚（票0030）。
+type resumeHit struct {
+	promptFile string
+	sessionID  string
+}
+
+// resumeSpec 续传锚判（票0030）：同票同角色最近 run 有壳会话 id＋本尝试
+// 壳与锚壳同名＋壳报支持续会（Resumer 口，未实现壳不臆造旗）→命中。
+// 其余一律不中——不中的代价只是回到注入全量径，消息仍被带走。
+func (g *Gateway) resumeSpec(ctx context.Context, req spawnReq, at route.Attempt) (resumeHit, bool) {
+	r, err := g.database.LatestSessionForTicketRole(ctx, req.ticketID, req.role)
+	if err != nil || r == nil || r.SessionID == "" {
+		return resumeHit{}, false
+	}
+	if shellNameOf(r.Shell) != at.Shell {
+		return resumeHit{}, false
+	}
+	ad, err := adapter.New(at.Shell)
+	if err != nil {
+		return resumeHit{}, false
+	}
+	rs, ok := ad.(adapter.Resumer)
+	if !ok || !rs.ResumeOK() {
+		return resumeHit{}, false
+	}
+	pf, err := g.resumePrompt(ctx, req.ticketID, req.role)
+	if err != nil {
+		return resumeHit{}, false
+	}
+	return resumeHit{promptFile: pf, sessionID: r.SessionID}, true
+}
+
+// resumePrompt 续传提示件：未投递留言＋判决史——上下文壳里已有，只补增量；
+// 末行哨兵契约重申（净退无 META_DELIVER＝席死径，续会不豁免）。
+func (g *Gateway) resumePrompt(ctx context.Context, ticketID, role string) (string, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# 续传（票 %s · %s）——你沿上一壳会话续作，上下文已在，勿全量重学环境\n\n",
+		ticketID, role)
+	if ms, err := g.database.MsgsForTicket(ctx, ticketID, true); err == nil && len(ms) > 0 {
+		b.WriteString("## 票内留言（新输入——必读）\n\n")
+		for _, m := range ms {
+			fmt.Fprintf(&b, "- [%s] %s（%s）\n", m.Actor, m.Text,
+				m.CreatedAt.Format("01-02 15:04"))
+		}
+		b.WriteString("\n")
+	}
+	var vlines []string
+	if evs, err := g.database.Events(ctx, ticketID); err == nil {
+		for _, e := range evs {
+			if e.Kind == string(db.EdgeReject) || e.Kind == string(db.EdgeYield) {
+				vlines = append(vlines, fmt.Sprintf("- %s: %s", e.Kind, e.Note))
+			}
+		}
+	}
+	if len(vlines) > 0 {
+		b.WriteString("## 判决史（驳回/让位理由——每条都必须解决）\n\n")
+		b.WriteString(strings.Join(vlines, "\n") + "\n\n")
+	}
+	b.WriteString("干完照旧交付摘要，最后一行单独输出哨兵 META_DELIVER:<ref>" +
+		"（同行原文追加 $META_ART_DIR/sentinel.log）。\n")
+	dir := filepath.Join(g.cfg.RunDir, "inject")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	pf := filepath.Join(dir, ticketID+"-"+role+"-resume.md")
+	if err := os.WriteFile(pf, []byte(b.String()), 0o600); err != nil {
+		return "", err
+	}
+	return pf, nil
+}
+
+// consumeMsgs 盖投递戳：未投递留言随本次提示文件（注入或续传）带走。
+func (g *Gateway) consumeMsgs(ctx context.Context, ticketID, runID string) {
+	ms, err := g.database.MsgsForTicket(ctx, ticketID, true)
+	if err != nil {
+		return
+	}
+	for _, m := range ms {
+		_ = g.database.MarkMsgDelivered(ctx, m.ID, runID)
 	}
 }

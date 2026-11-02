@@ -41,6 +41,16 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 		}
 	}
 
+	// 票内留言（票0030 续传）：全量行入注入前缀——非续会派发这是唯一
+	// 带走径，续会派发兜底重述（消息不丢优先于省 token）。
+	var msgs []string
+	if ms, err := g.database.MsgsForTicket(ctx, ticketID, false); err == nil {
+		for _, m := range ms {
+			msgs = append(msgs, fmt.Sprintf("- [%s] %s（%s）", m.Actor, m.Text,
+				m.CreatedAt.Format("01-02 15:04")))
+		}
+	}
+
 	out, err := assemble(inject.Input{
 		Root:     g.cfg.InjectRoot,
 		Role:     role,
@@ -48,6 +58,7 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 		Title:    t.Title,
 		Spec:     ts,
 		Verdicts: verdicts,
+		Msgs:     msgs,
 		Recipes:  g.cfg.InjectRecipes,
 	})
 	if err != nil {

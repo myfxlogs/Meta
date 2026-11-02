@@ -647,7 +647,7 @@ func (g *Gateway) handleAdmin(ctx context.Context, st *runState, stream pbv1.Sea
 			fmt.Sprintf("admin 帧仅非 adjunct CTO 席可发（role=%s adjunct=%v）", st.run.Role, st.run.Adjunct))
 	}
 	resp := func(ok bool, note string) error {
-		return stream.Send(&pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_AdminResp{
+		return g.sendToSeat(st, &pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_AdminResp{
 			AdminResp: &pbv1.Ack{Ok: ok, Note: note}}})
 	}
 	switch act := a.GetAction().(type) {

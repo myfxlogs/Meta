@@ -72,12 +72,13 @@ func specFromEnv() (spec, error) {
 	e := os.Getenv
 	s := spec{
 		Spec: adapter.Spec{
-			Shell:       e("META_SHELL"),
-			Model:       e("META_MODEL"),
-			Role:        e("META_ROLE"),
-			PromptFile:  e("META_PROMPT_FILE"),
-			WorkDir:     e("META_WORKDIR"),
-			ArtifactDir: e("META_ART_DIR"),
+			Shell:         e("META_SHELL"),
+			Model:         e("META_MODEL"),
+			Role:          e("META_ROLE"),
+			PromptFile:    e("META_PROMPT_FILE"),
+			WorkDir:       e("META_WORKDIR"),
+			ArtifactDir:   e("META_ART_DIR"),
+			ResumeSession: e("META_RESUME_SESSION"), // 票0030 续传：派发续会锚
 		},
 		GatewaySock: e("META_GATEWAY_SOCK"),
 		SeatSock:    e("META_SEAT_SOCK"),
@@ -121,6 +122,7 @@ type session struct {
 	deliverRef    string // META_DELIVER 哨兵捕到的交付 ref（D-32）
 	deliverSeen   bool   // META_DELIVER 哨兵已见（净退无哨兵→ExitSeatErr）
 	deployNote    string // META_DEPLOY:done|failed 哨兵原行（CTO-B 部署支，票0010）
+	lastSession   string // 票0030：已上报的壳会话 id（Session 帧边沿触发）
 
 	// D-42 哨兵双通道：值类文件源优先标记＋动作类流↔文件配对计数＋文件泵 offset。
 	verdictFile bool           // META_VERDICT 文件源已落值（流源同种不再覆盖）
@@ -297,6 +299,13 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 				s.sendProgress("错误", fr.Note)
 			}
 		}
+		if sa, ok := ad.(adapter.Sessioner); ok { // 票0030：壳会话 id 边沿上报（Parse 后读）
+			if id := sa.SessionID(); id != "" && id != s.lastSession {
+				s.lastSession = id
+				s.enqueue(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Session{
+					Session: &pbv1.Session{SessionId: id}}})
+			}
+		}
 		s.pumpSentinelFile() // 每 stdout 行处理后泵一次（事件驱动，零定时器）
 	}
 	werr := cmd.Wait()
@@ -352,6 +361,8 @@ func (s *session) pumpGateway() {
 				PermissionReply: &pbv1.PermissionReply{AskId: b.PermissionAsk.AskId, Allow: false}}})
 		case *pbv1.GatewayMsg_ExecResp:
 			s.relayExecResp(b.ExecResp)
+		case *pbv1.GatewayMsg_Feed:
+			s.relayFeed(b.Feed)
 		}
 	}
 }
@@ -687,6 +698,24 @@ func (s *session) relayExecResp(r *pbv1.ExecResp) {
 	}
 	defer f.Close()
 	fmt.Fprintln(f, line)
+}
+
+// relayFeed 票内留言落盘（票0030）：feed 帧→$META_ART_DIR/inbox.log
+// 追加「[actor] text」行——文件信道与 exec-resp.log 同构；壳读不读
+// 属壳行为，席侧契约＝原文落盘＋席位日志留痕。
+func (s *session) relayFeed(f *pbv1.Feed) {
+	line := fmt.Sprintf("[%s] %s", f.Actor, f.Text)
+	fmt.Fprintf(os.Stderr, "seat: feed #%d %s\n", f.Id, line)
+	if s.spec.ArtifactDir == "" {
+		return
+	}
+	fp, err := os.OpenFile(filepath.Join(s.spec.ArtifactDir, "inbox.log"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer fp.Close()
+	fmt.Fprintln(fp, line)
 }
 
 func (s *session) sendProgress(stage, note string) {

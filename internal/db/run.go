@@ -27,6 +27,7 @@ type Run struct {
 	Dead         bool
 	Adjunct      bool   // 辅助席（裁决/诊断）：不占相位、不收养（票0004 §1.3）
 	Provenance   string // spawn 方盖戳（D9）：terminal|feishu:<id>|system_event|auto
+	SessionID    string // 壳会话 id（票0030 续传）：席经 Session 帧上报，续会锚
 }
 
 // CreateRun 登记一次 spawn。
@@ -41,7 +42,7 @@ func (d *DB) CreateRun(ctx context.Context, r *Run) error {
 
 // runCols seat_run 查询列序（scanRun/RunsForTicket 共用， adjunct/provenance 恒在末位）。
 const runCols = `run_id, seat_id, ticket_id, role, shell, pid, run_token, socket_path, log_path,
-       started_at, attached_at, adopted_at, exited_at, exit_code, stream_closed, dead, adjunct, provenance`
+       started_at, attached_at, adopted_at, exited_at, exit_code, stream_closed, dead, adjunct, provenance, session_id`
 
 // RunByToken run_token 查 run——Attach 首帧验证径。
 func (d *DB) RunByToken(ctx context.Context, token string) (*Run, error) {
@@ -70,7 +71,8 @@ func (d *DB) ActiveRuns(ctx context.Context) ([]*Run, error) {
 		var closed, dead, adjunct int
 		if err := rows.Scan(&r.RunID, &r.SeatID, &r.TicketID, &r.Role, &r.Shell, &r.PID,
 			&r.RunToken, &r.SocketPath, &r.LogPath, &started, &attached, &adopted,
-			&exited, &r.ExitCode, &closed, &dead, &adjunct, &r.Provenance); err != nil {
+			&exited, &r.ExitCode, &closed, &dead, &adjunct, &r.Provenance,
+			&r.SessionID); err != nil {
 			return nil, err
 		}
 		r.StartedAt = time.Unix(0, started)
@@ -127,7 +129,8 @@ func (d *DB) scanRun(row *sql.Row) (*Run, error) {
 	var closed, dead, adjunct int
 	err := row.Scan(&r.RunID, &r.SeatID, &r.TicketID, &r.Role, &r.Shell, &r.PID,
 		&r.RunToken, &r.SocketPath, &r.LogPath, &started, &attached, &adopted,
-		&exited, &r.ExitCode, &closed, &dead, &adjunct, &r.Provenance)
+		&exited, &r.ExitCode, &closed, &dead, &adjunct, &r.Provenance,
+		&r.SessionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -191,4 +194,21 @@ func (d *DB) UpdatePID(ctx context.Context, runID string, pid int) error {
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE seat_run SET pid=? WHERE run_id=?`, cargs(pid, runID)...)
 	return err
+}
+
+// SetRunSession 记壳会话 id（票0030 续传：SeatMsg.session 帧落点）。
+// 幂等后写覆盖——壳流内换 session（resume 链）以最新为准。
+func (d *DB) SetRunSession(ctx context.Context, runID, sessionID string) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE seat_run SET session_id=? WHERE run_id=?`, cargs(sessionID, runID)...)
+	return err
+}
+
+// LatestSessionForTicketRole 同票同角色最近一次有壳会话 id 的 run
+// （票0030 续传续会锚——重派时据此判能否 --resume；返回 nil＝无锚）。
+func (d *DB) LatestSessionForTicketRole(ctx context.Context, ticketID, role string) (*Run, error) {
+	return d.scanRun(d.db.QueryRowContext(ctx,
+		`SELECT `+runCols+` FROM seat_run
+		 WHERE ticket_id=? AND role=? AND session_id!='' AND adjunct=0
+		 ORDER BY started_at DESC LIMIT 1`, ticketID, role))
 }

@@ -67,6 +67,10 @@ const (
 	AdminGatewaySetTicketProjectProcedure = "/meta.v1.AdminGateway/SetTicketProject"
 	// AdminGatewayReconcileProcedure is the procedure name of the AdminGateway's Reconcile RPC.
 	AdminGatewayReconcileProcedure = "/meta.v1.AdminGateway/Reconcile"
+	// AdminGatewayPostMsgProcedure is the procedure name of the AdminGateway's PostMsg RPC.
+	AdminGatewayPostMsgProcedure = "/meta.v1.AdminGateway/PostMsg"
+	// AdminGatewayInjectEventProcedure is the procedure name of the AdminGateway's InjectEvent RPC.
+	AdminGatewayInjectEventProcedure = "/meta.v1.AdminGateway/InjectEvent"
 	// CeoGatewayEventsProcedure is the procedure name of the CeoGateway's Events RPC.
 	CeoGatewayEventsProcedure = "/meta.v1.CeoGateway/Events"
 	// CeoGatewaySubmitRequirementProcedure is the procedure name of the CeoGateway's SubmitRequirement
@@ -463,6 +467,20 @@ var (
 			Procedure:  AdminGatewayReconcileProcedure,
 		}
 	})
+	adminGatewayPostMsgSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     metav1.File_meta_v1_meta_proto.Services().ByName("AdminGateway").Methods().ByName("PostMsg"),
+			Procedure:  AdminGatewayPostMsgProcedure,
+		}
+	})
+	adminGatewayInjectEventSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     metav1.File_meta_v1_meta_proto.Services().ByName("AdminGateway").Methods().ByName("InjectEvent"),
+			Procedure:  AdminGatewayInjectEventProcedure,
+		}
+	})
 )
 
 // AdminGatewayClient is a client for the meta.v1.AdminGateway service.
@@ -481,6 +499,8 @@ type AdminGatewayClient interface {
 	IssueCeoToken(context.Context, *metav1.CeoTokenReq) (*metav1.CeoTokenResp, error)
 	SetTicketProject(context.Context, *metav1.TicketProjectReq) (*metav1.Ack, error)
 	Reconcile(context.Context, *metav1.Empty) (*metav1.Ack, error)
+	PostMsg(context.Context, *metav1.MsgReq) (*metav1.Ack, error)
+	InjectEvent(context.Context, *metav1.EventReq) (*metav1.Ack, error)
 }
 
 // NewAdminGatewayClient constructs a client for the meta.v1.AdminGateway service. Multiple service
@@ -525,6 +545,8 @@ type AdminGatewayHandler interface {
 	IssueCeoToken(context.Context, *metav1.CeoTokenReq) (*metav1.CeoTokenResp, error)
 	SetTicketProject(context.Context, *metav1.TicketProjectReq) (*metav1.Ack, error)
 	Reconcile(context.Context, *metav1.Empty) (*metav1.Ack, error)
+	PostMsg(context.Context, *metav1.MsgReq) (*metav1.Ack, error)
+	InjectEvent(context.Context, *metav1.EventReq) (*metav1.Ack, error)
 }
 
 // RegisterAdminGatewayHandler registers svc as the meta.v1.AdminGateway implementation on server.
@@ -545,6 +567,8 @@ func RegisterAdminGatewayHandler(server *connect.Server, svc AdminGatewayHandler
 		connect.Method{Spec: adminGatewayIssueCeoTokenSpec(), Handler: adapter.issueCeoToken},
 		connect.Method{Spec: adminGatewaySetTicketProjectSpec(), Handler: adapter.setTicketProject},
 		connect.Method{Spec: adminGatewayReconcileSpec(), Handler: adapter.reconcile},
+		connect.Method{Spec: adminGatewayPostMsgSpec(), Handler: adapter.postMsg},
+		connect.Method{Spec: adminGatewayInjectEventSpec(), Handler: adapter.injectEvent},
 	)
 }
 
@@ -620,6 +644,14 @@ func (UnimplementedAdminGatewayHandler) SetTicketProject(context.Context, *metav
 
 func (UnimplementedAdminGatewayHandler) Reconcile(context.Context, *metav1.Empty) (*metav1.Ack, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "meta.v1.AdminGateway.Reconcile is not implemented")
+}
+
+func (UnimplementedAdminGatewayHandler) PostMsg(context.Context, *metav1.MsgReq) (*metav1.Ack, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "meta.v1.AdminGateway.PostMsg is not implemented")
+}
+
+func (UnimplementedAdminGatewayHandler) InjectEvent(context.Context, *metav1.EventReq) (*metav1.Ack, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "meta.v1.AdminGateway.InjectEvent is not implemented")
 }
 
 type adminGatewayClient struct {
@@ -733,6 +765,22 @@ func (c *adminGatewayClient) SetTicketProject(ctx context.Context, req *metav1.T
 func (c *adminGatewayClient) Reconcile(ctx context.Context, req *metav1.Empty) (*metav1.Ack, error) {
 	var res metav1.Ack
 	if err := c.client.CallUnary(ctx, adminGatewayReconcileSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminGatewayClient) PostMsg(ctx context.Context, req *metav1.MsgReq) (*metav1.Ack, error) {
+	var res metav1.Ack
+	if err := c.client.CallUnary(ctx, adminGatewayPostMsgSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminGatewayClient) InjectEvent(ctx context.Context, req *metav1.EventReq) (*metav1.Ack, error) {
+	var res metav1.Ack
+	if err := c.client.CallUnary(ctx, adminGatewayInjectEventSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -898,6 +946,30 @@ func (h adminGatewayHandler) reconcile(ctx context.Context, _ connect.Spec, stre
 		return err
 	}
 	res, err := h.svc.Reconcile(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminGatewayHandler) postMsg(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req metav1.MsgReq
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.PostMsg(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminGatewayHandler) injectEvent(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req metav1.EventReq
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.InjectEvent(ctx, &req)
 	if err != nil {
 		return err
 	}

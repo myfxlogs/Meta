@@ -78,3 +78,22 @@ ceo_prompt: "config/caster/ceo-headless.md"
 # 前端席位板（票0012）：loopback+token 钦定最小暴露面；仅 loopback 地址合法。
 # token 种子=业主动作：meta secret put secret.board.token（值读 stdin）。
 board_listen: "127.0.0.1:9712"
+
+# 巡检席（票0030）：事件订阅种子（kind→role，种入 subscription 表）＋
+# 两级过滤便宜壳＋巡检壳登记行。
+subscribe { kind: "exec_denied"          role: "巡检" }
+subscribe { kind: "phase:deploy_failed"  role: "巡检" }
+subscribe { kind: "spawn_blocked"        role: "巡检" }
+subscribe { kind: "phase:reject"         role: "巡检" }   # 审计驳回
+subscribe { kind: "merge_conflict"       role: "巡检" }
+subscribe { kind: "patrol_tick"          role: "巡检" }   # systemd timer 心跳注入
+
+filter_shell {                          # 两级过滤便宜壳：空 name＝关（全放行）
+  name: "opencode"
+  batch_window { seconds: 30 }
+  batch_max: 16
+  timeout { seconds: 90 }
+}
+shell { name: "claude"   role: "巡检" priority: 10 }
+shell { name: "devin"    model: "swe-2-max" role: "巡检" priority: 20 }
+shell { name: "opencode" role: "巡检" priority: 30 attempt_cap: 8000000 note: "每日限量低帽" }

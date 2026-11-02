@@ -79,3 +79,6 @@ func (o *opencode) FinalTokens(_ Spec) (int64, bool) {
 func (o *opencode) Classify(code int, tail string) ExitClass {
 	return classifyTail(code, tailOf(tail, 2048))
 }
+
+// ResumeOK opencode 无头档暂无已验续会旗（票0030：不臆造壳旗，报不支持）。
+func (o *opencode) ResumeOK() bool { return false }

@@ -9,11 +9,18 @@ import (
 // --permission-prompts none＝许可提示自动答拒（禁区#12 席位不等人）。
 // 流为 JSONL：system.init / assistant / result；用量在 result.usage。
 type claude struct {
-	tokens  int64
-	costUSD float64
+	tokens    int64
+	costUSD   float64
+	sessionID string // 票0030 续传：init 行捕到的壳会话 id
 }
 
 func (c *claude) Name() string { return "claude" }
+
+// ResumeOK claude 支持 --resume <session_id> 续会（票0030）。
+func (c *claude) ResumeOK() bool { return true }
+
+// SessionID Parse 流内捕到的最近会话 id（Sessioner 口）。
+func (c *claude) SessionID() string { return c.sessionID }
 
 func (c *claude) Build(s Spec) (Command, error) {
 	argv := []string{"claude", "-p",
@@ -25,14 +32,18 @@ func (c *claude) Build(s Spec) (Command, error) {
 	if s.Model != "" {
 		argv = append(argv, "--model", s.Model)
 	}
+	if s.ResumeSession != "" {
+		argv = append(argv, "--resume", s.ResumeSession)
+	}
 	return Command{Argv: argv, Dir: s.WorkDir, StdinFile: s.PromptFile, Env: s.Env}, nil
 }
 
 // stream-json 行骨架（只取要用的字段，其余原样弃——JSON 止于本包）。
 type claudeLine struct {
-	Type    string `json:"type"`
-	Subtype string `json:"subtype"`
-	Model   string `json:"model"`
+	Type      string `json:"type"`
+	Subtype   string `json:"subtype"`
+	Model     string `json:"model"`
+	SessionID string `json:"session_id"`
 	IsError bool   `json:"is_error"`
 	Result  string `json:"result"`
 	Usage   struct {
@@ -57,6 +68,9 @@ func (c *claude) Parse(line []byte) []Frame {
 	var m claudeLine
 	if err := json.Unmarshal(line, &m); err != nil {
 		return []Frame{{Kind: FrameText, Note: preview(string(line), 200), Text: string(line)}}
+	}
+	if m.SessionID != "" { // 票0030：壳流各行均带会话 id，捕最新（续会锚）
+		c.sessionID = m.SessionID
 	}
 	switch m.Type {
 	case "system":

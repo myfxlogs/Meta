@@ -531,13 +531,13 @@ message GatewayConfig {
   string ceo_prompt = 14;               // 无头席提示模板路径（{{kind}} 等占位）
   string board_listen = 15;             // 前端面 TCP 监听（127.0.0.1:<port>；空=不挂板）
   int32 audit_shell_skip_streak = 16;   // 审计重派壳偏置连败阈值（D-46/票0022）：≤0=关
-  repeated Subscribe subscribe = 17;    // 巡检订阅种子（票0030）：kind→role，种入 subscription 表
+  repeated PatrolSub subscribe = 17;    // 巡检订阅种子（票0030）：kind→role，种入 subscription 表
   FilterShell filter_shell = 18;        // 两级过滤便宜壳（票0030）：name 空＝过滤关全放行
 }
 
-// Subscribe 巡检订阅种行（票0030）：事件 kind→派发角色；种入 subscription
+// PatrolSub 巡检订阅种行（票0030）：事件 kind→派发角色；种入 subscription
 // 表（已有行不动，DB 行是活态）。
-message Subscribe {
+message PatrolSub {
   string kind = 1;
   string role = 2;
 }

@@ -25,6 +25,7 @@ type Input struct {
 	Title    string
 	Spec     *pbv1.TicketSpec // 必给；八栏缺一即错（§6.1 缺一不派机械闸）
 	Verdicts []string         // 动态判决史行（ticket_event reject/yield），可空
+	Msgs     []string         // 票内留言行（ticket_msg 未投递+已投递，票0030 续传），可空
 	Recipes  []string
 	Now      time.Time // 可注入钉死；零值取 time.Now
 }
@@ -113,6 +114,15 @@ func Assemble(in Input) (string, error) {
 		b.WriteString("（空——首判前无）\n\n")
 	} else {
 		b.WriteString(strings.Join(vlines, "\n") + "\n\n")
+	}
+
+	// 票内留言（票0030 续传）：同票后续消息/反馈——非续会派发时这是
+	// 唯一带走径；续会派发此处也兜底带全（消息不丢优先于省 token）。
+	b.WriteString("## 票内留言（后续消息——必读，属本票追加输入）\n\n")
+	if len(in.Msgs) == 0 {
+		b.WriteString("（空）\n\n")
+	} else {
+		b.WriteString(strings.Join(in.Msgs, "\n") + "\n\n")
 	}
 
 	b.WriteString("## 三、项目配方与纪律文档\n\n")

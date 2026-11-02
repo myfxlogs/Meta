@@ -13,13 +13,26 @@ import (
 
 // Spec 起一次壳会话的输入（壳无关）。
 type Spec struct {
-	Shell       string // devin|claude|opencode
-	Model       string // 空=壳自身缺省
-	Role        string
-	PromptFile  string // 提示词文件路径；无 --prompt-file 旗的壳走 stdin 等价径
-	WorkDir     string // 席位工作目录
-	ArtifactDir string // 适配器产物落点（devin ATIF 等），须已存在
-	Env         []string
+	Shell         string // devin|claude|opencode
+	Model         string // 空=壳自身缺省
+	Role          string
+	PromptFile    string // 提示词文件路径；无 --prompt-file 旗的壳走 stdin 等价径
+	WorkDir       string // 席位工作目录
+	ArtifactDir   string // 适配器产物落点（devin ATIF 等），须已存在
+	Env           []string
+	ResumeSession string // 票0030 续传：非空→沿该壳会话续会（支持壳才生效，见 Resumer）
+}
+
+// Sessioner 可选接口（票0030）：适配器在 Parse 流内捕到壳会话 id 即经
+// 本口报出——seat 上报 Session 帧，落 seat_run.session_id 续会锚。
+type Sessioner interface {
+	SessionID() string
+}
+
+// Resumer 可选接口（票0030）：该壳是否支持 Spec.ResumeSession 续会。
+// 未实现的壳报 false——不臆造壳旗（禁区：不猜）。
+type Resumer interface {
+	ResumeOK() bool
 }
 
 // Command 起：exec 参数。StdinFile 非空时提示词经 stdin 重定向

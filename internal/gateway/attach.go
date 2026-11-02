@@ -43,6 +43,11 @@ func (g *Gateway) Attach(stream pbv1.SeatGateway_AttachServer) error {
 		close(st.attachedCh)
 	}
 	st.mu.Unlock()
+	// 票0030：存活流句柄存 runState——PostMsg 的 feed 直投径；发送经
+	// sendToSeat（sendMu 互斥，与本流各回执 Send 并发安全）。
+	st.sendMu.Lock()
+	st.stream = stream
+	st.sendMu.Unlock()
 	_ = g.database.MarkAttached(ctx, run.RunID)
 	g.emit(Event{Kind: "attach", TicketID: run.TicketID, RunID: run.RunID, Role: run.Role})
 
@@ -124,6 +129,9 @@ func (g *Gateway) handleSeatMsg(ctx context.Context, st *runState, stream pbv1.S
 		return g.handleExec(ctx, st, stream, b.ExecReq)
 	case *pbv1.SeatMsg_Admin:
 		return g.handleAdmin(ctx, st, stream, b.Admin)
+	case *pbv1.SeatMsg_Session:
+		// 票0030 续传：壳会话 id 落 seat_run.session_id（续会锚）。
+		return g.database.SetRunSession(ctx, st.run.RunID, b.Session.SessionId)
 	case *pbv1.SeatMsg_Auth:
 		return status.Error(codes.InvalidArgument, "重复 RunAuth")
 	default:
@@ -280,7 +288,7 @@ func (g *Gateway) freezeTicket(ctx context.Context, ticketID string, st *runStat
 //   - 其余角色：verdict 必须空（语义混装即拒）→deliver→待审。
 func (g *Gateway) handleDeliver(ctx context.Context, st *runState, stream pbv1.SeatGateway_AttachServer, d *pbv1.Deliver) error {
 	ack := func(note string) error {
-		return stream.Send(&pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_Ack{
+		return g.sendToSeat(st, &pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_Ack{
 			Ack: &pbv1.Ack{Ok: true, Note: note}}})
 	}
 	if st.run.Role != "审计" && d.Verdict != "" {
@@ -413,7 +421,7 @@ func (g *Gateway) handleSecret(ctx context.Context, st *runState, stream pbv1.Se
 			}
 		}
 	}
-	if err := stream.Send(resp); err != nil {
+	if err := g.sendToSeat(st, resp); err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
 	return nil
@@ -427,7 +435,20 @@ func (g *Gateway) onStreamClosed(st *runState) {
 		_ = g.database.MarkStreamClosed(context.Background(), st.run.RunID)
 	}
 	st.mu.Unlock()
+	st.sendMu.Lock()
+	st.stream = nil // 票0030：流死除名——feed 直投不再往死流写
+	st.sendMu.Unlock()
 	g.maybeDeclareDead(st)
+}
+
+// sendToSeat 座流互斥发送（票0030：feed 直投与各回执 Send 并发安全）。
+func (g *Gateway) sendToSeat(st *runState, m *pbv1.GatewayMsg) error {
+	st.sendMu.Lock()
+	defer st.sendMu.Unlock()
+	if st.stream == nil {
+		return status.Error(codes.Unavailable, "席流未立")
+	}
+	return st.stream.Send(m)
 }
 
 // maybeDeclareDead 双源互证：进程退出（SIGCHLD→Wait）＋ 流 EOF 齐到才判死；

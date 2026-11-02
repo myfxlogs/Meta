@@ -52,6 +52,12 @@ func Open(path string) (*DB, error) {
 		sq.Close()
 		return nil, fmt.Errorf("migrate provenance: %w", err)
 	}
+	// 幂等补列迁移：旧库 seat_run 可能缺 session_id（票0030 续传增列——
+	// 壳会话 id 真源，驳回/重派续会复用的锚）。
+	if err := ensureColumn(sq, "seat_run", "session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		sq.Close()
+		return nil, fmt.Errorf("migrate session_id: %w", err)
+	}
 	for _, f := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Chmod(f, 0o600) // 库含密文与票真源，仅属主可读写
 	}

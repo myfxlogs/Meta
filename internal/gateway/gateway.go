@@ -59,6 +59,23 @@ type Config struct {
 	CeoEvents     map[string]bool // Events 流放行 kind 集
 	CeoSpawnKinds map[string]bool // 需 CEO 事件 kind 集（无订阅→pending+ensureCEO）
 	CeoPrompt     string          // 无头席提示模板（{{kind}}/{{ticket_id}}/{{note}}/{{run_dir}}/{{gateway_sock}}）
+
+	// 巡检（票0030）：事件订阅种子（kind→role）＋两级过滤便宜壳。
+	Subs   []SubSeed
+	Filter FilterSpec
+}
+
+// SubSeed 巡检订阅种行（kind→role；种入 subscription 表，DB 行是活态）。
+type SubSeed struct {
+	Kind, Role string
+}
+
+// FilterSpec 两级过滤便宜壳参数：Name 空＝过滤关（订阅命中全当信号）。
+type FilterSpec struct {
+	Name, Model  string
+	BatchWindow  time.Duration // 批收窗（首事件起一次性闹钟），缺省 20s
+	BatchMax     int           // 批满提前冲，缺省 20
+	Timeout      time.Duration // 单次过滤调用上限，缺省 120s
 }
 
 // ShellSeed 壳登记表种子一行（配置行→DB 活态行；attempt_cap 驻内存不持久化——
@@ -103,6 +120,15 @@ func (c *Config) withDefaults() {
 	if c.ExecTimeout <= 0 {
 		c.ExecTimeout = 15 * time.Minute
 	}
+	if c.Filter.BatchWindow <= 0 {
+		c.Filter.BatchWindow = 20 * time.Second
+	}
+	if c.Filter.BatchMax <= 0 {
+		c.Filter.BatchMax = 20
+	}
+	if c.Filter.Timeout <= 0 {
+		c.Filter.Timeout = 120 * time.Second
+	}
 	if c.SelfPath == "" {
 		if p, err := os.Executable(); err == nil {
 			c.SelfPath = p
@@ -130,6 +156,9 @@ type runState struct {
 	dead         bool
 	adopted      bool
 	failReported bool // 失效已报账（reportShell 原子置位——同一死双径只记一次）
+
+	sendMu sync.Mutex                     // 座流发送互斥（ack/exec_resp/feed 并发安全）
+	stream pbv1.SeatGateway_AttachServer  // 票0030：存活 attach 流句柄（feed 直投径）
 }
 
 func newRunState(run *db.Run) *runState {
@@ -175,6 +204,11 @@ type Gateway struct {
 	ceoDispatched map[string]int                                                // run_id → 已派发给该 run 的事件数（D-22）
 	designLocks   map[string]string                                             // project → 持设计锁的票（B1 三锁之一，§1.8）
 	budgetOf      func(ctx context.Context, ticketID string) (db.Budget, error) // D-36 变异注入缝
+
+	// 巡检（票0030）：订阅表内存镜像（启动时由 DB 装载）＋批收道。
+	subs       map[string][]string // 事件 kind → 订阅角色列
+	patrolCh   chan Event          // 订阅命中事件缓冲（emit 非阻塞喂入）
+	patrolWake chan struct{}       // 批窗闹钟唤醒道（一次性 AfterFunc 信号）
 }
 
 // New 建仓：开库 → 建 run 目录 → 主 socket → 全相位启动对账。
@@ -203,6 +237,22 @@ func New(cfg Config) (*Gateway, error) {
 
 		ceoDispatched: map[string]int{},
 		designLocks:   map[string]string{},
+		subs:          map[string][]string{},
+		patrolCh:      make(chan Event, 256),
+		patrolWake:    make(chan struct{}, 1),
+	}
+	// 巡检订阅种子＋内存镜像装载（票0030）：种行同 id 不动（DB 行是活态）。
+	for _, s := range cfg.Subs {
+		if s.Kind != "" && s.Role != "" {
+			_ = d.SeedSubscription(context.Background(), s.Kind, s.Role)
+		}
+	}
+	if subs, err := d.ListSubscriptions(context.Background()); err == nil {
+		for _, s := range subs {
+			if s.Enabled {
+				g.subs[s.Kind] = append(g.subs[s.Kind], s.Role)
+			}
+		}
 	}
 	for _, dir := range []string{
 		filepath.Join(cfg.RunDir, "seats"),
@@ -274,6 +324,7 @@ func New(cfg Config) (*Gateway, error) {
 	g.rebuildProjectLocks(context.Background()) // 项目锁按票相位重建（B1）
 	go g.dispatcher()                           // spawn 调度器：事件驱动，非周期
 	go g.ceoPump(g.subscribe())                 // CEO 事件泵：先订阅后起泵，不丢首事件
+	go g.patrolPump()                           // 巡检泵：订阅命中批收→两级过滤→派发
 	return g, nil
 }
 
@@ -336,6 +387,7 @@ func (g *Gateway) emit(e Event) {
 		default:
 		}
 	}
+	g.patrolFeed(e) // 票0030：订阅命中→巡检批收道（末位，非阻塞）
 }
 
 // subscribe/unsubscribe Observe 面订户口。

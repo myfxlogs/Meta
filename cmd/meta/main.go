@@ -97,6 +97,10 @@ func main() {
 		err = retroCmd(os.Args[2:])
 	case "reconcile":
 		err = reconcileCmd(os.Args[2:])
+	case "msg":
+		err = msgCmd(os.Args[2:])
+	case "inject":
+		err = injectCmd(os.Args[2:])
 	case "supervise":
 		err = superviseCmd(os.Args[2:])
 	case "upgrade":
@@ -266,6 +270,22 @@ func serve(args []string) error {
 			Name: s.Name, Model: s.Model, Role: s.Role,
 			Priority: int(s.Priority), AttemptCap: s.AttemptCap,
 		})
+	}
+	// 巡检（票0030）：订阅种子＋两级过滤便宜壳（纯配置径，无旗标）。
+	for _, s := range gc.Subscribe {
+		gcfg.Subs = append(gcfg.Subs, gateway.SubSeed{Kind: s.Kind, Role: s.Role})
+	}
+	if fsh := gc.FilterShell; fsh != nil {
+		gcfg.Filter = gateway.FilterSpec{
+			Name: fsh.Name, Model: fsh.Model,
+			BatchMax: int(fsh.BatchMax),
+		}
+		if fsh.BatchWindow != nil {
+			gcfg.Filter.BatchWindow = fsh.BatchWindow.AsDuration()
+		}
+		if fsh.Timeout != nil {
+			gcfg.Filter.Timeout = fsh.Timeout.AsDuration()
+		}
 	}
 
 	g, err := gateway.New(gcfg)
@@ -916,6 +936,68 @@ func reconcileCmd(args []string) error {
 		return fmt.Errorf("reconcile: %s", ack.Note)
 	}
 	fmt.Println("reconcile ok", ack.Note)
+	return nil
+}
+
+// msgCmd 票内留言入站（票0030 续传）：`meta msg --ticket <票> <文本…>`——
+// 落 ticket_msg，活席直投 feed，无活席随下次注入/续传带走。
+func msgCmd(args []string) error {
+	fs := flag.NewFlagSet("msg", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	tid := fs.String("ticket", "", "")
+	actor := fs.String("actor", "", "留言来源戳（缺省 terminal）")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *tid == "" || fs.NArg() == 0 {
+		return fmt.Errorf("msg --ticket <票> <文本…>")
+	}
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ack, err := c.PostMsg(context.Background(), &pbv1.MsgReq{
+		TicketId: *tid, Actor: *actor, Text: strings.Join(fs.Args(), " ")})
+	if err != nil {
+		return err
+	}
+	if !ack.Ok {
+		return fmt.Errorf("msg: %s", ack.Note)
+	}
+	fmt.Println("msg", *tid, ack.Note)
+	return nil
+}
+
+// injectCmd 外部事件注入（票0030）：`meta inject --kind <k> [--ticket <t>]
+// [--note <n>]`——systemd timer 心跳等外源拍；不破网内零 cron。
+func injectCmd(args []string) error {
+	fs := flag.NewFlagSet("inject", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	kind := fs.String("kind", "", "")
+	tid := fs.String("ticket", "", "")
+	note := fs.String("note", "", "")
+	actor := fs.String("actor", "", "戳源（缺省 inject；timer 件传 unit 名）")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *kind == "" {
+		return fmt.Errorf("inject --kind <k> [--ticket <t>] [--note <n>]")
+	}
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ack, err := c.InjectEvent(context.Background(), &pbv1.EventReq{
+		Kind: *kind, TicketId: *tid, Note: *note, Actor: *actor})
+	if err != nil {
+		return err
+	}
+	if !ack.Ok {
+		return fmt.Errorf("inject: %s", ack.Note)
+	}
+	fmt.Println("inject", *kind, ack.Note)
 	return nil
 }
 

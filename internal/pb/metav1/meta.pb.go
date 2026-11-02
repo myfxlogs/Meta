@@ -37,6 +37,7 @@ type SeatMsg struct {
 	//	*SeatMsg_Rule
 	//	*SeatMsg_ExecReq
 	//	*SeatMsg_Admin
+	//	*SeatMsg_Session
 	Body          isSeatMsg_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -178,6 +179,15 @@ func (x *SeatMsg) GetAdmin() *SeatAdmin {
 	return nil
 }
 
+func (x *SeatMsg) GetSession() *Session {
+	if x != nil {
+		if x, ok := x.Body.(*SeatMsg_Session); ok {
+			return x.Session
+		}
+	}
+	return nil
+}
+
 type isSeatMsg_Body interface {
 	isSeatMsg_Body()
 }
@@ -226,6 +236,10 @@ type SeatMsg_Admin struct {
 	Admin *SeatAdmin `protobuf:"bytes,11,opt,name=admin,proto3,oneof"` // 立票/填spec/派工帧（role==CTO 非 adjunct 机械闸，§1.5）
 }
 
+type SeatMsg_Session struct {
+	Session *Session `protobuf:"bytes,12,opt,name=session,proto3,oneof"` // 壳会话 id 上报（票0030 续传：适配器流内捕到即报，落 seat_run.session_id）
+}
+
 func (*SeatMsg_Auth) isSeatMsg_Body() {}
 
 func (*SeatMsg_Claim) isSeatMsg_Body() {}
@@ -248,6 +262,8 @@ func (*SeatMsg_ExecReq) isSeatMsg_Body() {}
 
 func (*SeatMsg_Admin) isSeatMsg_Body() {}
 
+func (*SeatMsg_Session) isSeatMsg_Body() {}
+
 type GatewayMsg struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Body:
@@ -260,6 +276,7 @@ type GatewayMsg struct {
 	//	*GatewayMsg_Ack
 	//	*GatewayMsg_ExecResp
 	//	*GatewayMsg_AdminResp
+	//	*GatewayMsg_Feed
 	Body          isGatewayMsg_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -374,6 +391,15 @@ func (x *GatewayMsg) GetAdminResp() *Ack {
 	return nil
 }
 
+func (x *GatewayMsg) GetFeed() *Feed {
+	if x != nil {
+		if x, ok := x.Body.(*GatewayMsg_Feed); ok {
+			return x.Feed
+		}
+	}
+	return nil
+}
+
 type isGatewayMsg_Body interface {
 	isGatewayMsg_Body()
 }
@@ -410,6 +436,10 @@ type GatewayMsg_AdminResp struct {
 	AdminResp *Ack `protobuf:"bytes,8,opt,name=admin_resp,json=adminResp,proto3,oneof"` // SeatAdmin 回执
 }
 
+type GatewayMsg_Feed struct {
+	Feed *Feed `protobuf:"bytes,9,opt,name=feed,proto3,oneof"` // 票内留言直投（票0030）：票上活席顺流收下，seat 落 $META_ART_DIR/inbox.log
+}
+
 func (*GatewayMsg_Ticket) isGatewayMsg_Body() {}
 
 func (*GatewayMsg_PermissionAsk) isGatewayMsg_Body() {}
@@ -425,6 +455,8 @@ func (*GatewayMsg_Ack) isGatewayMsg_Body() {}
 func (*GatewayMsg_ExecResp) isGatewayMsg_Body() {}
 
 func (*GatewayMsg_AdminResp) isGatewayMsg_Body() {}
+
+func (*GatewayMsg_Feed) isGatewayMsg_Body() {}
 
 type RunAuth struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -4423,6 +4455,8 @@ type GatewayConfig struct {
 	CeoPrompt            string                 `protobuf:"bytes,14,opt,name=ceo_prompt,json=ceoPrompt,proto3" json:"ceo_prompt,omitempty"`                                       // 无头席提示模板路径（{{kind}} 等占位）
 	BoardListen          string                 `protobuf:"bytes,15,opt,name=board_listen,json=boardListen,proto3" json:"board_listen,omitempty"`                                 // 前端面 TCP 监听（127.0.0.1:<port>；空=不挂板）
 	AuditShellSkipStreak int32                  `protobuf:"varint,16,opt,name=audit_shell_skip_streak,json=auditShellSkipStreak,proto3" json:"audit_shell_skip_streak,omitempty"` // 审计重派壳偏置连败阈值（D-46/票0022）：≤0=关
+	Subscribe            []*PatrolSub           `protobuf:"bytes,17,rep,name=subscribe,proto3" json:"subscribe,omitempty"`                                                        // 巡检订阅种子（票0030）：kind→role，种入 subscription 表
+	FilterShell          *FilterShell           `protobuf:"bytes,18,opt,name=filter_shell,json=filterShell,proto3" json:"filter_shell,omitempty"`                                 // 两级过滤便宜壳（票0030）：name 空＝过滤关全放行
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -4569,6 +4603,392 @@ func (x *GatewayConfig) GetAuditShellSkipStreak() int32 {
 	return 0
 }
 
+func (x *GatewayConfig) GetSubscribe() []*PatrolSub {
+	if x != nil {
+		return x.Subscribe
+	}
+	return nil
+}
+
+func (x *GatewayConfig) GetFilterShell() *FilterShell {
+	if x != nil {
+		return x.FilterShell
+	}
+	return nil
+}
+
+// PatrolSub 巡检订阅种行（票0030）：事件 kind→派发角色；种入 subscription
+// 表（已有行不动，DB 行是活态）。
+type PatrolSub struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Role          string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PatrolSub) Reset() {
+	*x = PatrolSub{}
+	mi := &file_meta_v1_meta_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PatrolSub) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatrolSub) ProtoMessage() {}
+
+func (x *PatrolSub) ProtoReflect() protoreflect.Message {
+	mi := &file_meta_v1_meta_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatrolSub.ProtoReflect.Descriptor instead.
+func (*PatrolSub) Descriptor() ([]byte, []int) {
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{64}
+}
+
+func (x *PatrolSub) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *PatrolSub) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+// FilterShell 两级过滤便宜壳（票0030）：事件批先过此壳筛 KEEP/DROP，
+// 信号才喂贵席。壳缺席/输出不可判→全放行＋filter_degraded（信号可用性
+// 优先，省 token 是收益不是闸）。
+type FilterShell struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                                  // 壳名（adapter 登记名）；空＝过滤关
+	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`                                // 模型覆盖；空＝壳自身缺省
+	BatchWindow   *durationpb.Duration   `protobuf:"bytes,3,opt,name=batch_window,json=batchWindow,proto3" json:"batch_window,omitempty"` // 批收窗（首事件起一次性闹钟），缺省 20s
+	BatchMax      int32                  `protobuf:"varint,4,opt,name=batch_max,json=batchMax,proto3" json:"batch_max,omitempty"`         // 批满提前冲，缺省 20
+	Timeout       *durationpb.Duration   `protobuf:"bytes,5,opt,name=timeout,proto3" json:"timeout,omitempty"`                            // 单次过滤调用上限，缺省 120s
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FilterShell) Reset() {
+	*x = FilterShell{}
+	mi := &file_meta_v1_meta_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FilterShell) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FilterShell) ProtoMessage() {}
+
+func (x *FilterShell) ProtoReflect() protoreflect.Message {
+	mi := &file_meta_v1_meta_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FilterShell.ProtoReflect.Descriptor instead.
+func (*FilterShell) Descriptor() ([]byte, []int) {
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *FilterShell) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FilterShell) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *FilterShell) GetBatchWindow() *durationpb.Duration {
+	if x != nil {
+		return x.BatchWindow
+	}
+	return nil
+}
+
+func (x *FilterShell) GetBatchMax() int32 {
+	if x != nil {
+		return x.BatchMax
+	}
+	return 0
+}
+
+func (x *FilterShell) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
+	}
+	return nil
+}
+
+// Session 壳会话 id 上报：适配器流内捕到即经席位流报网关，落
+// seat_run.session_id——驳回/重派续会复用的真源。
+type Session struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Session) Reset() {
+	*x = Session{}
+	mi := &file_meta_v1_meta_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Session) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Session) ProtoMessage() {}
+
+func (x *Session) ProtoReflect() protoreflect.Message {
+	mi := &file_meta_v1_meta_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Session.ProtoReflect.Descriptor instead.
+func (*Session) Descriptor() ([]byte, []int) {
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *Session) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+// Feed 票内留言直投帧（网关→席）：票上活 attached 席顺流收下，seat 追加
+// $META_ART_DIR/inbox.log（文件信道与 exec-resp.log 同构）。
+type Feed struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"` // ticket_msg.id
+	Actor         string                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
+	Text          string                 `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Feed) Reset() {
+	*x = Feed{}
+	mi := &file_meta_v1_meta_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Feed) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Feed) ProtoMessage() {}
+
+func (x *Feed) ProtoReflect() protoreflect.Message {
+	mi := &file_meta_v1_meta_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Feed.ProtoReflect.Descriptor instead.
+func (*Feed) Descriptor() ([]byte, []int) {
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{67}
+}
+
+func (x *Feed) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *Feed) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *Feed) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// MsgReq 票内留言入站（meta msg）：落 ticket_msg 后活席直投＋下次注入带走。
+type MsgReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TicketId      string                 `protobuf:"bytes,1,opt,name=ticket_id,json=ticketId,proto3" json:"ticket_id,omitempty"`
+	Actor         string                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
+	Text          string                 `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MsgReq) Reset() {
+	*x = MsgReq{}
+	mi := &file_meta_v1_meta_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgReq) ProtoMessage() {}
+
+func (x *MsgReq) ProtoReflect() protoreflect.Message {
+	mi := &file_meta_v1_meta_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgReq.ProtoReflect.Descriptor instead.
+func (*MsgReq) Descriptor() ([]byte, []int) {
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *MsgReq) GetTicketId() string {
+	if x != nil {
+		return x.TicketId
+	}
+	return ""
+}
+
+func (x *MsgReq) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *MsgReq) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// EventReq 外部事件注入（meta inject）：systemd timer 心跳等外源拍——
+// 不破网内零 cron 戒。
+type EventReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	TicketId      string                 `protobuf:"bytes,2,opt,name=ticket_id,json=ticketId,proto3" json:"ticket_id,omitempty"` // 可空；非空才落 ticket_event 行
+	Note          string                 `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
+	Actor         string                 `protobuf:"bytes,4,opt,name=actor,proto3" json:"actor,omitempty"` // 戳源（如 systemd:meta-patrol-heartbeat.timer）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventReq) Reset() {
+	*x = EventReq{}
+	mi := &file_meta_v1_meta_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventReq) ProtoMessage() {}
+
+func (x *EventReq) ProtoReflect() protoreflect.Message {
+	mi := &file_meta_v1_meta_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventReq.ProtoReflect.Descriptor instead.
+func (*EventReq) Descriptor() ([]byte, []int) {
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{69}
+}
+
+func (x *EventReq) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EventReq) GetTicketId() string {
+	if x != nil {
+		return x.TicketId
+	}
+	return ""
+}
+
+func (x *EventReq) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *EventReq) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
 // FeishuApp 飞书应用凭证载荷（票0013）：secret.feishu.app 行 vault.key
 // 自解后的格式——网关自解不走 Secret RPC 席位径；ACL 空＝不授任何席。
 type FeishuApp struct {
@@ -4583,7 +5003,7 @@ type FeishuApp struct {
 
 func (x *FeishuApp) Reset() {
 	*x = FeishuApp{}
-	mi := &file_meta_v1_meta_proto_msgTypes[64]
+	mi := &file_meta_v1_meta_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4595,7 +5015,7 @@ func (x *FeishuApp) String() string {
 func (*FeishuApp) ProtoMessage() {}
 
 func (x *FeishuApp) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[64]
+	mi := &file_meta_v1_meta_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4608,7 +5028,7 @@ func (x *FeishuApp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FeishuApp.ProtoReflect.Descriptor instead.
 func (*FeishuApp) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{64}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *FeishuApp) GetAppId() string {
@@ -4656,7 +5076,7 @@ type SandboxSpec struct {
 
 func (x *SandboxSpec) Reset() {
 	*x = SandboxSpec{}
-	mi := &file_meta_v1_meta_proto_msgTypes[65]
+	mi := &file_meta_v1_meta_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4668,7 +5088,7 @@ func (x *SandboxSpec) String() string {
 func (*SandboxSpec) ProtoMessage() {}
 
 func (x *SandboxSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[65]
+	mi := &file_meta_v1_meta_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4681,7 +5101,7 @@ func (x *SandboxSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxSpec.ProtoReflect.Descriptor instead.
 func (*SandboxSpec) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{65}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *SandboxSpec) GetRunAs() string {
@@ -4731,7 +5151,7 @@ type ProjectSeed struct {
 
 func (x *ProjectSeed) Reset() {
 	*x = ProjectSeed{}
-	mi := &file_meta_v1_meta_proto_msgTypes[66]
+	mi := &file_meta_v1_meta_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4743,7 +5163,7 @@ func (x *ProjectSeed) String() string {
 func (*ProjectSeed) ProtoMessage() {}
 
 func (x *ProjectSeed) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[66]
+	mi := &file_meta_v1_meta_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4756,7 +5176,7 @@ func (x *ProjectSeed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectSeed.ProtoReflect.Descriptor instead.
 func (*ProjectSeed) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{66}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *ProjectSeed) GetId() string {
@@ -4832,7 +5252,7 @@ type RoleBudget struct {
 
 func (x *RoleBudget) Reset() {
 	*x = RoleBudget{}
-	mi := &file_meta_v1_meta_proto_msgTypes[67]
+	mi := &file_meta_v1_meta_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4844,7 +5264,7 @@ func (x *RoleBudget) String() string {
 func (*RoleBudget) ProtoMessage() {}
 
 func (x *RoleBudget) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[67]
+	mi := &file_meta_v1_meta_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4857,7 +5277,7 @@ func (x *RoleBudget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoleBudget.ProtoReflect.Descriptor instead.
 func (*RoleBudget) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{67}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *RoleBudget) GetRole() string {
@@ -4888,7 +5308,7 @@ type ShellRow struct {
 
 func (x *ShellRow) Reset() {
 	*x = ShellRow{}
-	mi := &file_meta_v1_meta_proto_msgTypes[68]
+	mi := &file_meta_v1_meta_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4900,7 +5320,7 @@ func (x *ShellRow) String() string {
 func (*ShellRow) ProtoMessage() {}
 
 func (x *ShellRow) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[68]
+	mi := &file_meta_v1_meta_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4913,7 +5333,7 @@ func (x *ShellRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellRow.ProtoReflect.Descriptor instead.
 func (*ShellRow) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{68}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *ShellRow) GetName() string {
@@ -4962,7 +5382,7 @@ var File_meta_v1_meta_proto protoreflect.FileDescriptor
 
 const file_meta_v1_meta_proto_rawDesc = "" +
 	"\n" +
-	"\x12meta/v1/meta.proto\x12\ameta.v1\x1a\x1egoogle/protobuf/duration.proto\"\x8c\x04\n" +
+	"\x12meta/v1/meta.proto\x12\ameta.v1\x1a\x1egoogle/protobuf/duration.proto\"\xba\x04\n" +
 	"\aSeatMsg\x12&\n" +
 	"\x04auth\x18\x01 \x01(\v2\x10.meta.v1.RunAuthH\x00R\x04auth\x12&\n" +
 	"\x05claim\x18\x02 \x01(\v2\x0e.meta.v1.ClaimH\x00R\x05claim\x12/\n" +
@@ -4976,8 +5396,9 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\x04rule\x18\t \x01(\v2\r.meta.v1.RuleH\x00R\x04rule\x12-\n" +
 	"\bexec_req\x18\n" +
 	" \x01(\v2\x10.meta.v1.ExecReqH\x00R\aexecReq\x12*\n" +
-	"\x05admin\x18\v \x01(\v2\x12.meta.v1.SeatAdminH\x00R\x05adminB\x06\n" +
-	"\x04body\"\x8e\x03\n" +
+	"\x05admin\x18\v \x01(\v2\x12.meta.v1.SeatAdminH\x00R\x05admin\x12,\n" +
+	"\asession\x18\f \x01(\v2\x10.meta.v1.SessionH\x00R\asessionB\x06\n" +
+	"\x04body\"\xb3\x03\n" +
 	"\n" +
 	"GatewayMsg\x12)\n" +
 	"\x06ticket\x18\x01 \x01(\v2\x0f.meta.v1.TicketH\x00R\x06ticket\x12?\n" +
@@ -4989,7 +5410,8 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\x03ack\x18\x06 \x01(\v2\f.meta.v1.AckH\x00R\x03ack\x120\n" +
 	"\texec_resp\x18\a \x01(\v2\x11.meta.v1.ExecRespH\x00R\bexecResp\x12-\n" +
 	"\n" +
-	"admin_resp\x18\b \x01(\v2\f.meta.v1.AckH\x00R\tadminRespB\x06\n" +
+	"admin_resp\x18\b \x01(\v2\f.meta.v1.AckH\x00R\tadminResp\x12#\n" +
+	"\x04feed\x18\t \x01(\v2\r.meta.v1.FeedH\x00R\x04feedB\x06\n" +
 	"\x04body\"&\n" +
 	"\aRunAuth\x12\x1b\n" +
 	"\trun_token\x18\x01 \x01(\tR\brunToken\"$\n" +
@@ -5287,7 +5709,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\bwork_dir\x18\x03 \x01(\tR\aworkDir\x12!\n" +
 	"\fprefer_shell\x18\x04 \x01(\tR\vpreferShell\x12\x18\n" +
 	"\aadjunct\x18\x05 \x01(\bR\aadjunct\x12\x18\n" +
-	"\aproject\x18\x06 \x01(\tR\aproject\"\x96\x06\n" +
+	"\aproject\x18\x06 \x01(\tR\aproject\"\x81\a\n" +
 	"\rGatewayConfig\x12D\n" +
 	"\x10progress_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0fprogressTimeout\x12<\n" +
 	"\fauth_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\vauthTimeout\x12G\n" +
@@ -5309,7 +5731,34 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\n" +
 	"ceo_prompt\x18\x0e \x01(\tR\tceoPrompt\x12!\n" +
 	"\fboard_listen\x18\x0f \x01(\tR\vboardListen\x125\n" +
-	"\x17audit_shell_skip_streak\x18\x10 \x01(\x05R\x14auditShellSkipStreak\"~\n" +
+	"\x17audit_shell_skip_streak\x18\x10 \x01(\x05R\x14auditShellSkipStreak\x120\n" +
+	"\tsubscribe\x18\x11 \x03(\v2\x12.meta.v1.PatrolSubR\tsubscribe\x127\n" +
+	"\ffilter_shell\x18\x12 \x01(\v2\x14.meta.v1.FilterShellR\vfilterShell\"3\n" +
+	"\tPatrolSub\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04role\x18\x02 \x01(\tR\x04role\"\xc7\x01\n" +
+	"\vFilterShell\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x12<\n" +
+	"\fbatch_window\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vbatchWindow\x12\x1b\n" +
+	"\tbatch_max\x18\x04 \x01(\x05R\bbatchMax\x123\n" +
+	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"(\n" +
+	"\aSession\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"@\n" +
+	"\x04Feed\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x14\n" +
+	"\x05actor\x18\x02 \x01(\tR\x05actor\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\"O\n" +
+	"\x06MsgReq\x12\x1b\n" +
+	"\tticket_id\x18\x01 \x01(\tR\bticketId\x12\x14\n" +
+	"\x05actor\x18\x02 \x01(\tR\x05actor\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\"e\n" +
+	"\bEventReq\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1b\n" +
+	"\tticket_id\x18\x02 \x01(\tR\bticketId\x12\x12\n" +
+	"\x04note\x18\x03 \x01(\tR\x04note\x12\x14\n" +
+	"\x05actor\x18\x04 \x01(\tR\x05actor\"~\n" +
 	"\tFeishuApp\x12\x15\n" +
 	"\x06app_id\x18\x01 \x01(\tR\x05appId\x12\x1d\n" +
 	"\n" +
@@ -5356,7 +5805,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\tSeatAdopt\x12.\n" +
 	"\x05Adopt\x12\x12.meta.v1.AdoptAuth\x1a\x11.meta.v1.AdoptAck2>\n" +
 	"\x05Board\x125\n" +
-	"\tSeatBoard\x12\x11.meta.v1.BoardReq\x1a\x13.meta.v1.BoardFrame0\x012\xc7\x05\n" +
+	"\tSeatBoard\x12\x11.meta.v1.BoardReq\x1a\x13.meta.v1.BoardFrame0\x012\xa1\x06\n" +
 	"\fAdminGateway\x120\n" +
 	"\fCreateTicket\x12\x12.meta.v1.NewTicket\x1a\f.meta.v1.Ack\x12.\n" +
 	"\bDispatch\x12\x14.meta.v1.DispatchReq\x1a\f.meta.v1.Ack\x12-\n" +
@@ -5371,7 +5820,9 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\x04Ping\x12\x0e.meta.v1.Empty\x1a\f.meta.v1.Ack\x12<\n" +
 	"\rIssueCeoToken\x12\x14.meta.v1.CeoTokenReq\x1a\x15.meta.v1.CeoTokenResp\x12;\n" +
 	"\x10SetTicketProject\x12\x19.meta.v1.TicketProjectReq\x1a\f.meta.v1.Ack\x12)\n" +
-	"\tReconcile\x12\x0e.meta.v1.Empty\x1a\f.meta.v1.Ack2\x89\x02\n" +
+	"\tReconcile\x12\x0e.meta.v1.Empty\x1a\f.meta.v1.Ack\x12(\n" +
+	"\aPostMsg\x12\x0f.meta.v1.MsgReq\x1a\f.meta.v1.Ack\x12.\n" +
+	"\vInjectEvent\x12\x11.meta.v1.EventReq\x1a\f.meta.v1.Ack2\x89\x02\n" +
 	"\n" +
 	"CeoGateway\x122\n" +
 	"\x06Events\x12\x12.meta.v1.Subscribe\x1a\x12.meta.v1.EventItem0\x01\x12=\n" +
@@ -5392,7 +5843,7 @@ func file_meta_v1_meta_proto_rawDescGZIP() []byte {
 	return file_meta_v1_meta_proto_rawDescData
 }
 
-var file_meta_v1_meta_proto_msgTypes = make([]protoimpl.MessageInfo, 71)
+var file_meta_v1_meta_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
 var file_meta_v1_meta_proto_goTypes = []any{
 	(*SeatMsg)(nil),             // 0: meta.v1.SeatMsg
 	(*GatewayMsg)(nil),          // 1: meta.v1.GatewayMsg
@@ -5458,14 +5909,20 @@ var file_meta_v1_meta_proto_goTypes = []any{
 	(*NotifyAction)(nil),        // 61: meta.v1.NotifyAction
 	(*DispatchAction)(nil),      // 62: meta.v1.DispatchAction
 	(*GatewayConfig)(nil),       // 63: meta.v1.GatewayConfig
-	(*FeishuApp)(nil),           // 64: meta.v1.FeishuApp
-	(*SandboxSpec)(nil),         // 65: meta.v1.SandboxSpec
-	(*ProjectSeed)(nil),         // 66: meta.v1.ProjectSeed
-	(*RoleBudget)(nil),          // 67: meta.v1.RoleBudget
-	(*ShellRow)(nil),            // 68: meta.v1.ShellRow
-	nil,                         // 69: meta.v1.SandboxSpec.StepRunAsEntry
-	nil,                         // 70: meta.v1.SandboxSpec.StepContainerImageEntry
-	(*durationpb.Duration)(nil), // 71: google.protobuf.Duration
+	(*PatrolSub)(nil),           // 64: meta.v1.PatrolSub
+	(*FilterShell)(nil),         // 65: meta.v1.FilterShell
+	(*Session)(nil),             // 66: meta.v1.Session
+	(*Feed)(nil),                // 67: meta.v1.Feed
+	(*MsgReq)(nil),              // 68: meta.v1.MsgReq
+	(*EventReq)(nil),            // 69: meta.v1.EventReq
+	(*FeishuApp)(nil),           // 70: meta.v1.FeishuApp
+	(*SandboxSpec)(nil),         // 71: meta.v1.SandboxSpec
+	(*ProjectSeed)(nil),         // 72: meta.v1.ProjectSeed
+	(*RoleBudget)(nil),          // 73: meta.v1.RoleBudget
+	(*ShellRow)(nil),            // 74: meta.v1.ShellRow
+	nil,                         // 75: meta.v1.SandboxSpec.StepRunAsEntry
+	nil,                         // 76: meta.v1.SandboxSpec.StepContainerImageEntry
+	(*durationpb.Duration)(nil), // 77: google.protobuf.Duration
 }
 var file_meta_v1_meta_proto_depIdxs = []int32{
 	2,  // 0: meta.v1.SeatMsg.auth:type_name -> meta.v1.RunAuth
@@ -5479,95 +5936,105 @@ var file_meta_v1_meta_proto_depIdxs = []int32{
 	7,  // 8: meta.v1.SeatMsg.rule:type_name -> meta.v1.Rule
 	8,  // 9: meta.v1.SeatMsg.exec_req:type_name -> meta.v1.ExecReq
 	19, // 10: meta.v1.SeatMsg.admin:type_name -> meta.v1.SeatAdmin
-	13, // 11: meta.v1.GatewayMsg.ticket:type_name -> meta.v1.Ticket
-	15, // 12: meta.v1.GatewayMsg.permission_ask:type_name -> meta.v1.PermissionAsk
-	16, // 13: meta.v1.GatewayMsg.abort:type_name -> meta.v1.Abort
-	17, // 14: meta.v1.GatewayMsg.extend:type_name -> meta.v1.Extend
-	18, // 15: meta.v1.GatewayMsg.secret_resp:type_name -> meta.v1.SecretResp
-	28, // 16: meta.v1.GatewayMsg.ack:type_name -> meta.v1.Ack
-	9,  // 17: meta.v1.GatewayMsg.exec_resp:type_name -> meta.v1.ExecResp
-	28, // 18: meta.v1.GatewayMsg.admin_resp:type_name -> meta.v1.Ack
-	20, // 19: meta.v1.SeatAdmin.fill_spec:type_name -> meta.v1.FillSpec
-	24, // 20: meta.v1.SeatAdmin.create_ticket:type_name -> meta.v1.NewTicket
-	25, // 21: meta.v1.SeatAdmin.dispatch:type_name -> meta.v1.DispatchReq
-	21, // 22: meta.v1.SeatAdmin.set_project:type_name -> meta.v1.SetProject
-	31, // 23: meta.v1.EventList.items:type_name -> meta.v1.EventItem
-	36, // 24: meta.v1.RunList.items:type_name -> meta.v1.RunItem
-	41, // 25: meta.v1.BoardFrame.full:type_name -> meta.v1.BoardFull
-	42, // 26: meta.v1.BoardFrame.seat_upsert:type_name -> meta.v1.SeatRow
-	43, // 27: meta.v1.BoardFrame.seat_gone:type_name -> meta.v1.SeatGone
-	44, // 28: meta.v1.BoardFrame.ticket_upsert:type_name -> meta.v1.TicketRow
-	42, // 29: meta.v1.BoardFull.seats:type_name -> meta.v1.SeatRow
-	44, // 30: meta.v1.BoardFull.tickets:type_name -> meta.v1.TicketRow
-	52, // 31: meta.v1.MemoryOp.put:type_name -> meta.v1.MemoryPut
-	53, // 32: meta.v1.MemoryOp.get:type_name -> meta.v1.MemoryGet
-	54, // 33: meta.v1.MemoryOp.row:type_name -> meta.v1.MemoryRow
-	59, // 34: meta.v1.RouteTable.routes:type_name -> meta.v1.Route
-	58, // 35: meta.v1.RouteTable.default_notify:type_name -> meta.v1.DefaultNotifyRule
-	60, // 36: meta.v1.Route.actions:type_name -> meta.v1.Action
-	61, // 37: meta.v1.Action.notify:type_name -> meta.v1.NotifyAction
-	62, // 38: meta.v1.Action.dispatch:type_name -> meta.v1.DispatchAction
-	71, // 39: meta.v1.GatewayConfig.progress_timeout:type_name -> google.protobuf.Duration
-	71, // 40: meta.v1.GatewayConfig.auth_timeout:type_name -> google.protobuf.Duration
-	71, // 41: meta.v1.GatewayConfig.adopt_dial_timeout:type_name -> google.protobuf.Duration
-	71, // 42: meta.v1.GatewayConfig.stagger:type_name -> google.protobuf.Duration
-	71, // 43: meta.v1.GatewayConfig.quick_exit:type_name -> google.protobuf.Duration
-	67, // 44: meta.v1.GatewayConfig.role_budget:type_name -> meta.v1.RoleBudget
-	68, // 45: meta.v1.GatewayConfig.shell:type_name -> meta.v1.ShellRow
-	66, // 46: meta.v1.GatewayConfig.project:type_name -> meta.v1.ProjectSeed
-	69, // 47: meta.v1.SandboxSpec.step_run_as:type_name -> meta.v1.SandboxSpec.StepRunAsEntry
-	71, // 48: meta.v1.SandboxSpec.exec_timeout:type_name -> google.protobuf.Duration
-	70, // 49: meta.v1.SandboxSpec.step_container_image:type_name -> meta.v1.SandboxSpec.StepContainerImageEntry
-	65, // 50: meta.v1.ProjectSeed.sandbox:type_name -> meta.v1.SandboxSpec
-	0,  // 51: meta.v1.SeatGateway.Attach:input_type -> meta.v1.SeatMsg
-	22, // 52: meta.v1.SeatAdopt.Adopt:input_type -> meta.v1.AdoptAuth
-	39, // 53: meta.v1.Board.SeatBoard:input_type -> meta.v1.BoardReq
-	24, // 54: meta.v1.AdminGateway.CreateTicket:input_type -> meta.v1.NewTicket
-	25, // 55: meta.v1.AdminGateway.Dispatch:input_type -> meta.v1.DispatchReq
-	26, // 56: meta.v1.AdminGateway.SetBudget:input_type -> meta.v1.BudgetReq
-	27, // 57: meta.v1.AdminGateway.Budget:input_type -> meta.v1.TicketRef
-	27, // 58: meta.v1.AdminGateway.Phase:input_type -> meta.v1.TicketRef
-	27, // 59: meta.v1.AdminGateway.Events:input_type -> meta.v1.TicketRef
-	32, // 60: meta.v1.AdminGateway.EventsAfter:input_type -> meta.v1.EventCursor
-	27, // 61: meta.v1.AdminGateway.Runs:input_type -> meta.v1.TicketRef
-	45, // 62: meta.v1.AdminGateway.Observe:input_type -> meta.v1.Empty
-	33, // 63: meta.v1.AdminGateway.RetroVerdict:input_type -> meta.v1.RetroReq
-	45, // 64: meta.v1.AdminGateway.Ping:input_type -> meta.v1.Empty
-	55, // 65: meta.v1.AdminGateway.IssueCeoToken:input_type -> meta.v1.CeoTokenReq
-	34, // 66: meta.v1.AdminGateway.SetTicketProject:input_type -> meta.v1.TicketProjectReq
-	45, // 67: meta.v1.AdminGateway.Reconcile:input_type -> meta.v1.Empty
-	46, // 68: meta.v1.CeoGateway.Events:input_type -> meta.v1.Subscribe
-	47, // 69: meta.v1.CeoGateway.SubmitRequirement:input_type -> meta.v1.Requirement
-	48, // 70: meta.v1.CeoGateway.Rule:input_type -> meta.v1.Ruling
-	50, // 71: meta.v1.CeoGateway.Inquire:input_type -> meta.v1.Inquiry
-	51, // 72: meta.v1.CeoGateway.Memory:input_type -> meta.v1.MemoryOp
-	1,  // 73: meta.v1.SeatGateway.Attach:output_type -> meta.v1.GatewayMsg
-	23, // 74: meta.v1.SeatAdopt.Adopt:output_type -> meta.v1.AdoptAck
-	40, // 75: meta.v1.Board.SeatBoard:output_type -> meta.v1.BoardFrame
-	28, // 76: meta.v1.AdminGateway.CreateTicket:output_type -> meta.v1.Ack
-	28, // 77: meta.v1.AdminGateway.Dispatch:output_type -> meta.v1.Ack
-	28, // 78: meta.v1.AdminGateway.SetBudget:output_type -> meta.v1.Ack
-	30, // 79: meta.v1.AdminGateway.Budget:output_type -> meta.v1.BudgetMsg
-	29, // 80: meta.v1.AdminGateway.Phase:output_type -> meta.v1.PhaseMsg
-	35, // 81: meta.v1.AdminGateway.Events:output_type -> meta.v1.EventList
-	35, // 82: meta.v1.AdminGateway.EventsAfter:output_type -> meta.v1.EventList
-	37, // 83: meta.v1.AdminGateway.Runs:output_type -> meta.v1.RunList
-	38, // 84: meta.v1.AdminGateway.Observe:output_type -> meta.v1.ObsEvent
-	28, // 85: meta.v1.AdminGateway.RetroVerdict:output_type -> meta.v1.Ack
-	28, // 86: meta.v1.AdminGateway.Ping:output_type -> meta.v1.Ack
-	56, // 87: meta.v1.AdminGateway.IssueCeoToken:output_type -> meta.v1.CeoTokenResp
-	28, // 88: meta.v1.AdminGateway.SetTicketProject:output_type -> meta.v1.Ack
-	28, // 89: meta.v1.AdminGateway.Reconcile:output_type -> meta.v1.Ack
-	31, // 90: meta.v1.CeoGateway.Events:output_type -> meta.v1.EventItem
-	27, // 91: meta.v1.CeoGateway.SubmitRequirement:output_type -> meta.v1.TicketRef
-	49, // 92: meta.v1.CeoGateway.Rule:output_type -> meta.v1.RuleAck
-	28, // 93: meta.v1.CeoGateway.Inquire:output_type -> meta.v1.Ack
-	51, // 94: meta.v1.CeoGateway.Memory:output_type -> meta.v1.MemoryOp
-	73, // [73:95] is the sub-list for method output_type
-	51, // [51:73] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	66, // 11: meta.v1.SeatMsg.session:type_name -> meta.v1.Session
+	13, // 12: meta.v1.GatewayMsg.ticket:type_name -> meta.v1.Ticket
+	15, // 13: meta.v1.GatewayMsg.permission_ask:type_name -> meta.v1.PermissionAsk
+	16, // 14: meta.v1.GatewayMsg.abort:type_name -> meta.v1.Abort
+	17, // 15: meta.v1.GatewayMsg.extend:type_name -> meta.v1.Extend
+	18, // 16: meta.v1.GatewayMsg.secret_resp:type_name -> meta.v1.SecretResp
+	28, // 17: meta.v1.GatewayMsg.ack:type_name -> meta.v1.Ack
+	9,  // 18: meta.v1.GatewayMsg.exec_resp:type_name -> meta.v1.ExecResp
+	28, // 19: meta.v1.GatewayMsg.admin_resp:type_name -> meta.v1.Ack
+	67, // 20: meta.v1.GatewayMsg.feed:type_name -> meta.v1.Feed
+	20, // 21: meta.v1.SeatAdmin.fill_spec:type_name -> meta.v1.FillSpec
+	24, // 22: meta.v1.SeatAdmin.create_ticket:type_name -> meta.v1.NewTicket
+	25, // 23: meta.v1.SeatAdmin.dispatch:type_name -> meta.v1.DispatchReq
+	21, // 24: meta.v1.SeatAdmin.set_project:type_name -> meta.v1.SetProject
+	31, // 25: meta.v1.EventList.items:type_name -> meta.v1.EventItem
+	36, // 26: meta.v1.RunList.items:type_name -> meta.v1.RunItem
+	41, // 27: meta.v1.BoardFrame.full:type_name -> meta.v1.BoardFull
+	42, // 28: meta.v1.BoardFrame.seat_upsert:type_name -> meta.v1.SeatRow
+	43, // 29: meta.v1.BoardFrame.seat_gone:type_name -> meta.v1.SeatGone
+	44, // 30: meta.v1.BoardFrame.ticket_upsert:type_name -> meta.v1.TicketRow
+	42, // 31: meta.v1.BoardFull.seats:type_name -> meta.v1.SeatRow
+	44, // 32: meta.v1.BoardFull.tickets:type_name -> meta.v1.TicketRow
+	52, // 33: meta.v1.MemoryOp.put:type_name -> meta.v1.MemoryPut
+	53, // 34: meta.v1.MemoryOp.get:type_name -> meta.v1.MemoryGet
+	54, // 35: meta.v1.MemoryOp.row:type_name -> meta.v1.MemoryRow
+	59, // 36: meta.v1.RouteTable.routes:type_name -> meta.v1.Route
+	58, // 37: meta.v1.RouteTable.default_notify:type_name -> meta.v1.DefaultNotifyRule
+	60, // 38: meta.v1.Route.actions:type_name -> meta.v1.Action
+	61, // 39: meta.v1.Action.notify:type_name -> meta.v1.NotifyAction
+	62, // 40: meta.v1.Action.dispatch:type_name -> meta.v1.DispatchAction
+	77, // 41: meta.v1.GatewayConfig.progress_timeout:type_name -> google.protobuf.Duration
+	77, // 42: meta.v1.GatewayConfig.auth_timeout:type_name -> google.protobuf.Duration
+	77, // 43: meta.v1.GatewayConfig.adopt_dial_timeout:type_name -> google.protobuf.Duration
+	77, // 44: meta.v1.GatewayConfig.stagger:type_name -> google.protobuf.Duration
+	77, // 45: meta.v1.GatewayConfig.quick_exit:type_name -> google.protobuf.Duration
+	73, // 46: meta.v1.GatewayConfig.role_budget:type_name -> meta.v1.RoleBudget
+	74, // 47: meta.v1.GatewayConfig.shell:type_name -> meta.v1.ShellRow
+	72, // 48: meta.v1.GatewayConfig.project:type_name -> meta.v1.ProjectSeed
+	64, // 49: meta.v1.GatewayConfig.subscribe:type_name -> meta.v1.PatrolSub
+	65, // 50: meta.v1.GatewayConfig.filter_shell:type_name -> meta.v1.FilterShell
+	77, // 51: meta.v1.FilterShell.batch_window:type_name -> google.protobuf.Duration
+	77, // 52: meta.v1.FilterShell.timeout:type_name -> google.protobuf.Duration
+	75, // 53: meta.v1.SandboxSpec.step_run_as:type_name -> meta.v1.SandboxSpec.StepRunAsEntry
+	77, // 54: meta.v1.SandboxSpec.exec_timeout:type_name -> google.protobuf.Duration
+	76, // 55: meta.v1.SandboxSpec.step_container_image:type_name -> meta.v1.SandboxSpec.StepContainerImageEntry
+	71, // 56: meta.v1.ProjectSeed.sandbox:type_name -> meta.v1.SandboxSpec
+	0,  // 57: meta.v1.SeatGateway.Attach:input_type -> meta.v1.SeatMsg
+	22, // 58: meta.v1.SeatAdopt.Adopt:input_type -> meta.v1.AdoptAuth
+	39, // 59: meta.v1.Board.SeatBoard:input_type -> meta.v1.BoardReq
+	24, // 60: meta.v1.AdminGateway.CreateTicket:input_type -> meta.v1.NewTicket
+	25, // 61: meta.v1.AdminGateway.Dispatch:input_type -> meta.v1.DispatchReq
+	26, // 62: meta.v1.AdminGateway.SetBudget:input_type -> meta.v1.BudgetReq
+	27, // 63: meta.v1.AdminGateway.Budget:input_type -> meta.v1.TicketRef
+	27, // 64: meta.v1.AdminGateway.Phase:input_type -> meta.v1.TicketRef
+	27, // 65: meta.v1.AdminGateway.Events:input_type -> meta.v1.TicketRef
+	32, // 66: meta.v1.AdminGateway.EventsAfter:input_type -> meta.v1.EventCursor
+	27, // 67: meta.v1.AdminGateway.Runs:input_type -> meta.v1.TicketRef
+	45, // 68: meta.v1.AdminGateway.Observe:input_type -> meta.v1.Empty
+	33, // 69: meta.v1.AdminGateway.RetroVerdict:input_type -> meta.v1.RetroReq
+	45, // 70: meta.v1.AdminGateway.Ping:input_type -> meta.v1.Empty
+	55, // 71: meta.v1.AdminGateway.IssueCeoToken:input_type -> meta.v1.CeoTokenReq
+	34, // 72: meta.v1.AdminGateway.SetTicketProject:input_type -> meta.v1.TicketProjectReq
+	45, // 73: meta.v1.AdminGateway.Reconcile:input_type -> meta.v1.Empty
+	68, // 74: meta.v1.AdminGateway.PostMsg:input_type -> meta.v1.MsgReq
+	69, // 75: meta.v1.AdminGateway.InjectEvent:input_type -> meta.v1.EventReq
+	46, // 76: meta.v1.CeoGateway.Events:input_type -> meta.v1.Subscribe
+	47, // 77: meta.v1.CeoGateway.SubmitRequirement:input_type -> meta.v1.Requirement
+	48, // 78: meta.v1.CeoGateway.Rule:input_type -> meta.v1.Ruling
+	50, // 79: meta.v1.CeoGateway.Inquire:input_type -> meta.v1.Inquiry
+	51, // 80: meta.v1.CeoGateway.Memory:input_type -> meta.v1.MemoryOp
+	1,  // 81: meta.v1.SeatGateway.Attach:output_type -> meta.v1.GatewayMsg
+	23, // 82: meta.v1.SeatAdopt.Adopt:output_type -> meta.v1.AdoptAck
+	40, // 83: meta.v1.Board.SeatBoard:output_type -> meta.v1.BoardFrame
+	28, // 84: meta.v1.AdminGateway.CreateTicket:output_type -> meta.v1.Ack
+	28, // 85: meta.v1.AdminGateway.Dispatch:output_type -> meta.v1.Ack
+	28, // 86: meta.v1.AdminGateway.SetBudget:output_type -> meta.v1.Ack
+	30, // 87: meta.v1.AdminGateway.Budget:output_type -> meta.v1.BudgetMsg
+	29, // 88: meta.v1.AdminGateway.Phase:output_type -> meta.v1.PhaseMsg
+	35, // 89: meta.v1.AdminGateway.Events:output_type -> meta.v1.EventList
+	35, // 90: meta.v1.AdminGateway.EventsAfter:output_type -> meta.v1.EventList
+	37, // 91: meta.v1.AdminGateway.Runs:output_type -> meta.v1.RunList
+	38, // 92: meta.v1.AdminGateway.Observe:output_type -> meta.v1.ObsEvent
+	28, // 93: meta.v1.AdminGateway.RetroVerdict:output_type -> meta.v1.Ack
+	28, // 94: meta.v1.AdminGateway.Ping:output_type -> meta.v1.Ack
+	56, // 95: meta.v1.AdminGateway.IssueCeoToken:output_type -> meta.v1.CeoTokenResp
+	28, // 96: meta.v1.AdminGateway.SetTicketProject:output_type -> meta.v1.Ack
+	28, // 97: meta.v1.AdminGateway.Reconcile:output_type -> meta.v1.Ack
+	28, // 98: meta.v1.AdminGateway.PostMsg:output_type -> meta.v1.Ack
+	28, // 99: meta.v1.AdminGateway.InjectEvent:output_type -> meta.v1.Ack
+	31, // 100: meta.v1.CeoGateway.Events:output_type -> meta.v1.EventItem
+	27, // 101: meta.v1.CeoGateway.SubmitRequirement:output_type -> meta.v1.TicketRef
+	49, // 102: meta.v1.CeoGateway.Rule:output_type -> meta.v1.RuleAck
+	28, // 103: meta.v1.CeoGateway.Inquire:output_type -> meta.v1.Ack
+	51, // 104: meta.v1.CeoGateway.Memory:output_type -> meta.v1.MemoryOp
+	81, // [81:105] is the sub-list for method output_type
+	57, // [57:81] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_meta_v1_meta_proto_init() }
@@ -5587,6 +6054,7 @@ func file_meta_v1_meta_proto_init() {
 		(*SeatMsg_Rule)(nil),
 		(*SeatMsg_ExecReq)(nil),
 		(*SeatMsg_Admin)(nil),
+		(*SeatMsg_Session)(nil),
 	}
 	file_meta_v1_meta_proto_msgTypes[1].OneofWrappers = []any{
 		(*GatewayMsg_Ticket)(nil),
@@ -5597,6 +6065,7 @@ func file_meta_v1_meta_proto_init() {
 		(*GatewayMsg_Ack)(nil),
 		(*GatewayMsg_ExecResp)(nil),
 		(*GatewayMsg_AdminResp)(nil),
+		(*GatewayMsg_Feed)(nil),
 	}
 	file_meta_v1_meta_proto_msgTypes[19].OneofWrappers = []any{
 		(*SeatAdmin_FillSpec)(nil),
@@ -5625,7 +6094,7 @@ func file_meta_v1_meta_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_meta_v1_meta_proto_rawDesc), len(file_meta_v1_meta_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   71,
+			NumMessages:   77,
 			NumExtensions: 0,
 			NumServices:   5,
 		},
