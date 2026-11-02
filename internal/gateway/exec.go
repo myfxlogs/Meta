@@ -181,9 +181,9 @@ func (g *Gateway) handleExec(ctx context.Context, st *runState, stream pbv1.Seat
 }
 
 // runExecStep 执行一步：干净 clone（runner 以网关用户自 clone 交付 ref）→
-// 三径代跑：container_image 置→docker 容器笼（票0029：不可信码进笼非切用户）；
-// run_as==网关用户→env 直跑（同用户短路——meta 配方五步自此零 sudoers）；
-// 余→遗留 sudo -n -u <run_as>（异用户且无笼形制，他项目可用）。cwd=clone→
+// 两径代跑＋一拒：container_image 置→docker 容器笼（票0029：不可信码进笼
+// 非切用户）；run_as==网关用户→env 直跑（同用户短路）；异用户无笼→deny
+// （票0031：遗留 sudo 径退役——SudoBin 配置仅作历史占位不再消费）。cwd=clone→
 // 一次性闹钟杀→退码+输出文件+尾段+diff 文件清单→cmd_run+exec 事件。
 func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Project, sb *pbv1.SandboxSpec, step, cmdline, runAs, ref string) *pbv1.ExecResp {
 	tid := st.run.TicketID
@@ -250,10 +250,10 @@ func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Projec
 		argv = append(argv, "bash", "-lc", cmdline)
 		cmd = exec.CommandContext(ctx, "env", argv...)
 	default:
-		// 遗留 sudo 径（票0010）：异 run_as 且无笼形制——其他项目配方可用。
-		argv := append([]string{"-n", "-u", runAs, "--", "env"}, envs...)
-		argv = append(argv, "bash", "-lc", cmdline)
-		cmd = exec.CommandContext(ctx, g.cfg.SudoBin, argv...)
+		// 票0031：遗留 sudo 径退役（决策87 P1）——异用户无笼形制一律拒：
+		// 收编后只余两径（容器笼/同用户短路），sudoers 授权面自此清零。
+		// 对抗性锚提名行：本 deny 分支——删则 legacy sudo 复活可达。
+		return rec(-1, "", "", "", "legacy-sudo 径已退役：异用户步须配 step_container_image 笼或 run_as=网关用户")
 	}
 	cmd.Dir = workDir
 	cmd.Stdout, cmd.Stderr = outf, outf

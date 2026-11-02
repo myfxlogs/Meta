@@ -112,12 +112,18 @@ func stubProject(id string) db.Project {
 		DeployCmd:    "echo deploy-ok; git init -q .; echo x > artifact.txt",
 		ProbeCmd:     "echo probe-ok",
 		RollbackCmd:  "echo rollback-ok",
-		SandboxSpec: `run_as: "seatrun"
-step_run_as { key: "integrate" value: "owner" }
-step_run_as { key: "deploy" value: "owner" }
-step_run_as { key: "probe" value: "owner" }
-step_run_as { key: "rollback" value: "owner" }`,
+		SandboxSpec: stubSandboxSpec(),
 	}
+}
+
+// stubSandboxSpec 票0031：legacy sudo 退役后测试配方全走同用户短路——
+// run_as=当前用户（seatrun/owner 等异用户步已属 deny 径，见 TestDeploy_LegacyDenied）。
+func stubSandboxSpec() string {
+	me, err := user.Current()
+	if err != nil {
+		return `run_as: "nobody-should-not-resolve"`
+	}
+	return fmt.Sprintf(`run_as: %q`, me.Username)
 }
 
 // sudoStub 伪 sudo：log argv 落盘后剥 -n/-u/-- 前缀真跑命令；exit!=0 则剥壳即退。
@@ -420,19 +426,21 @@ func TestDeploy_LockRebuildDB(t *testing.T) {
 	}
 }
 
-// TestDeploy_RunAs 锚6：stub sudo 捕 argv——check=-u seatrun（缺省），
-// integrate/deploy/probe=-u owner（按步覆盖）；sudo -n 非零退→退码入 cmd_run
-// ＋exec 事件，不静默降级。
-func TestDeploy_RunAs(t *testing.T) {
+// TestDeploy_LegacyDenied 票0031 锚（对抗锚＝legacy 径不可达）：异用户
+// 且无笼形制的步一律 deny——exec_resp 退码 -1＋deny note 入账；sudoStub
+// 零调用（sudo-argv.log 不出生）。删 deny 分支→legacy sudo 复活→本锚红。
+func TestDeploy_LegacyDenied(t *testing.T) {
 	dir := t.TempDir()
-	sudo := sudoStub(t, dir, 0)
 	g, gdir := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(dir)
-		c.SudoBin = sudo
+		c.SudoBin = sudoStub(t, dir, 0)
 	})
 	_ = gdir
 	ctx := context.Background()
-	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
+	proj := stubProject("P")
+	proj.SandboxSpec = `run_as: "seatrun"
+step_run_as { key: "integrate" value: "owner" }`
+	if err := g.DB().UpsertProject(ctx, proj); err != nil {
 		t.Fatal(err)
 	}
 	mkToDeploy(t, g, "ts", "P")
@@ -444,64 +452,19 @@ func TestDeploy_RunAs(t *testing.T) {
 	d.claim(t, "ts")
 	waitPhase(t, g, "ts", db.PhaseDeploying, 5*time.Second)
 	for _, s := range []string{"integrate", "check", "deploy", "probe"} {
-		if r := d.exec(t, s, ""); r.ExitCode != 0 {
-			t.Fatalf("step %s: %+v", s, r)
+		r := d.exec(t, s, "")
+		if r.ExitCode != -1 || !strings.Contains(r.Note, "legacy-sudo 径已退役") {
+			t.Fatalf("step %s 应 deny（legacy 退役）: %+v", s, r)
 		}
 	}
-	log, err := os.ReadFile(filepath.Join(dir, "sudo-argv.log"))
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(dir, "sudo-argv.log")); !os.IsNotExist(err) {
+		t.Fatal("legacy 径竟调 sudo——退役未生效")
 	}
-	want := map[string]string{"integrate": "owner", "check": "seatrun",
-		"deploy": "owner", "probe": "owner"}
-	for step, user := range want {
-		line := ""
-		for _, ln := range strings.Split(string(log), "\n") {
-			if strings.Contains(ln, "META_EXEC_STEP="+step) && strings.Contains(ln, "bash") {
-				line = ln
-			}
-		}
-		if !strings.Contains(line, "-u "+user+" ") {
-			t.Fatalf("step %s run_as 应 %s: %q", step, user, line)
-		}
+	crs, _ := g.DB().CmdRuns(ctx, "ts")
+	if len(crs) != 4 {
+		t.Fatalf("deny 步应入 cmd_run 留痕: %+v", crs)
 	}
 	_ = d.stream.CloseSend()
-
-	// sudo -n 失：非零退→退码入 cmd_run＋exec 事件＝fail loud。
-	dir2 := t.TempDir()
-	sudo2 := sudoStub(t, dir2, 3)
-	g2, _ := newTestGateway(t, func(c *Config) {
-		*c = dispatchCfg(dir2)
-		c.SudoBin = sudo2
-	})
-	if err := g2.DB().UpsertProject(ctx, stubProject("P")); err != nil {
-		t.Fatal(err)
-	}
-	mkToDeploy(t, g2, "tx", "P")
-	if err := g2.DispatchSeat(ctx, "tx", "CTO", deploySpec(t)); err != nil {
-		t.Fatal(err)
-	}
-	run2 := waitRun(t, g2, "tx", "CTO")
-	d2 := driveSeat(t, g2, dir2, run2)
-	d2.claim(t, "tx")
-	waitPhase(t, g2, "tx", db.PhaseDeploying, 5*time.Second)
-	r2 := d2.exec(t, "check", "")
-	if r2.ExitCode != 3 {
-		t.Fatalf("sudo 非零退应透传=3: %+v", r2)
-	}
-	crs, _ := g2.DB().CmdRuns(ctx, "tx")
-	if len(crs) != 1 || crs[0].ExitCode != 3 {
-		t.Fatalf("cmd_run 未记 sudo 非零退: %+v", crs)
-	}
-	var sawExec bool
-	evs, _ := g2.DB().Events(ctx, "tx")
-	for _, e := range evs {
-		sawExec = sawExec || e.Kind == "exec"
-	}
-	if !sawExec {
-		t.Fatal("sudo 失无 exec 事件——静默降级")
-	}
-	_ = d2.stream.CloseSend()
 }
 
 // TestDeploy_SeatDeadD2 锚7/D-2：部署中席死→deploy_failed 边＋note 含
