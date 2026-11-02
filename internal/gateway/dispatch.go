@@ -91,10 +91,23 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 		if role == "审计" && t.Phase != db.PhaseReview {
 			return fmt.Errorf("dispatch: 相位 %s 不可派审计（必须 待审）", t.Phase)
 		}
+		// D-55：巡检席只属 patrol-* 值班票——杂票派巡检会被机械走边
+		// 推进已派，相位污染（adjunct 径在另一支不受影响）。
+		if role == "巡检" && !strings.HasPrefix(ticketID, "patrol-") {
+			return fmt.Errorf("dispatch: 巡检角色只派 patrol-* 票")
+		}
 		if r, err := g.database.ActiveRunForTicketRole(ctx, ticketID, role); err != nil {
 			return err
 		} else if r != nil {
 			return fmt.Errorf("dispatch: 票 %s 该角色 %s 已有活席 %s", ticketID, role, r.RunID)
+		}
+		// D-55：非 adjunct 席全票唯一（相位机单行动者）——同角色闸
+		// 放行异角色双席：req-f88 设计席+错派施工席并存实证，双席
+		// 在席后一切角色/相位派生判定全部被污染。
+		if r, err := g.database.ActiveRunForTicket(ctx, ticketID); err != nil {
+			return err
+		} else if r != nil {
+			return fmt.Errorf("dispatch: 票 %s 已有活非 adjunct 席 %s role=%s", ticketID, r.RunID, r.Role)
 		}
 		deployBranch := false
 		if role == "CTO" {

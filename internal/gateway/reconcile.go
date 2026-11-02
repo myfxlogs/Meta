@@ -60,6 +60,29 @@ func (g *Gateway) reconcile(ctx context.Context) {
 			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
 		}
 	}
+	// D-55 孤儿收尸：行动者对账只覆盖票上相位行动者——adjunct 席与
+	// 终态票残留席 pid 死后 dead=0 永续悬挂，adjunct 去重闸还会拿
+	// 尸体永久挡新席派发（巡检 adjunct pid 死两行挂 dead=0 实证）。
+	// 非 adjunct 相位行动者已由上方票环处置（回队语义在），此处只收
+	// 票环漏网的：adjunct 席 + 终态/无票席。
+	runs, err := g.database.ActiveRuns(ctx)
+	if err == nil {
+		for _, r := range runs {
+			if r.PID <= 0 || processAlive(r.PID) {
+				continue
+			}
+			_ = g.database.MarkDead(ctx, r.RunID)
+			killRunGroup(r.PID)
+			kind := "seat_dead"
+			if r.Adjunct {
+				kind = "adjunct_dead"
+			}
+			_ = g.database.AppendEvent(ctx, r.TicketID, kind, db.Event{
+				Actor: "gateway", Note: "对账收尸: pid 已死 " + r.RunID,
+			})
+			g.emit(Event{Kind: kind, TicketID: r.TicketID, RunID: r.RunID, Role: r.Role})
+		}
+	}
 	// B1 设计锁启动重建（§1.8）：设计链在途票（设计中/已派/施工中）且有
 	// 活 CTO run 者照相位恢复持锁——run 已死者随回队径自然不占（锁语义
 	// ＝持锁票离开施工中/终态释放，见 transition）。
@@ -123,6 +146,9 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	}
 	if run != nil {
 		_ = g.database.MarkDead(ctx, run.RunID)
+		// D-55：标死连坐杀进程组——只改库行时错配席进程照跑烧 token
+		// （req-f88 错派施工席标死后仍在跑的实证）。
+		killRunGroup(run.PID)
 	}
 	var to db.Phase
 	var kind db.EdgeKind
@@ -130,14 +156,15 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	case db.PhaseWorking:
 		to, kind = db.PhaseAssigned, db.EdgeRequeue
 		// D-51/54：施工中相位混三类行动者——CTO 设计席（req*/设计票）、
-		// 施工席、巡检席（patrol-*）。行动者角色真源＝活 run 或票首行
+		// 施工席、巡检席（patrol-*）。行动者角色真源＝活 run 或最近
 		// 非 adjunct run（相位推角色一律回已派补施工＝req-f88/巡检票
-		// 双实证错配）。CTO→回 已立 补 CTO-A；巡检→回已派补巡检
+		// 双实证错配；取最近不取最早——票合法换角色后最早行是过期
+		// 血统）。CTO→回 已立 补 CTO-A；巡检→回已派补巡检
 		// （补发角色由 patrol- 前缀行给出）；余→施工。
 		actorRole := ""
 		if run != nil {
 			actorRole = run.Role
-		} else if er, err := g.database.EarliestRunForTicket(ctx, t.ID); err == nil && er != nil {
+		} else if er, err := g.database.LatestRunForTicket(ctx, t.ID); err == nil && er != nil {
 			actorRole = er.Role
 		}
 		switch actorRole {

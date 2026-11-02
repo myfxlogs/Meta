@@ -47,11 +47,31 @@ type Config struct {
 type Engine struct {
 	cfg         Config
 	table       *pbv1.RouteTable
+	routesMtime time.Time      // 已载路由表文件 mtime——resync 前比对重载
 	configRoot  string
 	wmPath      string
 	wm          int64
 	fastForward bool           // 水位文件缺失首跑：只推位不动作（§4 快进模式）
 	dnSeen      map[dnKey]bool // 单次 resync 批内 (kind,ticket) 已报——回落降噪只报首枚
+}
+
+// reloadTableIfChanged 路由文件 mtime 变即重载——caster 原本只在启动
+// 装表，改表不重启＝持旧表路由（D-53：CTO-A/B 拆行入表 50 分钟、实例
+// 仍按旧泛 CTO 行把设计席提示渲成部署卡的实证）。每次 resync 前 stat
+// 一次，无磁盘风暴（resync 本身事件驱动）。
+func (e *Engine) reloadTableIfChanged() {
+	fi, err := os.Stat(e.cfg.RoutesPath)
+	if err != nil || !fi.ModTime().After(e.routesMtime) {
+		return
+	}
+	table, err := LoadTable(e.cfg.RoutesPath)
+	if err != nil {
+		e.cfg.Logf("路由表重载失败(沿用旧表): %v", err)
+		return
+	}
+	e.table = table
+	e.routesMtime = fi.ModTime()
+	e.cfg.Logf("路由表已重载: %s", e.cfg.RoutesPath)
 }
 
 // dnKey default_notify 批内去重键。
@@ -102,6 +122,9 @@ func New(cfg Config) (*Engine, error) {
 	e := &Engine{cfg: cfg, table: table,
 		configRoot: filepath.Dir(cfg.RoutesPath),
 		wmPath:     filepath.Join(cfg.StateDir, "watermark"),
+	}
+	if fi, err := os.Stat(cfg.RoutesPath); err == nil {
+		e.routesMtime = fi.ModTime()
 	}
 	if cfg.Logf == nil {
 		e.cfg.Logf = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "caster: "+f+"\n", a...) }
@@ -194,6 +217,7 @@ func (e *Engine) cycle(ctx context.Context) error {
 // 快进模式（水位文件缺失首跑）只推位不动作——不吃历史剩饭（§4）。
 func (e *Engine) resync(ctx context.Context, cli AdminClient) error {
 	e.dnSeen = map[dnKey]bool{} // 批内 (kind,ticket) 回落降噪集——每 resync 重置
+	e.reloadTableIfChanged()
 	for {
 		list, err := cli.EventsAfter(ctx, e.wm, 500)
 		if err != nil {

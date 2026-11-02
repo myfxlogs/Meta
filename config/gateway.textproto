@@ -92,7 +92,7 @@ filter_shell {                          # 两级过滤便宜壳：空 name＝关
   name: "opencode"
   batch_window { seconds: 30 }
   batch_max: 16
-  timeout { seconds: 90 }
+  timeout { seconds: 300 }              # opencode 起壳+推理 90s 必超时（degrade 实证×2）
 }
 shell { name: "claude"   role: "巡检" priority: 10 }
 shell { name: "devin"    model: "swe-2-max" role: "巡检" priority: 20 }

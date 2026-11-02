@@ -112,3 +112,11 @@ func randHex(n int) string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// killRunGroup 席进程整组 SIGKILL——spawn 走 Setpgid，杀负 pid 连坐
+// 壳的子进程；pid≤0（token run）或已退出吞错，幂等无害。
+func killRunGroup(pid int) {
+	if pid > 0 {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
+}
