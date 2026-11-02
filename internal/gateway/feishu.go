@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"strings"
 
 	"meta/internal/db"
 	"meta/internal/feishu"
@@ -21,6 +22,23 @@ func (g *Gateway) FeishuInbound(senderOpenID, text string) {
 	_ = g.database.AppendEvent(ctx, "", "feishu_inbound", db.Event{
 		Actor: "feishu", Note: text, Provenance: prov})
 	g.emit(Event{Kind: "feishu_inbound", Note: text, Provenance: prov})
+	// T22 评注挂票：入站文本含唯一在途票号→原句挂票内留言
+	// （票内留言段随派发/续会注入带走；多票号歧义不挂——留 CEO
+	// 入站径裁决，防误绑）。
+	if ts, err := g.database.NonTerminalTickets(ctx); err == nil {
+		hit := ""
+		n := 0
+		for _, t := range ts {
+			if strings.Contains(text, t.ID) {
+				hit, n = t.ID, n+1
+			}
+		}
+		if n == 1 {
+			_, _ = g.database.AppendMsg(ctx, hit, prov, text)
+			_ = g.database.AppendEvent(ctx, hit, "msg_posted", db.Event{
+				Actor: "gateway", Note: "飞书评注挂票 " + prov})
+		}
+	}
 }
 
 // FeishuChannel 凭证自解＋通道装配（不起环——测试/核检径可直调）。
