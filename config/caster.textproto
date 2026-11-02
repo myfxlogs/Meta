@@ -52,6 +52,7 @@ routes { kind: "spawn_needed" note_contains: "施工" note: "对账补发消费�
 # ——通知面（决策41 新格式）——
 routes { kind: "shell_limited" note: "壳限流/日限打穿（决策17 配额面）" actions { notify { template: "【Meta】⚠️{{note}}限流打穿——今日退席，明日自愈" } } }
 routes { kind: "claim"             actions { notify { template: "【Meta】{{role}}:接单[{{ticket_id}}]" } } }
+routes { kind: "project_set"       actions { notify { template: "【Meta】系统:项目挂接[{{ticket_id}}] {{note}}" } } }
 routes { kind: "shells_exhausted"  actions { notify { template: "【Meta】⚠️全壳耗尽[{{ticket_id}}]——换班链走完仍失败" } } }
 routes { kind: "dispatch"          actions { notify { template: "【Meta】系统:派单[{{ticket_id}}]" } } }
 routes { kind: "ruling"            actions { notify { template: "【Meta】{{role}}:裁决完毕[{{ticket_id}}]" } } }

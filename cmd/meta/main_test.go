@@ -223,6 +223,107 @@ func TestCLI_GlueE2E(t *testing.T) {
 	}
 }
 
+// TestCLI_ProjectLink 票0015 锚9：真网关 socket 上——
+// `meta ticket new --project`（已登记→落／未登记→拒票不立）、
+// `meta ticket set-project`（存量回填径→RPC→闸）、
+// `meta dispatch --project`（派发径挂接）、`meta require --project`（需求票挂接）。
+func TestCLI_ProjectLink(t *testing.T) {
+	d := t.TempDir()
+	sock := filepath.Join(d, "run", "meta.sock")
+	g, err := gateway.New(gateway.Config{
+		DBPath: filepath.Join(d, "meta.db"), RunDir: filepath.Join(d, "run"),
+		SocketPath: sock, SeatArgv: []string{"/bin/true"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go g.Serve()
+	defer g.Close()
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket 未起")
+		}
+		<-time.After(20 * time.Millisecond)
+	}
+	if err := g.DB().UpsertProject(ctx, db.Project{ID: "meta", DefaultBranch: "master"}); err != nil {
+		t.Fatal(err)
+	}
+	// ticket new --project：未登记→拒且票不立。
+	if err := ticketCmd([]string{"new", "--socket", sock, "--id", "bad", "--title", "x",
+		"--project", "nope"}); err == nil {
+		t.Fatal("未登记项目立票应拒")
+	}
+	if tk, _ := g.DB().GetTicket(ctx, "bad"); tk != nil {
+		t.Fatal("未登记拒后票不应立")
+	}
+	if err := ticketCmd([]string{"new", "--socket", sock, "--id", "tnew", "--title", "x",
+		"--project", "meta"}); err != nil {
+		t.Fatal("ticket new --project:", err)
+	}
+	if tk, _ := g.DB().GetTicket(ctx, "tnew"); tk == nil || tk.Project != "meta" {
+		t.Fatalf("ticket new --project 未落: %+v", tk)
+	}
+	// ticket set-project：存量回填径。
+	if err := g.DB().CreateTicket(ctx, "told", "存量票", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ticketCmd([]string{"set-project", "--socket", sock,
+		"--ticket", "told", "--project", "meta"}); err != nil {
+		t.Fatal("ticket set-project:", err)
+	}
+	if tk, _ := g.DB().GetTicket(ctx, "told"); tk.Project != "meta" {
+		t.Fatalf("set-project 未落: %+v", tk)
+	}
+	// dispatch --project：派发径挂接（新票派施工，相位走边到已派）。
+	if err := g.DB().CreateTicket(ctx, "tdsp", "派发票", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatchCmd([]string{"--socket", sock, "--ticket", "tdsp", "--role", "施工",
+		"--workdir", "/tmp", "--project", "meta"}); err != nil {
+		t.Fatal("dispatch --project:", err)
+	}
+	if tk, _ := g.DB().GetTicket(ctx, "tdsp"); tk.Project != "meta" {
+		t.Fatalf("dispatch --project 未落: %+v", tk)
+	}
+	// require --project：CEO 面（META_RUN_TOKEN＝真 CEO run）。
+	if err := g.DB().CreateRun(ctx, &db.Run{
+		RunID: "ceo-cli", Role: "CEO", RunToken: "tok-ceo", PID: 1,
+		SocketPath: filepath.Join(d, "run", "seats", "ceo.sock"),
+		Provenance: "terminal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("META_RUN_TOKEN", "tok-ceo")
+	if err := requireCmd([]string{"--socket", sock, "--goal", "需求挂项目",
+		"--project", "meta"}); err != nil {
+		t.Fatal("require --project:", err)
+	}
+	// 需求票 id 不知——按 project 查行存在性。
+	found := false
+	for _, tk := range mustNonTerminal(t, g) {
+		if tk.Project == "meta" && tk.ID != "tnew" && tk.ID != "told" && tk.ID != "tdsp" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("require --project 需求票未挂 meta")
+	}
+}
+
+func mustNonTerminal(t *testing.T, g *gateway.Gateway) []*db.Ticket {
+	t.Helper()
+	ts, err := g.DB().NonTerminalTickets(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ts
+}
+
 // TestImportLegacy_Parser 锚8 补强：importLegacy 解析器本体直测——fixture md
 // 两个决策块→两行（provenance 抽取）；二跑零增（kind+title 幂等）。
 func TestImportLegacy_Parser(t *testing.T) {

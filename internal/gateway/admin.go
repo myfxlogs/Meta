@@ -17,13 +17,28 @@ func (g *Gateway) CreateTicket(ctx context.Context, nt *pbv1.NewTicket) (*pbv1.A
 	if nt.Id == "" {
 		return nil, status.Error(codes.InvalidArgument, "id 空")
 	}
-	if err := g.database.CreateTicket(ctx, nt.Id, nt.Title, nt.Spec); err != nil {
+	// 立票径挂接（票0015）：校验登记先行——未登记即拒票不立；
+	// 过检则 project 与票行同 INSERT 原子落入。
+	if nt.Project != "" {
+		p, err := g.database.GetProject(ctx, nt.Project)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if p == nil {
+			return &pbv1.Ack{Ok: false,
+				Note: "项目 " + nt.Project + " 无配方登记——票不立"}, nil
+		}
+	}
+	if err := g.database.CreateTicketProv(ctx, nt.Id, nt.Title, nt.Spec, "", nt.Project); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	if nt.AttemptCap > 0 || nt.HardCap > 0 {
 		if err := g.database.SetBudgetCaps(ctx, nt.Id, nt.AttemptCap, nt.HardCap); err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
+	}
+	if nt.Project != "" {
+		g.emitProjectSet(ctx, nt.Id, nt.Project, "admin", "terminal")
 	}
 	return &pbv1.Ack{Ok: true}, nil
 }
@@ -38,6 +53,7 @@ func (g *Gateway) Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv1.Ac
 		PreferShell: req.PreferShell,
 		Adjunct:     req.Adjunct,
 		Provenance:  req.Provenance, // caster 透传触发事件行戳
+		Project:     req.Project,    // 派发径挂接（取锁闸之前 attachProject）
 	})
 	if err != nil {
 		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
@@ -176,6 +192,19 @@ func (g *Gateway) IssueCeoToken(ctx context.Context, _ *pbv1.CeoTokenReq) (*pbv1
 	_ = g.database.AppendEvent(ctx, "", "ceo_token", db.Event{
 		Actor: "gateway", Note: "交互面开 run " + run.RunID, Provenance: "terminal"})
 	return &pbv1.CeoTokenResp{RunId: run.RunID, RunToken: run.RunToken}, nil
+}
+
+// SetTicketProject 存量回填/显式挂接径（票0015）：attachProject 五判闸——
+// 未登记/部署中/终态/换挂全拒，同值幂等 ok 无重复事件。挂接只加不换；
+// `meta ticket set-project` 是存量票唯一合法写径（CLI→RPC→网关，不破唯一写者）。
+func (g *Gateway) SetTicketProject(ctx context.Context, r *pbv1.TicketProjectReq) (*pbv1.Ack, error) {
+	if r.TicketId == "" || r.Project == "" {
+		return nil, status.Error(codes.InvalidArgument, "ticket_id/project 必填")
+	}
+	if err := g.attachProject(ctx, r.TicketId, r.Project, "admin", "terminal"); err != nil {
+		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
+	}
+	return &pbv1.Ack{Ok: true}, nil
 }
 
 func (g *Gateway) Runs(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.RunList, error) {
