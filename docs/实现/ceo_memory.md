@@ -608,3 +608,13 @@
 - **剩余唯一硬结**：sudoers 行——配方四步 run_as=mluser 也走 `sudo -n -u`，无行全步红。业主亲手件：`/etc/sudoers.d/meta-runner` 需放 `mluser ALL=(metaseat) NOPASSWD: /usr/bin/sudo`＋`mluser ALL=(mluser) NOPASSWD: /usr/bin/sudo`（本机会话实证：exec.go 恒走 sudo 无身份短路）
 - 16 张待部署票代码已全在主干——闸一通即「核实即完成」批过
 署名：devin/SWE-2-Max（业主上身·对话态，接 claude 离线残局）
+
+### 决策 80：容器笼替 sudoers——部署闸零授权落地（票0029）
+- 触发：业主判 sudoers 涉安全→问「o项目/归档版为何不要」→实证归档版把安检外包 GitHub CI、本地零未验码执行故零隔离需求；本版自托管无 CI 层，须自造笼
+- 选型实证：bwrap 被 Ubuntu 24.04 `apparmor_restrict_unprivileged_userns=1` 拦死；docker 现成（mluser∈docker 组＋daemon 29.3.0＋`golang:1.27-alpine` 已拉＝零新增授权零拉取）
+- 落地：exec 三分支（step_container_image 步→docker 笼 meta-sandbox internal 网/lo 通无外通/模块缓存 ro 加料门/--user 同 uid/超时 rm -f 扫孤儿；run_as==网关用户→env 直跑；余→遗留 sudo 他项目用）；clone 归网关用户；pb 重生成；三锚全绿含对抗面；199 测全过
+- **sudoers 永久退役**：从未落过一行授权即取消；metaseat 用户业主已删（userdel -r，含 4 个旧测试僵尸）——隔离责任完整移交容器笼
+- **热更新坑**：project 种子只补不覆盖——DB 配方行 sandbox_spec 手工 UPDATE 带笼（D-48 配方写径债实证又添一例）
+- 票面偏差申报：container_image 由标量细化 `step_container_image` map（按步置笼是票面本意）；GOFLAGS=-buildvcs=false 容器内 git 属主链——VCS 戳损失已申报
+- 票 29 走完整生命周期当首验：交付席→审计席→部署席真过闸（check 真在容器跑 build/vet/test），过则 16 张存量票「核实即完成」开闸
+署名：devin/SWE-2-Max（业主上身·对话态）
