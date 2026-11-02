@@ -27,8 +27,8 @@ shell { name: "claude"   role: "CTO" priority: 20 }
 shell { name: "opencode" role: "CTO" priority: 30 attempt_cap: 8000000 }
 
 # 项目配方种子（票0010 部署闸）：meta 自举首个被部署项目。
-# run_as 诚实妥协（设计-0007 §1.8/§11）：check 步跑票代码＝不可信→metaseat；
-# integrate/deploy/probe/rollback 是仓内固定件（git/换装/socket）→按步覆盖 mluser。
+# 票0029：check 步跑票代码＝不可信→docker 容器笼（metaseat 用户已删——uid 切
+# 径退役）；余四步仓内固定件（git/换装/socket）→mluser 直跑零 sudoers。
 project {
   id: "meta"
   repo_url: "/opt/meta"
@@ -39,7 +39,7 @@ project {
   probe_cmd: "bash /opt/meta/scripts/meta-probe.sh"
   rollback_cmd: "echo rollback: 本部署无破坏可回（merge 已并历史不回退——ORIG_HEAD 陈旧指针会错伤他票顶提交，实证见决策81；二进制回退由 upgrade 自检兜底件）"
   sandbox {
-    run_as: "metaseat"
+    run_as: "mluser"
     step_run_as { key: "integrate" value: "mluser" }
     step_run_as { key: "deploy"    value: "mluser" }
     step_run_as { key: "probe"     value: "mluser" }

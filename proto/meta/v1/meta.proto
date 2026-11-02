@@ -42,6 +42,8 @@ service AdminGateway {
   rpc IssueCeoToken(CeoTokenReq) returns (CeoTokenResp); // `meta ceo` 交互面开 run：provenance=terminal
   rpc SetTicketProject(TicketProjectReq) returns (Ack);  // 票→项目挂接/存量回填径（attachProject 五判闸，meta ticket set-project）
   rpc Reconcile(Empty) returns (Ack);        // 手动对账径（改路由表后滞留补发；同启动对账，幂等）
+  rpc PostMsg(MsgReq) returns (Ack);         // 票内留言入站（票0030 续传）：落 ticket_msg＋活席直投 feed
+  rpc InjectEvent(EventReq) returns (Ack);   // 外部事件注入径（票0030 巡检心跳等：systemd timer→meta inject）
 }
 
 // CEO 面（总设计 §12 钦定五 RPC）。一切请求带 run_token——首验 role=CEO 活 run；
@@ -67,6 +69,7 @@ message SeatMsg {
     Rule rule = 9; // 裁决回流帧（adjunct 裁决席专用，§1.4）
     ExecReq exec_req = 10; // 命令代跑请求（部署闸：role=CTO+票相位=部署中+非 adjunct，缺一即拒）
     SeatAdmin admin = 11; // 立票/填spec/派工帧（role==CTO 非 adjunct 机械闸，§1.5）
+    Session session = 12;  // 壳会话 id 上报（票0030 续传：适配器流内捕到即报，落 seat_run.session_id）
   }
 }
 
@@ -80,6 +83,7 @@ message GatewayMsg {
     Ack ack = 6; // Deliver 回执：席位等执再退，防尾帧丢在传输缓冲
     ExecResp exec_resp = 7; // 代跑回执：退码+输出路径+尾段（cmd_run 同文）
     Ack admin_resp = 8; // SeatAdmin 回执
+    Feed feed = 9;     // 票内留言直投（票0030）：票上活席顺流收下，seat 落 $META_ART_DIR/inbox.log
   }
 }
 
