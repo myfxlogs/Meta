@@ -84,3 +84,4 @@ default_notify {
   kinds: "ceo_last_resort" kinds: "yield"              kinds: "req_pending"
   kinds: "design_dead"     kinds: "budget_warn"
 }
+routes { kind: "shells_degraded" note: "单壳降级换壳（T3 判决补——处置不静默 E18）" actions { notify { template: "【Meta】壳降级[{{ticket_id}}]——单壳让位换壳，不杀席" } } }
