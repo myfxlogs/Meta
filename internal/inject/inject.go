@@ -139,6 +139,25 @@ func Assemble(in Input) (string, error) {
 	b.WriteString("## 五、技能库索引（docs/技能库/——成套打法，在用证错同票必修）\n\n")
 	writeIndex(&b, skillIdx)
 
+	// 判例前置（票0037-p2）：只插施工席——其他 Role 产物字节不变（禁线）。
+	// 非空判据 len(hits)>0 是对抗锚提名位：翻成 ==0 或删本段调用→用例必红。
+	if in.Role == "施工" {
+		if hits := precedents(in.Spec.GetGoal(), in.Spec.GetScope(), in.Root); len(hits) > 0 {
+			b.WriteString("## 判例前置（按票面关键词机械命中——同类坑档先读再动码）\n\n")
+			top := hits
+			if len(top) > 3 {
+				top = top[:3]
+			}
+			for _, h := range top {
+				fmt.Fprintf(&b, "- %s — %s\n", h.Path, h.Summary)
+			}
+			if len(hits) > 3 {
+				b.WriteString("- 命中过多仅列前3——余者见两库全量索引（本提示四/五两段）\n")
+			}
+			b.WriteString("\n")
+		}
+	}
+
 	fmt.Fprintf(&b, "## 六、工作目录\n\n%s\n\n", in.Root)
 
 	// D-32 交付哨兵机械末行（令#E15 首个适用——完工没喊交货＝席死径）：
