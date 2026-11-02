@@ -16,6 +16,16 @@ CHECK_SOCK=${META_GATEWAY_SOCK:-/opt/meta/run/meta.sock}
 
 mkdir -p bin
 stamp="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)-deploy"
+
+# 幂等闸（票0029 续·决策82 实证）：装着的二进制已＝master 现状→跳过构建
+# 换装重启直接退 0——重启会杀部署席自身流（收养单次握手窗口竞态），
+# 非必要不重启；存量票核实即完成径全走本短路。
+cur="$("$INSTALL" version 2>/dev/null | awk '{print $2}')"
+if [ "$cur" = "$stamp" ]; then
+	echo "meta-deploy: 已在 $stamp——幂等跳过换装重启"
+	exit 0
+fi
+
 go build -ldflags "-X main.buildStamp=${stamp}" -o "$NEW_BIN" ./cmd/meta
 
 # upgrade 三件套：预检 version→prev 快照→原子晋升→重启→socket 自检，
