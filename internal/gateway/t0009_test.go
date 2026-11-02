@@ -157,7 +157,8 @@ func TestDispatch_席位级死因禁标壳(t *testing.T) {
 			if err := g.DispatchSeat(ctx, "tx", "施工", exitcodeSpec(t, code)); err != nil {
 				t.Fatal(err)
 			}
-			// 三候选全部席位级秒退→shells_exhausted 收口（每候选各一 seat_err）。
+			// 三候选全部席位级秒退→T26 降级径清 failSet 重试一轮→再尽
+			// shells_degraded 收口（两轮×三候选＝每轮各一 seat_err）。
 			waitEvent(t, g, "shells_degraded", "tx", 15*time.Second)
 			nErr := 0
 			evs, _ := g.DB().Events(ctx, "tx")
@@ -169,8 +170,8 @@ func TestDispatch_席位级死因禁标壳(t *testing.T) {
 					}
 				}
 			}
-			if nErr != 3 {
-				t.Fatalf("seat_err 行数=%d 预期 3（三候选各一）", nErr)
+			if nErr != 6 {
+				t.Fatalf("seat_err 行数=%d 预期 6（两轮×三候选各一）", nErr)
 			}
 			assertNoShellBlame(t, g, "tx")
 		})

@@ -825,6 +825,9 @@ func (g *Gateway) onTerminal(ticketID string) {
 	delete(g.failSet, ticketID)
 	delete(g.warned, ticketID)
 	delete(g.frozen, ticketID)
+	delete(g.degradedRetried, ticketID) // T26：降级重试账随终态清
+	delete(g.stallFalls, ticketID)      // T26：处决计数随终态清
+	delete(g.cloneLocks, ticketID)      // T26：克隆互斥随终态清
 	g.mu.Unlock()
 	g.cancelAlarm(ticketID)
 }

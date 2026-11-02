@@ -206,6 +206,12 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 				"对账排干：META_DEPLOY:done 在盘（席死）") {
 				return
 			}
+		case sentinel == "" && g.deployStepsDone(ctx, t.ID):
+			// T26 病4：哨兵蒸发/席死径绕开判定——四步 cmd_run 账齐即落。
+			if g.deployDone(ctx, t.ID,
+				"对账账判：四步 cmd_run 齐绿（哨兵缺席不挡收口）") {
+				return
+			}
 		case sentinel == "" && g.deployStateOK(ctx, t.ID):
 			if g.deployDone(ctx, t.ID,
 				"对账态判：已装+socket健康→deploy_ok") {

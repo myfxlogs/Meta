@@ -70,6 +70,41 @@ func (g *Gateway) deployDone(ctx context.Context, tid, note string) bool {
 	return true
 }
 
+// deployStepsDone T26 病4 完成态判事件化：四步配方（integrate/check/
+// deploy/probe）各最近一次 cmd_run 全 exit=0＝部署实成——持久账跨
+// restart 存活，证据不依赖席位存活/哨兵尾帧（「席死径绕开判定」与
+// 「死席哨兵蒸发」两病的公共根：完成证据绑在席载体上）。
+func (g *Gateway) deployStepsDone(ctx context.Context, tid string) bool {
+	runs, err := g.database.CmdRuns(ctx, tid)
+	if err != nil {
+		return false
+	}
+	last := map[string]int{}
+	for _, r := range runs {
+		last[r.Step] = r.ExitCode // 后行盖前行＝最近行
+	}
+	for _, s := range []string{"integrate", "check", "deploy", "probe"} {
+		code, ok := last[s] // 缺步非零值——存在性判（漏判=缺步即算齐绿）
+		if !ok || code != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// maybeDeployDone 事件驱动完成收口（T26）：四步账齐＋相位仍 部署中→
+// deploy_done。幂等——相位已走即无操作。
+func (g *Gateway) maybeDeployDone(ctx context.Context, tid string) {
+	if !g.deployStepsDone(ctx, tid) {
+		return
+	}
+	p, err := g.database.PhaseOf(ctx, tid)
+	if err != nil || p != db.PhaseDeploying {
+		return
+	}
+	g.deployDone(ctx, tid, "四步配方齐绿（cmd_run 事件账收口——非席位依赖）")
+}
+
 // deployInstall 已装证据（机制二要件1 产出）：install＝装着位锚（已装行
 // → 段 或 META_INSTALL/部署脚本缺省位）；newBin＝已装行 <new> 段绝对化
 // 后（空＝无行锚，期戳走 code-head 次选源）；repo＝项目 repo_url（相对

@@ -511,6 +511,7 @@ message DispatchAction {
   string prefer_shell = 4;
   bool adjunct = 5;
   string project = 6;         // 派发径挂接口（字段留口；隐式挂接行为显式化前不进路由表行）
+  bool cli_drive = 7;         // T26：CLI 直驱席（seat-drive 机械四步——部署径钦定，透传 DispatchReq.cli_drive）
 }
 
 // ---------- 网关配置（D-9 出码外；帽值毛口径 D-27） ----------

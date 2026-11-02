@@ -47,7 +47,7 @@ type Config struct {
 type Engine struct {
 	cfg         Config
 	table       *pbv1.RouteTable
-	routesMtime time.Time      // 已载路由表文件 mtime——resync 前比对重载
+	routesMtime time.Time // 已载路由表文件 mtime——resync 前比对重载
 	configRoot  string
 	wmPath      string
 	wm          int64
@@ -318,6 +318,7 @@ func (e *Engine) execDispatch(ctx context.Context, cli AdminClient, row *pbv1.Ev
 		PreferShell: d.PreferShell,
 		Adjunct:     d.Adjunct,
 		Provenance:  row.Provenance, // D9：触发事件行的戳透传进 spawn（§1.3）
+		CliDrive:    d.CliDrive,     // T26：路由表钦定 CLI 直驱部署径
 	}
 	if d.PromptTemplate != "" {
 		body, err := os.ReadFile(filepath.Join(e.configRoot, d.PromptTemplate))

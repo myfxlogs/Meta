@@ -600,6 +600,12 @@ func (g *Gateway) onRunDead(st *runState) {
 			note = fmt.Sprintf("部署中席死：哨兵在盘 META_DEPLOY:failed——先核回滚态（前任 run=%s log=%s）",
 				st.run.RunID, st.run.LogPath)
 		default:
+			// T26 病4：哨兵蒸发时先查四步 cmd_run 账（持久跨 restart），
+			// 再落 deployStateOK 三要件——账齐即收口不依赖席位载体。
+			if g.deployStepsDone(ctx, st.run.TicketID) && g.deployDone(ctx,
+				st.run.TicketID, "席死径账判：四步 cmd_run 齐绿→deploy_ok") {
+				return
+			}
 			if g.deployStateOK(ctx, st.run.TicketID) && g.deployDone(ctx,
 				st.run.TicketID, "席死径态判：已装+socket健康→deploy_ok") {
 				return
