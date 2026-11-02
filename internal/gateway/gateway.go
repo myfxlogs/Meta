@@ -511,6 +511,39 @@ func (g *Gateway) armPatrolIdle() {
 	})
 }
 
+// batchDeployCheck 批量部署计数闸（T4/E17）：待部署≥5 或流水线清空
+// （非终态票中无 施工中/设计中）→ 逐张补 spawn_needed 到 CTO 部署支
+// ——事件驱动一次性，非周期扫描。
+func (g *Gateway) batchDeployCheck() {
+	ctx := context.Background()
+	ts, err := g.database.NonTerminalTickets(ctx)
+	if err != nil {
+		return
+	}
+	var pending []*db.Ticket
+	pipelineBusy := false
+	for _, t := range ts {
+		switch t.Phase {
+		case db.PhaseToDeploy:
+			pending = append(pending, t)
+		case db.PhaseWorking, db.PhaseDesigning:
+			pipelineBusy = true
+		}
+	}
+	if len(pending) < 5 && (pipelineBusy || len(pending) == 0) {
+		return
+	}
+	_ = g.database.AppendEvent(ctx, "", "batch_deploy", db.Event{
+		Actor: "gateway",
+		Note:  fmt.Sprintf("批量部署触发：待部署=%d 流水线忙=%v", len(pending), pipelineBusy)})
+	g.emit(Event{Kind: "batch_deploy", Note: fmt.Sprintf("待部署 %d 张批量触发", len(pending))})
+	for _, t := range pending {
+		_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
+			Actor: "gateway", Note: "对账补发: CTO-B 部署支（批部署）"})
+		g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
+	}
+}
+
 // subscribe/unsubscribe Observe 面订户口。
 func (g *Gateway) subscribe() chan Event {
 	ch := make(chan Event, 256)
@@ -590,6 +623,12 @@ func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, 
 		return err
 	}
 	g.emit(Event{Kind: "phase:" + string(kind), TicketID: ticketID})
+	// T4 批量部署开关（E17）：入 待部署 后计数——≥5 张或流水线清空
+	// （无 施工中/设计中）→ 逐张补发 spawn_needed 触发部署派发
+	// （B1 串行锁照走闸——计数从 ticket 表读零轮询）。
+	if to == db.PhaseToDeploy {
+		go g.batchDeployCheck()
+	}
 	// 项目部署锁随相位占用释放（B1）：出离 部署中 释 integrate+deploy。
 	// deploy_failed 的本票不补 spawn——回 待部署 归 CEO 裁。
 	if from == db.PhaseDeploying {

@@ -37,7 +37,7 @@ project {
   check_cmd: "export PATH=/usr/local/go/bin:$PATH && go build ./... && go vet ./... && go test -count=1 ./..."
   deploy_cmd: "bash /opt/meta/scripts/meta-deploy.sh"
   probe_cmd: "bash /opt/meta/scripts/meta-probe.sh"
-  rollback_cmd: "echo rollback: 本部署无破坏可回（merge 已并历史不回退——ORIG_HEAD 陈旧指针会错伤他票顶提交，实证见决策81；二进制回退由 upgrade 自检兜底件）"
+  rollback_cmd: "if git -C /opt/meta rev-parse -q --verify MERGE_HEAD >/dev/null; then git -C /opt/meta merge --abort && echo \"rollback: 半合并态已弃净\"; else echo \"rollback: 无 MERGE_HEAD 残留——显式告警，本部署无可回状态\"; fi"
   sandbox {
     run_as: "mluser"
     step_run_as { key: "integrate" value: "mluser" }

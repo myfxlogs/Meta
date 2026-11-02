@@ -504,9 +504,16 @@ func (g *Gateway) CeoRule(ctx context.Context, r *pbv1.Ruling) (*pbv1.RuleAck, e
 		// provenance 戳+署名（首航零写实证）。
 		content := fmt.Sprintf("决策：%s %s\n理由：%s\n署名：%s",
 			r.Action, r.TicketId, r.Note, run.RunID)
-		_, _ = g.database.PutMemory(ctx, "decision",
+		if _, merr := g.database.PutMemory(ctx, "decision",
 			fmt.Sprintf("rule %s %s", r.Action, r.TicketId),
-			[]byte(content), run.RunID, run.Provenance)
+			[]byte(content), run.RunID, run.Provenance); merr != nil {
+			// D-77：决策账写败不静默——fail-loud 事件＋回执带警示。
+			_ = g.database.AppendEvent(ctx, r.TicketId, "memory_write_failed", db.Event{
+				Actor: run.RunID, Note: "裁决落账败: " + merr.Error()})
+			g.emit(Event{Kind: "memory_write_failed", TicketID: r.TicketId,
+				Note: merr.Error()})
+			return ack(true, note+"（决策账写败，已 fail-loud 上报）"), nil
+		}
 		return ack(true, note), nil
 	}
 	switch r.Action {
