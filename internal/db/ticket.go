@@ -46,10 +46,14 @@ func (d *DB) CreateTicket(ctx context.Context, id, title string, spec []byte) er
 // 立票必须带戳——「业主指示」自此机检可查）。project 与票行同 INSERT 原子
 // 落入（票0015：登记校验由调用方先行——挂接只加不换见 attachProject）。
 func (d *DB) CreateTicketProv(ctx context.Context, id, title string, spec []byte, provenance, project string) error {
+	spec, err := validSpecBlob(spec)
+	if err != nil {
+		return fmt.Errorf("create ticket: %w", err)
+	}
 	now := d.now().UnixNano()
-	_, err := d.db.ExecContext(ctx,
+	_, err = d.db.ExecContext(ctx,
 		`INSERT INTO ticket (id, title, phase, spec, project, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
-		id, title, string(PhaseCreated), spec, project, now, now)
+		cargs(id, title, string(PhaseCreated), spec, project, now, now)...)
 	if err != nil {
 		return fmt.Errorf("create ticket: %w", err)
 	}
@@ -111,13 +115,13 @@ func (d *DB) Transition(ctx context.Context, id string, to Phase, kind EdgeKind,
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE ticket SET phase=?, updated_at=?,
 		 reject_count = reject_count + ? WHERE id=?`,
-		string(to), now, boolInt(kind == EdgeReject), id); err != nil {
+		cargs(string(to), now, boolInt(kind == EdgeReject), id)...); err != nil {
 		return 0, err
 	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO ticket_event (ticket_id, kind, from_phase, to_phase, actor, note, created_at)
 		 VALUES (?,?,?,?,?,?,?)`,
-		id, string(kind), from, string(to), actor, note, now)
+		cargs(id, string(kind), from, string(to), actor, note, now)...)
 	if err != nil {
 		return 0, err
 	}
@@ -177,7 +181,7 @@ func (d *DB) appendEvent(ctx context.Context, ticketID, kind string, from, to Ph
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO ticket_event (ticket_id, kind, from_phase, to_phase, actor, note, provenance, created_at)
 		 VALUES (?,?,?,?,?,?,?,?)`,
-		ticketID, kind, string(from), string(to), actor, note, provenance, d.now().UnixNano())
+		cargs(ticketID, kind, string(from), string(to), actor, note, provenance, d.now().UnixNano())...)
 	return err
 }
 
@@ -225,9 +229,13 @@ func (d *DB) LatestEventKind(ctx context.Context, ticketID string) (string, erro
 
 // UpdateSpec 回填票面 spec（席位流 admin fill_spec 帧落点；BLOB 直写）。
 func (d *DB) UpdateSpec(ctx context.Context, ticketID string, spec []byte) error {
-	_, err := d.db.ExecContext(ctx,
+	spec, err := validSpecBlob(spec)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.ExecContext(ctx,
 		`UPDATE ticket SET spec=?, updated_at=? WHERE id=?`,
-		spec, d.now().UnixNano(), ticketID)
+		cargs(spec, d.now().UnixNano(), ticketID)...)
 	return err
 }
 

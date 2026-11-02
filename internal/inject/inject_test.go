@@ -1,11 +1,15 @@
 package inject
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func fixtureInput(t *testing.T) Input {
@@ -126,6 +130,38 @@ func TestParseTicketMD_真票(t *testing.T) {
 	}
 	if !strings.Contains(spec.Goal, "注入机") || !strings.Contains(spec.Verify, "upgrade-drill") {
 		t.Fatalf("真票栏值漂移: goal=%q verify=%q", spec.Goal, spec.Verify)
+	}
+}
+
+// TestParseTicketMD_BadBytes 栏内毒字节收口（票0019 锚2）：票面栏值带
+// 非法 UTF-8→十字段全合法＋proto marshal 成（决策 67 十张毒 spec 源头）。
+func TestParseTicketMD_BadBytes(t *testing.T) {
+	raw, err := os.ReadFile("testdata/ticket.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := bytes.Replace(raw, []byte("fixture 目标行"),
+		[]byte("fixture 目标行\x80\xfftail"), 1)
+	spec, err := ParseTicketMD(bad)
+	if err != nil {
+		t.Fatalf("毒票面解析: %v", err)
+	}
+	fields := map[string]string{
+		"Goal": spec.Goal, "Why": spec.Why, "Scope": spec.Scope,
+		"OutOfScope": spec.OutOfScope, "Refs": spec.Refs, "Anchors": spec.Anchors,
+		"Verify": spec.Verify, "Deliver": spec.Deliver,
+		"Appendix": spec.Appendix, "Verdicts": spec.Verdicts,
+	}
+	for name, v := range fields {
+		if !utf8.ValidString(v) {
+			t.Fatalf("%s 含毒: %q", name, v)
+		}
+	}
+	if !strings.Contains(spec.Goal, "�") {
+		t.Fatalf("毒字节未替换: %q", spec.Goal)
+	}
+	if _, err := proto.Marshal(spec); err != nil {
+		t.Fatalf("spec marshal: %v", err)
 	}
 }
 

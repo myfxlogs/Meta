@@ -342,7 +342,9 @@ func tailOfFile(path string, n int64) string {
 	if _, err := f.Read(buf); err != nil && len(buf) == 0 {
 		return ""
 	}
-	return string(buf)
+	// 出口净化（决策 67 同族）：exec 输出原文可含毒字节，Tail 跨流 marshal
+	// 必炸——落 cmd_run/exec_resp 前收口。
+	return clean(string(buf))
 }
 
 func tailOf(s string, n int) string {

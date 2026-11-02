@@ -45,8 +45,8 @@ func (d *DB) UpsertProject(ctx context.Context, p Project) error {
 		 ON CONFLICT(id) DO UPDATE SET repo_url=excluded.repo_url, default_branch=excluded.default_branch,
 		   integrate_cmd=excluded.integrate_cmd, check_cmd=excluded.check_cmd, deploy_cmd=excluded.deploy_cmd,
 		   probe_cmd=excluded.probe_cmd, rollback_cmd=excluded.rollback_cmd, sandbox_spec=excluded.sandbox_spec`,
-		p.ID, p.RepoURL, p.DefaultBranch, p.IntegrateCmd, p.CheckCmd,
-		p.DeployCmd, p.ProbeCmd, p.RollbackCmd, p.SandboxSpec)
+		cargs(p.ID, p.RepoURL, p.DefaultBranch, p.IntegrateCmd, p.CheckCmd,
+			p.DeployCmd, p.ProbeCmd, p.RollbackCmd, p.SandboxSpec)...)
 	return err
 }
 
@@ -84,7 +84,7 @@ func (d *DB) SeedProject(ctx context.Context, p Project) (bool, error) {
 func (d *DB) SetTicketProject(ctx context.Context, id, project string) error {
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE ticket SET project=?, updated_at=? WHERE id=?`,
-		project, d.now().UnixNano(), id)
+		cargs(project, d.now().UnixNano(), id)...)
 	return err
 }
 
@@ -146,8 +146,8 @@ func (d *DB) InsertCmdRun(ctx context.Context, r *CmdRun) error {
 	res, err := d.db.ExecContext(ctx,
 		`INSERT INTO cmd_run (ticket_id, run_id, step, exit_code, out_path, tail, diff_files, created_at)
 		 VALUES (?,?,?,?,?,?,?,?)`,
-		r.TicketID, r.RunID, r.Step, r.ExitCode, r.OutPath, r.Tail, r.DiffFiles,
-		d.now().UnixNano())
+		cargs(r.TicketID, r.RunID, r.Step, r.ExitCode, r.OutPath, r.Tail, r.DiffFiles,
+			d.now().UnixNano())...)
 	if err != nil {
 		return err
 	}

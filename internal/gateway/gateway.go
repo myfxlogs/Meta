@@ -302,6 +302,11 @@ func (g *Gateway) DB() *db.DB { return g.database }
 func (g *Gateway) EventCh() <-chan Event { return g.events }
 
 func (g *Gateway) emit(e Event) {
+	// 事件字段净化（决策 67 D-45③）：emit 是进程内事件全出口——壳原文
+	// 尾段/毒 note 经此进 events 道与各订户流，带毒即 marshal 崩订户。
+	e.Kind, e.TicketID, e.RunID, e.Role, e.Note, e.Provenance =
+		clean(e.Kind), clean(e.TicketID), clean(e.RunID), clean(e.Role),
+		clean(e.Note), clean(e.Provenance)
 	g.mu.Lock()
 	frozen := g.frozen[e.TicketID]
 	obs := make([]chan Event, 0, len(g.observers))

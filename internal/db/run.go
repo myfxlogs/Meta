@@ -34,8 +34,8 @@ func (d *DB) CreateRun(ctx context.Context, r *Run) error {
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO seat_run (run_id, ticket_id, role, shell, pid, run_token, socket_path, log_path, started_at, adjunct, provenance)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		r.RunID, r.TicketID, r.Role, r.Shell, r.PID, r.RunToken, r.SocketPath, r.LogPath,
-		d.now().UnixNano(), boolInt(r.Adjunct), r.Provenance)
+		cargs(r.RunID, r.TicketID, r.Role, r.Shell, r.PID, r.RunToken, r.SocketPath, r.LogPath,
+			d.now().UnixNano(), boolInt(r.Adjunct), r.Provenance)...)
 	return err
 }
 
@@ -153,14 +153,14 @@ func (d *DB) scanRun(row *sql.Row) (*Run, error) {
 // MarkAttached 记席位连上时刻。
 func (d *DB) MarkAttached(ctx context.Context, runID string) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE seat_run SET attached_at=? WHERE run_id=?`, d.now().UnixNano(), runID)
+		`UPDATE seat_run SET attached_at=? WHERE run_id=?`, cargs(d.now().UnixNano(), runID)...)
 	return err
 }
 
 // MarkAdopted 记收养成功时刻。
 func (d *DB) MarkAdopted(ctx context.Context, runID string) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE seat_run SET adopted_at=? WHERE run_id=?`, d.now().UnixNano(), runID)
+		`UPDATE seat_run SET adopted_at=? WHERE run_id=?`, cargs(d.now().UnixNano(), runID)...)
 	return err
 }
 
@@ -168,27 +168,27 @@ func (d *DB) MarkAdopted(ctx context.Context, runID string) error {
 func (d *DB) MarkExited(ctx context.Context, runID string, code int) error {
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE seat_run SET exited_at=?, exit_code=? WHERE run_id=?`,
-		d.now().UnixNano(), code, runID)
+		cargs(d.now().UnixNano(), code, runID)...)
 	return err
 }
 
 // MarkStreamClosed 记流 EOF（socket 源）。
 func (d *DB) MarkStreamClosed(ctx context.Context, runID string) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE seat_run SET stream_closed=1 WHERE run_id=?`, runID)
+		`UPDATE seat_run SET stream_closed=1 WHERE run_id=?`, cargs(runID)...)
 	return err
 }
 
 // MarkDead 双源互证后判死。
 func (d *DB) MarkDead(ctx context.Context, runID string) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE seat_run SET dead=1 WHERE run_id=?`, runID)
+		`UPDATE seat_run SET dead=1 WHERE run_id=?`, cargs(runID)...)
 	return err
 }
 
 // UpdatePID 记子进程 pid（spawn 成功后回写）。
 func (d *DB) UpdatePID(ctx context.Context, runID string, pid int) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE seat_run SET pid=? WHERE run_id=?`, pid, runID)
+		`UPDATE seat_run SET pid=? WHERE run_id=?`, cargs(pid, runID)...)
 	return err
 }
