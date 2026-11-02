@@ -104,5 +104,5 @@ shell { name: "opencode" role: "巡检" priority: 30 attempt_cap: 8000000 note: 
 # 种子随部署生效，禁即刻生效钦定径不违）：
 seat_image: "golang:1.27"
 seat_net: "meta-seat"
-seat_mount_mask: "run"
+seat_mount_mask: "/opt/meta/run"
 seat_extra_mount: "run/logs:run/logs:ro"

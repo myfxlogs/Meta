@@ -57,6 +57,10 @@ type Config struct {
 	Projects    []*pbv1.ProjectSeed // 项目配方种子（同 id 行已存在不动——DB 行是活态）
 	SudoBin     string              // 代跑 sudo 路径；缺省 "sudo"
 	DockerBin   string              // 容器笼 docker 路径（票0029）；缺省 "docker"
+	SeatImage   string              // T10 席位笼镜像（空＝旧径活）
+	SeatNet     string              // T10 笼网
+	SeatMountMask  []string         // T10 tmpfs 遮罩
+	SeatExtraMount []string         // T10 额外挂载
 	ExecTimeout time.Duration       // 单步超时缺省（配方沙箱未声明时），缺省 15m
 
 	// CEO 面（票0011）：事件泵放行/无头唤起 kind 列与化身提示模板（决策54/E16）。

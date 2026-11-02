@@ -464,6 +464,17 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 	_ = os.MkdirAll(secDir, 0o700)
 	_ = os.Chmod(secDir, 0o700)
 	env = append(env, "META_SECRETS_DIR="+secDir)
+	// T10 笼透传（空＝旧径照活）：seat_image/net/mask/extra_mount 落 env。
+	for k, v := range map[string]string{
+		"META_SEAT_IMAGE":       g.cfg.SeatImage,
+		"META_SEAT_NET":         g.cfg.SeatNet,
+		"META_SEAT_MOUNT_MASK":  strings.Join(g.cfg.SeatMountMask, ","),
+		"META_SEAT_EXTRA_MOUNT": strings.Join(g.cfg.SeatExtraMount, ","),
+	} {
+		if v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
 	if spec.WorkDir != "" {
 		_ = os.Symlink(secDir, filepath.Join(spec.WorkDir, "seat-secrets"))
 	}
