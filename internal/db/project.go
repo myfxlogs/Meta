@@ -67,17 +67,56 @@ func (d *DB) GetProject(ctx context.Context, id string) (*Project, error) {
 	return &p, nil
 }
 
-// SeedProject 种行落点：同 id 行已存在即不动（DB 行是活态，同壳行种子）。
-// 返回 true＝本行是刚落的。
-func (d *DB) SeedProject(ctx context.Context, p Project) (bool, error) {
+// ProjectDrift 库内现值与 config 种子文面的全字段比对——返回漂移字段名
+// 清单（固定序即报表序）。cur nil＝行未落：初种非漂移，返空。
+// 真源归一（票0046）：config project{} 是钦定源，DB 行是它的启动投影——
+// 漂移即投影过期，由启动回种覆写归零。
+func ProjectDrift(cur, seed *Project) []string {
+	if cur == nil {
+		return nil
+	}
+	var out []string
+	if cur.RepoURL != seed.RepoURL {
+		out = append(out, "repo_url")
+	}
+	if cur.DefaultBranch != seed.DefaultBranch {
+		out = append(out, "default_branch")
+	}
+	if cur.IntegrateCmd != seed.IntegrateCmd {
+		out = append(out, "integrate_cmd")
+	}
+	if cur.CheckCmd != seed.CheckCmd {
+		out = append(out, "check_cmd")
+	}
+	if cur.DeployCmd != seed.DeployCmd {
+		out = append(out, "deploy_cmd")
+	}
+	if cur.ProbeCmd != seed.ProbeCmd {
+		out = append(out, "probe_cmd")
+	}
+	if cur.RollbackCmd != seed.RollbackCmd {
+		out = append(out, "rollback_cmd")
+	}
+	if cur.SandboxSpec != seed.SandboxSpec {
+		out = append(out, "sandbox_spec")
+	}
+	return out
+}
+
+// ReseedProject 启动回种：DB project 行＝config 种子文面的启动投影——
+// 行无→插；行在且漂→全列覆写；同文→幂等重写。返回漂移字段清单供上层
+// 落 project_recipe_sync 事件（空＝零漂或初种；cfg.Projects 空时本函数
+// 不被调用，既有行不清——回种不是清表）。
+func (d *DB) ReseedProject(ctx context.Context, p Project) ([]string, error) {
 	cur, err := d.GetProject(ctx, p.ID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	if cur != nil {
-		return false, nil
+	drift := ProjectDrift(cur, &p)
+	if err := d.UpsertProject(ctx, p); err != nil {
+		return nil, err
 	}
-	return true, d.UpsertProject(ctx, p)
+	return drift, nil
 }
 
 // SetTicketProject 给票配项目列（票0010：project 派发/锁键与配方查表的来源）。

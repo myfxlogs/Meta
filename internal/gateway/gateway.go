@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,14 +55,14 @@ type Config struct {
 	ReconcileDebounce time.Duration
 
 	// 部署闸（票0010，§10/B1/B2/D1）。
-	Projects    []*pbv1.ProjectSeed // 项目配方种子（同 id 行已存在不动——DB 行是活态）
-	SudoBin     string              // 代跑 sudo 路径；缺省 "sudo"
-	DockerBin   string              // 容器笼 docker 路径（票0029）；缺省 "docker"
-	SeatImage   string              // T10 席位笼镜像（空＝旧径活）
-	SeatNet     string              // T10 笼网
-	SeatMountMask  []string         // T10 tmpfs 遮罩
-	SeatExtraMount []string         // T10 额外挂载
-	ExecTimeout time.Duration       // 单步超时缺省（配方沙箱未声明时），缺省 15m
+	Projects       []*pbv1.ProjectSeed // 项目配方种子（票0046：钦定源——启动回种全列覆写，DB 行是文面投影）
+	SudoBin        string              // 代跑 sudo 路径；缺省 "sudo"
+	DockerBin      string              // 容器笼 docker 路径（票0029）；缺省 "docker"
+	SeatImage      string              // T10 席位笼镜像（空＝旧径活）
+	SeatNet        string              // T10 笼网
+	SeatMountMask  []string            // T10 tmpfs 遮罩
+	SeatExtraMount []string            // T10 额外挂载
+	ExecTimeout    time.Duration       // 单步超时缺省（配方沙箱未声明时），缺省 15m
 
 	// CEO 面（票0011）：事件泵放行/无头唤起 kind 列与化身提示模板（决策54/E16）。
 	CeoEvents     map[string]bool // Events 流放行 kind 集
@@ -80,10 +81,10 @@ type SubSeed struct {
 
 // FilterSpec 两级过滤便宜壳参数：Name 空＝过滤关（订阅命中全当信号）。
 type FilterSpec struct {
-	Name, Model  string
-	BatchWindow  time.Duration // 批收窗（首事件起一次性闹钟），缺省 20s
-	BatchMax     int           // 批满提前冲，缺省 20
-	Timeout      time.Duration // 单次过滤调用上限，缺省 120s
+	Name, Model string
+	BatchWindow time.Duration // 批收窗（首事件起一次性闹钟），缺省 20s
+	BatchMax    int           // 批满提前冲，缺省 20
+	Timeout     time.Duration // 单次过滤调用上限，缺省 120s
 }
 
 // ShellSeed 壳登记表种子一行（配置行→DB 活态行；attempt_cap 驻内存不持久化——
@@ -168,8 +169,8 @@ type runState struct {
 	adopted      bool
 	failReported bool // 失效已报账（reportShell 原子置位——同一死双径只记一次）
 
-	sendMu sync.Mutex                     // 座流发送互斥（ack/exec_resp/feed 并发安全）
-	stream pbv1.SeatGateway_AttachServer  // 票0030：存活 attach 流句柄（feed 直投径）
+	sendMu sync.Mutex                    // 座流发送互斥（ack/exec_resp/feed 并发安全）
+	stream pbv1.SeatGateway_AttachServer // 票0030：存活 attach 流句柄（feed 直投径）
 }
 
 func newRunState(run *db.Run) *runState {
@@ -230,9 +231,9 @@ type Gateway struct {
 	// （对账自产事件不再续命闹钟——否则滞留票 spawn_needed 每窗重放成
 	// 变相周期轮询，违 R2）；reconDirty＝busy 期非静默事件脏标（判决
 	// 返修：不丢不续命——对账收尾查脏再醒一轮，竞态窗闭合）。
-	reconTimer  *time.Timer
-	reconBusy   bool
-	reconDirty  bool
+	reconTimer   *time.Timer
+	reconBusy    bool
+	reconDirty   bool
 	reconcileNow func(ctx context.Context) // 测试注入缝；缺省 g.reconcile
 }
 
@@ -295,7 +296,11 @@ func New(cfg Config) (*Gateway, error) {
 		d.Close()
 		return nil, err
 	}
-	// 项目配方种子：同 id 行已存在不动（DB 行是活态，同壳行种子语义）。
+	// 项目配方回种（票0046 真源归一）：config project{} 是钦定源，DB project
+	// 行是它的启动投影——每次 New() 以文面全列覆写，「行在即不动」语义废止。
+	// 漂移字段落 project_recipe_sync 事件（ticket_id 空，同 ceo_say 空票径）
+	// ＋stderr 留痕；零漂/初种不产事件（防每启噪音）。回种在 socket listen
+	// 之前——exec 步永远只见回种后行；cfg.Projects 空＝不清既有行。
 	for _, ps := range cfg.Projects {
 		if ps == nil || ps.Id == "" {
 			continue
@@ -306,14 +311,22 @@ func New(cfg Config) (*Gateway, error) {
 				sb = string(b)
 			}
 		}
-		if _, err := d.SeedProject(context.Background(), db.Project{
+		drift, err := d.ReseedProject(context.Background(), db.Project{
 			ID: ps.Id, RepoURL: ps.RepoUrl, DefaultBranch: ps.DefaultBranch,
 			IntegrateCmd: ps.IntegrateCmd, CheckCmd: ps.CheckCmd,
 			DeployCmd: ps.DeployCmd, ProbeCmd: ps.ProbeCmd,
 			RollbackCmd: ps.RollbackCmd, SandboxSpec: sb,
-		}); err != nil {
+		})
+		if err != nil {
 			d.Close()
-			return nil, fmt.Errorf("项目种子 %s: %w", ps.Id, err)
+			return nil, fmt.Errorf("项目回种 %s: %w", ps.Id, err)
+		}
+		if len(drift) > 0 {
+			note := fmt.Sprintf("项目 %s 配方漂移字段: %s", ps.Id, strings.Join(drift, ","))
+			_ = d.AppendEvent(context.Background(), "", "project_recipe_sync", db.Event{
+				Actor: "gateway", Note: note})
+			g.emit(Event{Kind: "project_recipe_sync", Note: note})
+			fmt.Fprintf(os.Stderr, "gateway: project_recipe_sync %s\n", note)
 		}
 	}
 	// vault.key 存在才载（secret put 之前可能还没有）。
@@ -426,7 +439,7 @@ func (g *Gateway) emit(e Event) {
 		default:
 		}
 	}
-	g.patrolFeed(e) // 票0030：订阅命中→巡检批收道（末位，非阻塞）
+	g.patrolFeed(e)   // 票0030：订阅命中→巡检批收道（末位，非阻塞）
 	g.armPatrolIdle() // 票0031④：真事件武装——有事件即重置静默期闹钟
 }
 
@@ -440,7 +453,7 @@ var reconSilentKinds = map[string]bool{
 	"patrol_drop": true, "patrol_skip": true, "filter_degraded": true,
 	"seat_err": true, "adjunct_dead": true, "progress": true,
 	"adopted": true, // T17③：对账重收养不续命对账闹钟（D-82 自锁环）
-	"usage": true, "msg_delivered": true, "stall_suspect": true,
+	"usage":   true, "msg_delivered": true, "stall_suspect": true,
 }
 
 // armRecon 立票点火去抖闹钟（票0039/T11，R2「随事件重置的一次性闹钟」
