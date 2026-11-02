@@ -567,7 +567,7 @@ func (g *Gateway) onStall(ticketID string) {
 	runID := ""
 	if run, _ := g.database.ActiveRunForTicket(ctx, ticketID); run != nil {
 		runID = run.RunID
-		note += " run=" + run.RunID
+		note += " 席=" + run.RunID // T3 去 run= 术语（裁决席同径读行）
 	}
 	_ = g.database.AppendEvent(ctx, ticketID, "stall_suspect", db.Event{
 		Actor: "gateway", Note: note,

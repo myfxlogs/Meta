@@ -158,7 +158,7 @@ func TestDispatch_席位级死因禁标壳(t *testing.T) {
 				t.Fatal(err)
 			}
 			// 三候选全部席位级秒退→shells_exhausted 收口（每候选各一 seat_err）。
-			waitEvent(t, g, "shells_exhausted", "tx", 15*time.Second)
+			waitEvent(t, g, "shells_degraded", "tx", 15*time.Second)
 			nErr := 0
 			evs, _ := g.DB().Events(ctx, "tx")
 			for _, e := range evs {
@@ -186,10 +186,11 @@ func TestDispatch_壳级回归(t *testing.T) {
 		code       int
 		wantHealth string // ""＝不迁
 		wantEvent  string // ""＝无健康事件
+		wantDrain  string // T3：尽后事件——①②a 健康壳在＝degraded；②b 全死＝exhausted
 	}{
-		{"①机器级", seat.ExitSpawnFail, "", ""},
-		{"②a限流", seat.ExitTransient, route.HealthLimited, "shell_limited"},
-		{"②b死额", seat.ExitFatal, route.HealthDead, "shell_dead"},
+		{"①机器级", seat.ExitSpawnFail, "", "", "shells_degraded"},
+		{"②a限流", seat.ExitTransient, route.HealthLimited, "shell_limited", "shells_degraded"},
+		{"②b死额", seat.ExitFatal, route.HealthDead, "shell_dead", "shells_exhausted"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -200,7 +201,7 @@ func TestDispatch_壳级回归(t *testing.T) {
 			if err := g.DispatchSeat(ctx, "ts", "施工", exitcodeSpec(t, tc.code)); err != nil {
 				t.Fatal(err)
 			}
-			waitEvent(t, g, "shells_exhausted", "ts", 15*time.Second)
+			waitEvent(t, g, tc.wantDrain, "ts", 15*time.Second)
 
 			g.mu.Lock()
 			fs := g.failSet["ts"]

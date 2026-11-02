@@ -73,5 +73,5 @@ func TestT31_PatrolDispatchRegression(t *testing.T) {
 	if pid == "" {
 		t.Fatal("patrol_tick 未立值班票")
 	}
-	waitEvent(t, g, "shells_exhausted", pid, 15*time.Second)
+	waitEvent(t, g, "shells_degraded", pid, 15*time.Second)
 }

@@ -89,7 +89,7 @@ func (g *Gateway) ruleDefer(ctx context.Context, tid string, st *runState, note 
 func (g *Gateway) ruleLanded(ctx context.Context, tid string, st *runState, action string, run *db.Run, why string) {
 	note := "action=" + action
 	if run != nil {
-		note += " run=" + run.RunID
+		note += " 席=" + run.RunID // T3 去 run= 术语（决策23/48）
 	}
 	if why != "" {
 		note += " " + why

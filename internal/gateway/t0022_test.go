@@ -192,7 +192,7 @@ func TestAuditShellBias_Exhausted(t *testing.T) {
 		seedSeatRun(t, g, "t-a4", "审计", "devin/swe-2-max", 1, true)
 	}
 	auditDispatch(t, g, "t-a4", "")
-	waitEvent(t, g, "shells_exhausted", "t-a4", 8*time.Second)
+	waitEvent(t, g, "shells_degraded", "t-a4", 8*time.Second)
 	if n := eventKindCount(t, g, "t-a4", "audit_shell_skip"); n != 2 {
 		t.Fatalf("两壳各应落 1 行 audit_shell_skip: %d", n)
 	}

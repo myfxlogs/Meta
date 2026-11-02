@@ -192,7 +192,7 @@ func TestT30_PatrolRoute(t *testing.T) {
 
 	// 带票信号：路由→adjunct 派发→无巡检壳行→shells_exhausted 取证到达派发径。
 	g.emit(Event{Kind: "sig_hit", TicketID: "pt", Note: "探针"})
-	waitEvent(t, g, "shells_exhausted", "pt", 15*time.Second)
+	waitEvent(t, g, "shells_degraded", "pt", 15*time.Second)
 
 	// 无票信号：立 patrol-* 票（归并点）＋挂留言＋派发（同径耗尽）。
 	g.emit(Event{Kind: "patrol_tick", Note: "心跳"})
@@ -219,7 +219,7 @@ func TestT30_PatrolRoute(t *testing.T) {
 	// 测试环境无 InjectRoot→票0034 兜底件过 D-40 抵壳路由（测试壳表无巡检
 	// 行→shells_exhausted）——取证「无票信号→立票→正式派发」链路到达壳
 	// 路由（生产有注入机走全量前缀）。
-	waitEvent(t, g, "shells_exhausted", pid, 15*time.Second)
+	waitEvent(t, g, "shells_degraded", pid, 15*time.Second)
 
 	// 第二张 patrol_tick：归并同票不另立（值班票单例）。
 	g.emit(Event{Kind: "patrol_tick", Note: "心跳2"})

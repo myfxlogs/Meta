@@ -582,9 +582,32 @@ func logTail(path string, n int64) string {
 // 不来时票仍卡在 待部署——把派发点取走的双锁放回（不补 spawn：再发就是
 // 往死壳上连环撞），等下一次对账/CEO 径再拾。
 func (g *Gateway) shellsExhausted(ctx context.Context, req spawnReq) {
-	_ = g.database.AppendEvent(ctx, req.ticketID, "shells_exhausted", db.Event{
-		Actor: "gateway", Note: "角色 " + req.role + " 全部候选用尽"})
-	g.emit(Event{Kind: "shells_exhausted", TicketID: req.ticketID, Role: req.role})
+	// T3 逐壳判荒（D-75）：本票候选用尽≠全壳荒——failSet 是本票级重试
+	// 账不算不可用；只认全局健康态：角色全部注册壳 health=dead 才报
+	// shells_exhausted（CEO 唤起级真荒），余皆 shells_degraded（单壳降级
+	// 换壳，不杀在岗席——误报曾致 4 席被当荒杀）。
+	allDown := true
+	if rows, err := g.shellsFor(ctx, req.role); err == nil && len(rows) > 0 {
+		for _, r := range rows {
+			if r.Health != route.HealthDead {
+				allDown = false
+				break
+			}
+		}
+	} else if err == nil && len(rows) == 0 {
+		allDown = false // 角色无登记行＝配置面未就绪，非壳荒
+	}
+	if !allDown {
+		note := "角色 " + req.role + " 本票候选用尽（仍有健康壳未试——非全荒）"
+		_ = g.database.AppendEvent(ctx, req.ticketID, "shells_degraded", db.Event{
+			Actor: "gateway", Note: note})
+		g.emit(Event{Kind: "shells_degraded", TicketID: req.ticketID, Role: req.role,
+			Note: note})
+	} else {
+		_ = g.database.AppendEvent(ctx, req.ticketID, "shells_exhausted", db.Event{
+			Actor: "gateway", Note: "角色 " + req.role + " 全部候选用尽"})
+		g.emit(Event{Kind: "shells_exhausted", TicketID: req.ticketID, Role: req.role})
+	}
 	if req.role == "CTO" {
 		if t, err := g.database.GetTicket(ctx, req.ticketID); err == nil && t != nil &&
 			t.Phase == db.PhaseToDeploy {
