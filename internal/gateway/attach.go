@@ -535,10 +535,19 @@ func (g *Gateway) onRunDead(st *runState) {
 		g.mu.Unlock()
 	}
 	if st.run.Adjunct {
+		// T24-B 语义闸：短窗 exit=0＝空勤退场（无事可报正常退）——
+		// 记 patrol_skip 静默账，不记 adjunct_dead 不通知（19:23-
+		// 19:38 480 岗/746 死实证：干净退场被记死+通知成风暴源）。
+		if st.exitCode == 0 && time.Since(st.run.StartedAt) < 90*time.Second {
+			_ = g.database.AppendEvent(ctx, st.run.TicketID, "patrol_skip", db.Event{
+				Actor: "gateway", Note: "空勤退场（短窗 exit=0）role=" + st.run.Role})
+			return
+		}
 		_ = g.database.AppendEvent(ctx, st.run.TicketID, "adjunct_dead", db.Event{
 			Actor: "gateway", Note: "role=" + st.run.Role})
 		g.emit(Event{Kind: "adjunct_dead", TicketID: st.run.TicketID, RunID: st.run.RunID,
 			Role: st.run.Role})
+		g.patrolDeathBump(st.run.TicketID) // T24-C 退避闸计数
 		return
 	}
 	g.emit(Event{Kind: "seat_dead", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
