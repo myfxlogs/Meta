@@ -198,6 +198,7 @@ type Gateway struct {
 	observers    map[chan Event]struct{}    // Observe 面订户（管理面导出）
 	specs        map[specKey]SeatSpec       // (tid,role) → 派发参数（内存；重启缺→spawn_blocked）
 	failSet      map[string]map[string]bool // tid → 本票已失败壳行键（换壳＝排除）
+	spreadCnt    map[string]int             // T20：角色→轮转计数（健康壳均摊位）
 	warned       map[string]bool            // tid → 本尝试 80% 警已发（边沿触发）
 	frozen       map[string]bool            // budget_frozen 票集（冻票无活性）
 	active       map[string]int             // 壳名 → 活跃 run 数（provider 并发闸）
@@ -252,6 +253,7 @@ func New(cfg Config) (*Gateway, error) {
 		observers:    map[chan Event]struct{}{},
 		specs:        map[specKey]SeatSpec{},
 		failSet:      map[string]map[string]bool{},
+		spreadCnt:    map[string]int{},
 		warned:       map[string]bool{},
 		frozen:       map[string]bool{},
 		active:       map[string]int{},

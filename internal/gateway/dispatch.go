@@ -351,8 +351,17 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 	}
 	g.mu.Lock()
 	excl := g.failSet[req.ticketID]
+	rot := g.spreadCnt[req.role]
+	g.spreadCnt[req.role]++
 	g.mu.Unlock()
-	attempts := route.Candidates(rows, excl, g.cfg.Stagger)
+	// T20 健康加权分摊：健康行按 rotate 轮转——**只作用于首尝试**
+	// （本票零失败；跨票均摊不恒吃首选）；failSet 非空＝票内重试照
+	// priority 序换壳（rotate=-1 退静态序保换壳语义）。单壳瘸自动
+	// 让位——非健康行排尾懒探。
+	if len(excl) > 0 {
+		rot = -1
+	}
+	attempts := route.Candidates(rows, excl, g.cfg.Stagger, rot)
 	prefer := spec.PreferShell
 	// 同壳重做落点（§15.2）：施工驳回后重派若无 prefer，机械补＝票上最近
 	// non-adjunct 施工 run 的壳名（④级同壳＝模型一致性偏好；壳已在 failSet
