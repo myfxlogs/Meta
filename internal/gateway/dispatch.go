@@ -26,6 +26,7 @@ type SeatSpec struct {
 	Provenance    string // D9 盖戳源：派发方透传触发事件行/父 run 的戳
 	Project       string // 派发径挂接（票0015）：非空→取锁闸之前 attachProject
 	ResumeSession string // 票0030 续传：非空→壳续会锚（经 META_RESUME_SESSION 透席）
+	CliDrive      bool   // T25：CLI 直驱席（argv=meta seat-drive——机械部署径无 AI 壳）
 }
 
 // specKey specs 表键（§15.1）：(票,角色) 共键——审计派发不覆写施工派发参数，
@@ -509,7 +510,9 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 		_ = os.Symlink(secDir, filepath.Join(spec.WorkDir, "seat-secrets"))
 	}
 	argv := g.cfg.SeatArgv
-	if len(argv) == 0 {
+	if spec.CliDrive {
+		argv = []string{g.cfg.SelfPath, "seat-drive"}
+	} else if len(argv) == 0 {
 		argv = []string{g.cfg.SelfPath, "seat"}
 	}
 	if err := g.startRun(ctx, run, argv, env); err != nil {

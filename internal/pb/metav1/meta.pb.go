@@ -1828,6 +1828,7 @@ type DispatchReq struct {
 	Adjunct       bool                   `protobuf:"varint,6,opt,name=adjunct,proto3" json:"adjunct,omitempty"`                           // 辅助席（裁决/诊断）：不占相位，必给 prompt_file
 	Provenance    string                 `protobuf:"bytes,7,opt,name=provenance,proto3" json:"provenance,omitempty"`                      // 触发事件行的 provenance 透传（caster 自动带；spawn 盖进 seat_run）
 	Project       string                 `protobuf:"bytes,8,opt,name=project,proto3" json:"project,omitempty"`                            // 派发径挂接（DispatchSeat 内、取锁闸之前 attachProject——锁键取新值）
+	CliDrive      bool                   `protobuf:"varint,9,opt,name=cli_drive,json=cliDrive,proto3" json:"cli_drive,omitempty"`         // T25：CLI 直驱席（seat-drive 机械四步——钦定部署径）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1916,6 +1917,13 @@ func (x *DispatchReq) GetProject() string {
 		return x.Project
 	}
 	return ""
+}
+
+func (x *DispatchReq) GetCliDrive() bool {
+	if x != nil {
+		return x.CliDrive
+	}
+	return false
 }
 
 type BudgetReq struct {
@@ -5544,7 +5552,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\vattempt_cap\x18\x04 \x01(\x03R\n" +
 	"attemptCap\x12\x19\n" +
 	"\bhard_cap\x18\x05 \x01(\x03R\ahardCap\x12\x18\n" +
-	"\aproject\x18\x06 \x01(\tR\aproject\"\xf1\x01\n" +
+	"\aproject\x18\x06 \x01(\tR\aproject\"\x8e\x02\n" +
 	"\vDispatchReq\x12\x1b\n" +
 	"\tticket_id\x18\x01 \x01(\tR\bticketId\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12\x1f\n" +
@@ -5556,7 +5564,8 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\n" +
 	"provenance\x18\a \x01(\tR\n" +
 	"provenance\x12\x18\n" +
-	"\aproject\x18\b \x01(\tR\aproject\"d\n" +
+	"\aproject\x18\b \x01(\tR\aproject\x12\x1b\n" +
+	"\tcli_drive\x18\t \x01(\bR\bcliDrive\"d\n" +
 	"\tBudgetReq\x12\x1b\n" +
 	"\tticket_id\x18\x01 \x01(\tR\bticketId\x12\x1f\n" +
 	"\vattempt_cap\x18\x02 \x01(\x03R\n" +
