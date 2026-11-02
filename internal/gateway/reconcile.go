@@ -129,11 +129,22 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 	switch t.Phase {
 	case db.PhaseWorking:
 		to, kind = db.PhaseAssigned, db.EdgeRequeue
-		// D-51：施工中相位含两类行动者——CTO 设计席（需求票设计链未完）
-		// 与施工席。死席是 CTO 非 adjunct＝设计链断点，须回 已立 补 CTO-A；
-		// 相位推角色（一律回已派补施工）即 req-f88 错配实证。
-		if run != nil && run.Role == "CTO" && !run.Adjunct {
+		// D-51/54：施工中相位混三类行动者——CTO 设计席（req*/设计票）、
+		// 施工席、巡检席（patrol-*）。行动者角色真源＝活 run 或票首行
+		// 非 adjunct run（相位推角色一律回已派补施工＝req-f88/巡检票
+		// 双实证错配）。CTO→回 已立 补 CTO-A；巡检→回已派补巡检
+		// （补发角色由 patrol- 前缀行给出）；余→施工。
+		actorRole := ""
+		if run != nil {
+			actorRole = run.Role
+		} else if er, err := g.database.EarliestRunForTicket(ctx, t.ID); err == nil && er != nil {
+			actorRole = er.Role
+		}
+		switch actorRole {
+		case "CTO":
 			to, kind = db.PhaseCreated, db.EdgeDesignDead
+		case "巡检":
+			// to=已派 保持；补发角色由 patrol- 前缀行覆写为 巡检。
 		}
 	case db.PhaseDesigning:
 		to, kind = db.PhaseCreated, db.EdgeDesignDead

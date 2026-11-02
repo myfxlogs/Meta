@@ -204,6 +204,15 @@ func (d *DB) SetRunSession(ctx context.Context, runID, sessionID string) error {
 	return err
 }
 
+// EarliestRunForTicket 票上最早非 adjunct run——相位行动者角色真源
+// （D-51/54：施工中相位混 CTO设计席/施工席/巡检席，相位推角色会错降；
+// 首行派发角色即本票进管线的行动者血统）。
+func (d *DB) EarliestRunForTicket(ctx context.Context, ticketID string) (*Run, error) {
+	return d.scanRun(d.db.QueryRowContext(ctx,
+		`SELECT `+runCols+` FROM seat_run
+		 WHERE ticket_id=? AND adjunct=0 ORDER BY started_at ASC LIMIT 1`, ticketID))
+}
+
 // LatestSessionForTicketRole 同票同角色最近一次有壳会话 id 的 run
 // （票0030 续传续会锚——重派时据此判能否 --resume；返回 nil＝无锚）。
 func (d *DB) LatestSessionForTicketRole(ctx context.Context, ticketID, role string) (*Run, error) {
