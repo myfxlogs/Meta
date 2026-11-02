@@ -40,6 +40,7 @@ service AdminGateway {
   rpc RetroVerdict(RetroReq) returns (Ack);  // 回翻件：滞留待审票一次性机械补录
   rpc Ping(Empty) returns (Ack);             // 健康核验径（meta ping / meta-probe.sh）
   rpc IssueCeoToken(CeoTokenReq) returns (CeoTokenResp); // `meta ceo` 交互面开 run：provenance=terminal
+  rpc Reconcile(Empty) returns (Ack);        // 手动对账径（改路由表后滞留补发；同启动对账，幂等）
 }
 
 // CEO 面（总设计 §12 钦定五 RPC）。一切请求带 run_token——首验 role=CEO 活 run；
@@ -450,7 +451,17 @@ message CeoTokenResp {
 
 // ---------- 播报员路由表（D-26/令#E13：事件→动作电话簿，判断永不进播报员） ----------
 
-message RouteTable { repeated Route routes = 1; }
+message RouteTable {
+  repeated Route routes = 1;
+  DefaultNotifyRule default_notify = 2; // 表外只通知不处置（令#E13 铁律②）
+}
+
+// DefaultNotifyRule 表外事件兜底通知：无路由行匹配且 kind 命中种子集→
+// 至少通知（不处置）；同 resync 批 (kind,ticket_id) 降噪只报首枚。
+message DefaultNotifyRule {
+  repeated string kinds = 1; // 异常/阻塞/死类种子集（改集走票）
+  string template = 2;       // 空＝缺省模板【Meta】{{role}}:{{action}}[{{ticket_id}}]
+}
 
 message Route {
   string kind = 1;            // 匹配 ticket_event.kind（精确等值；表外不动作）

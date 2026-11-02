@@ -95,6 +95,8 @@ func main() {
 		err = casterCmd(os.Args[2:])
 	case "retro":
 		err = retroCmd(os.Args[2:])
+	case "reconcile":
+		err = reconcileCmd(os.Args[2:])
 	case "supervise":
 		err = superviseCmd(os.Args[2:])
 	case "upgrade":
@@ -127,6 +129,7 @@ func usage() {
   meta board (--socket <meta.sock> | --connect <http://127.0.0.1:port>) --token <t> [--n N]   (席位板流打印：full+变化帧)
   meta caster --socket <sock> --routes <f> --state-dir <d> --run-dir <r> --notify-cmd <sh> [--once] [--replay-history]
   meta retro --socket <sock> --ticket <id> --verdict pass|reject --ref <判决档>
+  meta reconcile --socket <sock>                                                  (改路由表后滞留补发对账)
   meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
   meta upgrade --new <bin> --install <path> [--prev <p>] [--restart-cmd "<cmd>"] [--check-socket <sock>]
   meta ceo [--socket <sock>]                          （交互面：IssueCeoToken→事件侧流→行命令 REPL）
@@ -819,6 +822,35 @@ func (a *adminCaster) Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv
 
 func (a *adminCaster) Observe(ctx context.Context) (pbv1.AdminGateway_ObserveClient, error) {
 	return a.c.Observe(ctx, &pbv1.Empty{})
+}
+
+// Close D-35：引擎 cycle/Once 退场即收口——重连每轮换 conn 不积 FD。
+func (a *adminCaster) Close() error {
+	return a.conn.Close()
+}
+
+// reconcileCmd 手动对账（票0021）：AdminGateway.Reconcile——改路由表后
+// 滞留票补发 spawn_needed 的钦定规程末步（重启 caster 之后跑本命令）。
+func reconcileCmd(args []string) error {
+	fs := flag.NewFlagSet("reconcile", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ack, err := c.Reconcile(context.Background(), &pbv1.Empty{})
+	if err != nil {
+		return err
+	}
+	if !ack.Ok {
+		return fmt.Errorf("reconcile: %s", ack.Note)
+	}
+	fmt.Println("reconcile ok", ack.Note)
+	return nil
 }
 
 // retroCmd 回翻件入口（§15.4）：滞留 待审 票一次性机械补录 audit_start→

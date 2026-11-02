@@ -165,6 +165,14 @@ func (g *Gateway) Ping(_ context.Context, _ *pbv1.Empty) (*pbv1.Ack, error) {
 	return &pbv1.Ack{Ok: true, Note: "pong"}, nil
 }
 
+// Reconcile 手动对账径（票0021：「改路由表→重启 caster→meta reconcile」
+// 钦定规程的机械牙齿）——即启动对账同函数，幂等：活席收养判/死席回队/
+// 滞留相位补发 spawn_needed（派发去重闸兜底双发）。
+func (g *Gateway) Reconcile(ctx context.Context, _ *pbv1.Empty) (*pbv1.Ack, error) {
+	g.reconcile(ctx)
+	return &pbv1.Ack{Ok: true, Note: "对账完成"}, nil
+}
+
 // IssueCeoToken `meta ceo` 交互面开 run（terminal 戳）：建一条 pid=0 的
 // role=CEO seat_run——无子进程（CLI 本体即席）；其 Events 订阅 EOF 即除名+判死。
 func (g *Gateway) IssueCeoToken(ctx context.Context, _ *pbv1.CeoTokenReq) (*pbv1.CeoTokenResp, error) {

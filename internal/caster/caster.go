@@ -20,10 +20,12 @@ import (
 )
 
 // AdminClient 引擎对管理面的最小依赖（伪实现注入测试径）。
+// Close 在 Once/cycle 取到连接后退场收口——重连每轮换 conn，不 Close＝FD 缓积（D-35）。
 type AdminClient interface {
 	EventsAfter(ctx context.Context, sinceID int64, limit int32) (*pbv1.EventList, error)
 	Dispatch(ctx context.Context, req *pbv1.DispatchReq) (*pbv1.Ack, error)
 	Observe(ctx context.Context) (pbv1.AdminGateway_ObserveClient, error)
+	Close() error
 }
 
 // Config 引擎参数（meta caster 子命令旗标面）。
@@ -48,8 +50,12 @@ type Engine struct {
 	configRoot  string
 	wmPath      string
 	wm          int64
-	fastForward bool // 水位文件缺失首跑：只推位不动作（§4 快进模式）
+	fastForward bool           // 水位文件缺失首跑：只推位不动作（§4 快进模式）
+	dnSeen      map[dnKey]bool // 单次 resync 批内 (kind,ticket) 已报——回落降噪只报首枚
 }
+
+// dnKey default_notify 批内去重键。
+type dnKey struct{ kind, ticket string }
 
 // LoadTable 表加载校验：prototext 解析＋机械判——
 // 空 kind / 空动作体 / dispatch 空 role 一律拒载（宁缺勿滥）。
@@ -129,6 +135,7 @@ func (e *Engine) Once(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer cli.Close() // D-35：用完即收口
 	return e.resync(ctx, cli)
 }
 
@@ -165,6 +172,7 @@ func (e *Engine) cycle(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer cli.Close() // D-35：每轮换 conn，旧连接随 cycle 退出口径
 	obs, err := cli.Observe(ctx)
 	if err != nil {
 		return err
@@ -185,6 +193,7 @@ func (e *Engine) cycle(ctx context.Context) error {
 // resync 分页回读至短页：逐行 process(row)→每行处理完原子推 wm。
 // 快进模式（水位文件缺失首跑）只推位不动作——不吃历史剩饭（§4）。
 func (e *Engine) resync(ctx context.Context, cli AdminClient) error {
+	e.dnSeen = map[dnKey]bool{} // 批内 (kind,ticket) 回落降噪集——每 resync 重置
 	for {
 		list, err := cli.EventsAfter(ctx, e.wm, 500)
 		if err != nil {
@@ -209,8 +218,11 @@ func (e *Engine) resync(ctx context.Context, cli AdminClient) error {
 }
 
 // process 一行事件→路由匹配→串行动作。精确等值匹配——
-// 对抗性锚提名行：route.Kind==row.Kind 翻成 != 则表外 kind 也派单。
+// 对抗性锚提名行①：route.Kind==row.Kind 翻成 != 则表外 kind 也派单；
+// 对抗性锚提名行②：零匹配回落 default_notify——删则表外关键类又被静默吞
+// （E13 铁律②，决策64 0014 spawn_needed 被吞实证）。
 func (e *Engine) process(ctx context.Context, cli AdminClient, row *pbv1.EventItem) {
+	matched := false
 	for _, rt := range e.table.Routes {
 		if rt.Kind != row.Kind {
 			continue
@@ -223,6 +235,7 @@ func (e *Engine) process(ctx context.Context, cli AdminClient, row *pbv1.EventIt
 		if rt.NoteContains != "" && !strings.Contains(row.Note, rt.NoteContains) {
 			continue
 		}
+		matched = true
 		for _, act := range rt.Actions {
 			switch b := act.GetBody().(type) {
 			case *pbv1.Action_Notify:
@@ -232,6 +245,37 @@ func (e *Engine) process(ctx context.Context, cli AdminClient, row *pbv1.EventIt
 			}
 		}
 	}
+	if !matched {
+		e.defaultNotify(ctx, row)
+	}
+}
+
+// defaultNotify 表外兜底（E13 铁律②）：无行匹配且 kind 在种子集→通知不处置。
+// 同 resync 批内 (kind,ticket) 只报首枚——回放风暴/积压对账不致刷屏。
+func (e *Engine) defaultNotify(ctx context.Context, row *pbv1.EventItem) {
+	dn := e.table.GetDefaultNotify()
+	if dn == nil {
+		return
+	}
+	seeded := false
+	for _, k := range dn.Kinds {
+		if k == row.Kind {
+			seeded = true
+			break
+		}
+	}
+	if !seeded {
+		return
+	}
+	if e.dnSeen == nil {
+		e.dnSeen = map[dnKey]bool{}
+	}
+	key := dnKey{kind: row.Kind, ticket: row.TicketId}
+	if e.dnSeen[key] {
+		return
+	}
+	e.dnSeen[key] = true
+	e.execNotify(ctx, row, &pbv1.NotifyAction{Template: dn.Template})
 }
 
 func (e *Engine) execNotify(ctx context.Context, row *pbv1.EventItem, n *pbv1.NotifyAction) {

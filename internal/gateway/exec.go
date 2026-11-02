@@ -69,7 +69,7 @@ func (g *Gateway) acquireProjectLocks(project string, kinds ...string) bool {
 }
 
 // releaseProjectLocks 放锁＋（backfill 时）查同项目候票补发 spawn_needed
-// （事件驱动解锁，零定时）。design 释放→同项目 已立 票（CTO 设计支）；
+// （事件驱动解锁，零定时）。design 释放→同项目 已立 票（CTO-A 设计支）；
 // integrate/deploy 释放→同项目 待部署 票（CTO-B 部署支）。只发实际放掉的
 // 锁种——没占锁的调用不产噪音。skipTicket 排除刚 deploy_failed 的本票
 // （回 待部署＝CEO 裁径，不是自动重试闸）。
@@ -108,7 +108,7 @@ func (g *Gateway) releaseProjectLocks(ctx context.Context, project, skipTicket s
 			continue
 		}
 		_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "锁释补发: CTO"})
+			Actor: "gateway", Note: "锁释补发: " + spawnLine(t.Phase)})
 		g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
 	}
 }

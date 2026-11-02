@@ -62,6 +62,8 @@ const (
 	AdminGatewayPingProcedure = "/meta.v1.AdminGateway/Ping"
 	// AdminGatewayIssueCeoTokenProcedure is the procedure name of the AdminGateway's IssueCeoToken RPC.
 	AdminGatewayIssueCeoTokenProcedure = "/meta.v1.AdminGateway/IssueCeoToken"
+	// AdminGatewayReconcileProcedure is the procedure name of the AdminGateway's Reconcile RPC.
+	AdminGatewayReconcileProcedure = "/meta.v1.AdminGateway/Reconcile"
 	// CeoGatewayEventsProcedure is the procedure name of the CeoGateway's Events RPC.
 	CeoGatewayEventsProcedure = "/meta.v1.CeoGateway/Events"
 	// CeoGatewaySubmitRequirementProcedure is the procedure name of the CeoGateway's SubmitRequirement
@@ -444,6 +446,13 @@ var (
 			Procedure:  AdminGatewayIssueCeoTokenProcedure,
 		}
 	})
+	adminGatewayReconcileSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     metav1.File_meta_v1_meta_proto.Services().ByName("AdminGateway").Methods().ByName("Reconcile"),
+			Procedure:  AdminGatewayReconcileProcedure,
+		}
+	})
 )
 
 // AdminGatewayClient is a client for the meta.v1.AdminGateway service.
@@ -460,6 +469,7 @@ type AdminGatewayClient interface {
 	RetroVerdict(context.Context, *metav1.RetroReq) (*metav1.Ack, error)
 	Ping(context.Context, *metav1.Empty) (*metav1.Ack, error)
 	IssueCeoToken(context.Context, *metav1.CeoTokenReq) (*metav1.CeoTokenResp, error)
+	Reconcile(context.Context, *metav1.Empty) (*metav1.Ack, error)
 }
 
 // NewAdminGatewayClient constructs a client for the meta.v1.AdminGateway service. Multiple service
@@ -502,6 +512,7 @@ type AdminGatewayHandler interface {
 	RetroVerdict(context.Context, *metav1.RetroReq) (*metav1.Ack, error)
 	Ping(context.Context, *metav1.Empty) (*metav1.Ack, error)
 	IssueCeoToken(context.Context, *metav1.CeoTokenReq) (*metav1.CeoTokenResp, error)
+	Reconcile(context.Context, *metav1.Empty) (*metav1.Ack, error)
 }
 
 // RegisterAdminGatewayHandler registers svc as the meta.v1.AdminGateway implementation on server.
@@ -520,6 +531,7 @@ func RegisterAdminGatewayHandler(server *connect.Server, svc AdminGatewayHandler
 		connect.Method{Spec: adminGatewayRetroVerdictSpec(), Handler: adapter.retroVerdict},
 		connect.Method{Spec: adminGatewayPingSpec(), Handler: adapter.ping},
 		connect.Method{Spec: adminGatewayIssueCeoTokenSpec(), Handler: adapter.issueCeoToken},
+		connect.Method{Spec: adminGatewayReconcileSpec(), Handler: adapter.reconcile},
 	)
 }
 
@@ -587,6 +599,10 @@ func (UnimplementedAdminGatewayHandler) Ping(context.Context, *metav1.Empty) (*m
 
 func (UnimplementedAdminGatewayHandler) IssueCeoToken(context.Context, *metav1.CeoTokenReq) (*metav1.CeoTokenResp, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "meta.v1.AdminGateway.IssueCeoToken is not implemented")
+}
+
+func (UnimplementedAdminGatewayHandler) Reconcile(context.Context, *metav1.Empty) (*metav1.Ack, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "meta.v1.AdminGateway.Reconcile is not implemented")
 }
 
 type adminGatewayClient struct {
@@ -684,6 +700,14 @@ func (c *adminGatewayClient) Ping(ctx context.Context, req *metav1.Empty) (*meta
 func (c *adminGatewayClient) IssueCeoToken(ctx context.Context, req *metav1.CeoTokenReq) (*metav1.CeoTokenResp, error) {
 	var res metav1.CeoTokenResp
 	if err := c.client.CallUnary(ctx, adminGatewayIssueCeoTokenSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminGatewayClient) Reconcile(ctx context.Context, req *metav1.Empty) (*metav1.Ack, error) {
+	var res metav1.Ack
+	if err := c.client.CallUnary(ctx, adminGatewayReconcileSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -825,6 +849,18 @@ func (h adminGatewayHandler) issueCeoToken(ctx context.Context, _ connect.Spec, 
 		return err
 	}
 	res, err := h.svc.IssueCeoToken(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminGatewayHandler) reconcile(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req metav1.Empty
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Reconcile(ctx, &req)
 	if err != nil {
 		return err
 	}

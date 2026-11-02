@@ -705,7 +705,7 @@ func (g *Gateway) releaseDesignLock(ctx context.Context, ticketID string) {
 			continue // 泊车票同抑制
 		}
 		_ = g.database.AppendEvent(ctx, id, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "对账补发: CTO（设计锁释放）"})
+			Actor: "gateway", Note: "对账补发: CTO-A（设计锁释放）"})
 		g.emit(Event{Kind: "spawn_needed", TicketID: id, Role: "CTO"})
 	}
 }

@@ -354,6 +354,7 @@ const (
 	AdminGateway_RetroVerdict_FullMethodName  = "/meta.v1.AdminGateway/RetroVerdict"
 	AdminGateway_Ping_FullMethodName          = "/meta.v1.AdminGateway/Ping"
 	AdminGateway_IssueCeoToken_FullMethodName = "/meta.v1.AdminGateway/IssueCeoToken"
+	AdminGateway_Reconcile_FullMethodName     = "/meta.v1.AdminGateway/Reconcile"
 )
 
 // AdminGatewayClient is the client API for AdminGateway service.
@@ -375,6 +376,7 @@ type AdminGatewayClient interface {
 	RetroVerdict(ctx context.Context, in *RetroReq, opts ...grpc.CallOption) (*Ack, error)
 	Ping(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Ack, error)
 	IssueCeoToken(ctx context.Context, in *CeoTokenReq, opts ...grpc.CallOption) (*CeoTokenResp, error)
+	Reconcile(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Ack, error)
 }
 
 type adminGatewayClient struct {
@@ -514,6 +516,16 @@ func (c *adminGatewayClient) IssueCeoToken(ctx context.Context, in *CeoTokenReq,
 	return out, nil
 }
 
+func (c *adminGatewayClient) Reconcile(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Ack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, AdminGateway_Reconcile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminGatewayServer is the server API for AdminGateway service.
 // All implementations must embed UnimplementedAdminGatewayServer
 // for forward compatibility.
@@ -533,6 +545,7 @@ type AdminGatewayServer interface {
 	RetroVerdict(context.Context, *RetroReq) (*Ack, error)
 	Ping(context.Context, *Empty) (*Ack, error)
 	IssueCeoToken(context.Context, *CeoTokenReq) (*CeoTokenResp, error)
+	Reconcile(context.Context, *Empty) (*Ack, error)
 	mustEmbedUnimplementedAdminGatewayServer()
 }
 
@@ -578,6 +591,9 @@ func (UnimplementedAdminGatewayServer) Ping(context.Context, *Empty) (*Ack, erro
 }
 func (UnimplementedAdminGatewayServer) IssueCeoToken(context.Context, *CeoTokenReq) (*CeoTokenResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method IssueCeoToken not implemented")
+}
+func (UnimplementedAdminGatewayServer) Reconcile(context.Context, *Empty) (*Ack, error) {
+	return nil, status.Error(codes.Unimplemented, "method Reconcile not implemented")
 }
 func (UnimplementedAdminGatewayServer) mustEmbedUnimplementedAdminGatewayServer() {}
 func (UnimplementedAdminGatewayServer) testEmbeddedByValue()                      {}
@@ -809,6 +825,24 @@ func _AdminGateway_IssueCeoToken_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminGateway_Reconcile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Reconcile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Reconcile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Reconcile(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminGateway_ServiceDesc is the grpc.ServiceDesc for AdminGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -859,6 +893,10 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IssueCeoToken",
 			Handler:    _AdminGateway_IssueCeoToken_Handler,
+		},
+		{
+			MethodName: "Reconcile",
+			Handler:    _AdminGateway_Reconcile_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -496,7 +496,7 @@ func TestReqPending(t *testing.T) {
 	st.CloseSend()
 
 	// 对账抑制闸（对抗锚③）：最新事件 req_pending→不补 spawn_needed。
-	g.Reconcile(ctx)
+	g.reconcile(ctx)
 	for _, e := range collectEvents(g, 300*time.Millisecond) {
 		if e.Kind == "spawn_needed" && e.TicketID == "tp" {
 			t.Fatal("泊车票被对账重派")
@@ -504,7 +504,7 @@ func TestReqPending(t *testing.T) {
 	}
 	// 普通 已立 票对照：照补。
 	mkTicketAt(t, g, "tp2", db.PhaseCreated)
-	g.Reconcile(ctx)
+	g.reconcile(ctx)
 	waitEvent(t, g, "spawn_needed", "tp2", 3*time.Second)
 }
 
