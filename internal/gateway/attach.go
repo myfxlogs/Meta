@@ -526,6 +526,7 @@ func (g *Gateway) onRunDead(st *runState) {
 	// T7/T18 死席凭据目录回收：run/secrets/<runid> 全删——凭据作用域
 	// =run 生命周期；wipeSecretsDir 先回权限位再删（T18 只读面）。
 	g.wipeSecretsDir(st.run.RunID)
+	g.cleanSeatResidue(st.run) // T27④：插座+工作区随收尸连清（日志留档）
 
 	if st.attempt.Shell != "" {
 		g.mu.Lock()

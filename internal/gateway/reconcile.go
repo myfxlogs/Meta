@@ -83,6 +83,7 @@ func (g *Gateway) reconcile(ctx context.Context) {
 			// 凭据作用域=run 生命周期，收尸漏净属凭据残面；
 			// wipeSecretsDir 先回权限位再删。
 			g.wipeSecretsDir(r.RunID)
+			g.cleanSeatResidue(r) // T27④：插座+工作区随收尸连清
 			kind := "seat_dead"
 			if r.Adjunct {
 				kind = "adjunct_dead"

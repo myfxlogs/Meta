@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"meta/internal/db"
@@ -138,5 +139,43 @@ func randHex(n int) string {
 func killRunGroup(pid int) {
 	if pid > 0 {
 		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
+}
+
+// cleanSeatResidue 死席残件连清（T27④，业下令「保持系统干净」）：
+// 收尸径共用——seats/<runid>.sock 插座连删＋席位工作区收（git worktree
+// 经 common-dir 归主仓移除；非 worktree 工作区不动——工作目录可能是
+// 业主手工件，误删大于收益）。日志/artifacts 留档不动（审计史）。
+func (g *Gateway) cleanSeatResidue(run *db.Run) {
+	if run.SocketPath != "" {
+		_ = os.Remove(run.SocketPath)
+	}
+	g.mu.Lock()
+	wd := ""
+	for k, sp := range g.specs {
+		if k.ticket == run.TicketID && k.role == run.Role {
+			wd = sp.WorkDir
+			break
+		}
+	}
+	g.mu.Unlock()
+	if wd == "" {
+		return
+	}
+	if fi, err := os.Stat(filepath.Join(wd, ".git")); err != nil || fi == nil {
+		return // 非 git 工作区不动
+	}
+	common, err := exec.Command("git", "-C", wd, "rev-parse", "--git-common-dir").Output()
+	if err != nil {
+		return
+	}
+	gd := strings.TrimSpace(string(common))
+	if !filepath.IsAbs(gd) {
+		gd = filepath.Join(wd, gd)
+	}
+	if err := exec.Command("git", "--git-dir="+gd,
+		"worktree", "remove", "--force", wd).Run(); err != nil {
+		_ = g.database.AppendEvent(context.Background(), run.TicketID, "seat_residue", db.Event{
+			Actor: "gateway", Note: "工作区收不净: " + wd})
 	}
 }

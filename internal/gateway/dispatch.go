@@ -73,18 +73,28 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 	if role == "CEO" {
 		return fmt.Errorf("dispatch: role=CEO 永拒（禁区#10：CEO 只经内部唤起）")
 	}
-	// T4 链深闸（D-69）：票号 -pN 补票链段数≥3 不派单——三层链实证
-	// （0034→p1→p1-p1）；发 chain_depth_limit 事件（既有 notify 面到
-	// CEO），不静默吞。对抗性锚提名行：删此闸深链票直通。
-	if depth := chainDepth(ticketID); depth >= 3 {
-		note := fmt.Sprintf("票 %s 补票链深 %d ≥3 截断——人工裁定去向",
-			ticketID, depth)
+	// T27/D-87 链深闸改族世代计数：旧径 -pN 段数判被兄弟编号绕闸
+	// （0034 族 p4 实证——兄弟各一段段数永远<3）——改按族前缀全族成员
+	// 计数 ≥3 截断；同层新编号也入族。根票（无 -pN 段）不涉世代不查。
+	// 发 chain_depth_limit 事件（既有 notify 面到 CEO），不静默吞。
+	// 对抗性锚提名行：删此闸深链票直通。
+	if chainDepth(ticketID) > 0 {
+		fam, ferr := g.database.FamilyTicketCount(ctx, familyRoot(ticketID))
+		if ferr != nil {
+			return fmt.Errorf("dispatch: 族计数失败: %w", ferr)
+		}
+		if fam < 3 {
+			goto chainOK
+		}
+		note := fmt.Sprintf("票 %s 补票族 %d 员 ≥3 截断——人工裁定去向",
+			ticketID, fam)
 		_ = g.database.AppendEvent(ctx, ticketID, "chain_depth_limit", db.Event{
 			Actor: "gateway", Note: note})
 		g.emit(Event{Kind: "chain_depth_limit", TicketID: ticketID, Role: "CEO",
 			Note: note})
 		return fmt.Errorf("dispatch: %s", note)
 	}
+chainOK:
 	t, err := g.database.GetTicket(ctx, ticketID)
 	if err != nil {
 		return err
@@ -751,7 +761,7 @@ func logTail(path string, n int64) string {
 }
 
 // chainDepth 票号补票链深（T4）："-pN" 尾缀计数——req-xxx-p1-p1-p1=3。
-// 纯函数测试锚。
+// 纯函数测试锚；T27 起仅作「是否补票成员」闸前判（>0 才查族账）。
 func chainDepth(ticketID string) int {
 	depth := 0
 	for i := 0; i+1 < len(ticketID); i++ {
@@ -761,6 +771,23 @@ func chainDepth(ticketID string) int {
 		}
 	}
 	return depth
+}
+
+// familyRoot 补票族根（T27）：反复剥尾段 -pN（纯数字段）——
+// "x-p1-p1"→"x"；非 -pN 尾段即停（"x-foo" 根是自身不是 "x"）。
+func familyRoot(ticketID string) string {
+	for {
+		i := strings.LastIndex(ticketID, "-p")
+		if i < 0 || i+2 >= len(ticketID) {
+			return ticketID
+		}
+		for j := i + 2; j < len(ticketID); j++ {
+			if ticketID[j] < '0' || ticketID[j] > '9' {
+				return ticketID // -pN 段含非数字＝非补票段
+			}
+		}
+		ticketID = ticketID[:i]
+	}
 }
 
 // shellsExhausted 全壳耗尽：事件→CEO（§8.1 必报）。CTO 部署支连席都起

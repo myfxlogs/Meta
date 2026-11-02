@@ -223,7 +223,7 @@ func TestAttach_SeatAdmin(t *testing.T) {
 	}
 	// 锚5：create_ticket 空→子票继承本票 project=P。
 	send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_CreateTicket{CreateTicket: &pbv1.NewTicket{
-		Id: "child-inherit", Title: "子"}}})
+		Id: "child-inherit", Title: "继承甲"}}})
 	if a := adminResp(t, s); !a.GetOk() {
 		t.Fatalf("create_ticket 继承应立: %+v", a)
 	}
@@ -232,7 +232,7 @@ func TestAttach_SeatAdmin(t *testing.T) {
 	}
 	// 锚5：显式 Q→落 Q。
 	send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_CreateTicket{CreateTicket: &pbv1.NewTicket{
-		Id: "child-exp", Title: "子", Project: "Q"}}})
+		Id: "child-exp", Title: "显式乙", Project: "Q"}}})
 	if a := adminResp(t, s); !a.GetOk() {
 		t.Fatalf("create_ticket 显式应立: %+v", a)
 	}
@@ -241,7 +241,7 @@ func TestAttach_SeatAdmin(t *testing.T) {
 	}
 	// 锚5：未登记→admin_resp false 票不立。
 	send(&pbv1.SeatAdmin{Action: &pbv1.SeatAdmin_CreateTicket{CreateTicket: &pbv1.NewTicket{
-		Id: "child-bad", Title: "子", Project: "nope"}}})
+		Id: "child-bad", Title: "未登丙", Project: "nope"}}})
 	if a := adminResp(t, s); a.GetOk() {
 		t.Fatal("create_ticket 未登记未拒")
 	}
