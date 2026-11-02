@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -227,11 +228,7 @@ func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Projec
 		// 容器笼径（票0029）：--rm＋确定性名＋internal 网（lo 通无外通）＋
 		// clone rw＋模块缓存 ro（新依赖无网必败＝fail-closed 加料门）＋
 		// --user 同网关 uid（落盘产物不污属主）。run_as 仅身份主张落档。
-		self := currentUser()
-		uid, gid := "0", "0"
-		if self != nil {
-			uid, gid = self.Uid, self.Gid
-		}
+		uid, gid := selfIDs()
 		cname = fmt.Sprintf("meta-exec-%s-%s-%d", tid, step, time.Now().UnixNano())
 		argv := []string{"run", "--rm", "--name", cname,
 			"--network", "meta-sandbox", "--user", uid + ":" + gid,
@@ -379,17 +376,30 @@ func currentUser() *user.User {
 	return u
 }
 
+// selfIDs 网关进程 uid/gid 字串：passwd 可名解析走 user.Current()；笼内
+// --user uid:gid 无名条目（票0034-p1 实证 golang:1.27）→os.Getuid/Getgid
+// 数字回退——uid 是身份真源，名解析只是显示层。
+func selfIDs() (string, string) {
+	if u := currentUser(); u != nil {
+		return u.Uid, u.Gid
+	}
+	return strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
+}
+
 // sameUser run_as 与网关进程同 uid——是则步直跑无 sudo（票0029 同用户短路）。
+// 票0034-p1：判定径不依赖自身名解析——数字 run_as 直比 os.Getuid()；名
+// run_as 经 Lookup 解出 uid 后同样数字比（笼内 /etc/passwd 无自身条目时
+// user.Current() 必 err，os.Getuid() 恒真）。
 func sameUser(runAs string) bool {
-	self := currentUser()
-	if self == nil {
-		return false
+	if n, err := strconv.ParseUint(runAs, 10, 32); err == nil {
+		return n == uint64(os.Getuid())
 	}
 	u, err := user.Lookup(runAs)
 	if err != nil {
 		return false
 	}
-	return u.Uid == self.Uid
+	n, err := strconv.ParseUint(u.Uid, 10, 32)
+	return err == nil && n == uint64(os.Getuid())
 }
 
 // goModCache 容器笼的模块缓存挂点：GOMODCACHE 环境变量优先，缺省
