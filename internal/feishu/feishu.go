@@ -25,7 +25,8 @@ import (
 
 const (
 	// receiptIn 入站机械回执——通道即发不等 CEO（对话感第一拍，令§1.6）。
-	receiptIn = "收到，这就去办——办完回你"
+	// T9/D-66：回执带接单者身份（壳名）——业主点名可辨，经 cfg.Ident 注入。
+	receiptFmt = "收到（%s），这就去办——办完回你"
 	// receiptReject 白名单外拒答（同 v1 逐字——出站模板钦定件）。
 	receiptReject = "不好意思，这条通道只服务老板本人——您的话我带到了"
 
@@ -37,6 +38,8 @@ type Config struct {
 	Cred *pbv1.FeishuApp
 	// Feed 入站馈口（网关注入＝0011 泵接口消费端：落 feishu_inbound 事件行＋emit）。
 	Feed func(senderOpenID, text string)
+	// Ident 接单者身份供给（T9）：回执带壳名；nil/空→"CEO"。
+	Ident func() string
 	// Send 出站发送（chatID→文本）；nil＝lark REST 实发。
 	Send func(ctx context.Context, chatID, text string) error
 	// StartWS 一轮 WS 入站生命周期；nil＝larkws 实连。返回＝终态（SDK 内建
@@ -99,7 +102,13 @@ func (c *Channel) handle(senderOpenID, chatID, contentJSON string) {
 	if c.cfg.Feed != nil {
 		c.cfg.Feed(senderOpenID, text)
 	}
-	c.sendTo(chatID, receiptIn)
+	ident := "CEO"
+	if c.cfg.Ident != nil {
+		if v := c.cfg.Ident(); v != "" {
+			ident = v
+		}
+	}
+	c.sendTo(chatID, fmt.Sprintf(receiptFmt, ident))
 }
 
 // extractText 取 text 消息正文；非 text 型/坏 JSON 返回空（静默忽略同 v1）。

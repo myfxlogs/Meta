@@ -35,7 +35,13 @@ func (g *Gateway) FeishuChannel(ctx context.Context) *feishu.Channel {
 		g.emit(Event{Kind: "feishu_cred_bad", Note: note})
 		return nil
 	}
-	return feishu.New(feishu.Config{Cred: cred, Feed: g.FeishuInbound})
+	return feishu.New(feishu.Config{Cred: cred, Feed: g.FeishuInbound,
+		Ident: func() string { // T9/D-66：回执接单者身份＝CEO 化身壳
+			if r, _ := g.database.ActiveRunForRole(ctx, "CEO"); r != nil && r.Shell != "" {
+				return "CEO·" + r.Shell
+			}
+			return "CEO"
+		}})
 }
 
 // StartFeishu 装配并起双环（serve 径）：入站 WS 环（有界退避）＋

@@ -48,3 +48,11 @@ func (d *DB) SaveFeishuCard(ctx context.Context, ticketID, messageID, chatID str
 		ticketID, messageID, chatID, d.now().UnixNano())
 	return err
 }
+
+// TouchFeishuCard PATCH 成功留痕（T9/D-63）：updated_at 拨今——卡龄追踪真源。
+func (d *DB) TouchFeishuCard(ctx context.Context, ticketID string) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE feishu_card SET updated_at=? WHERE ticket_id=?`,
+		d.now().UnixNano(), ticketID)
+	return err
+}

@@ -1,6 +1,7 @@
 package feishu
 
 import (
+	"fmt"
 	"context"
 	"errors"
 	"sync"
@@ -55,7 +56,7 @@ func TestHandle_Owner(t *testing.T) {
 	if len(cap.feeds) != 1 || cap.feeds[0] != "ou_owner|做个新功能" {
 		t.Fatalf("owner 消息未馈泵: %v", cap.feeds)
 	}
-	if cap.nsent() != 1 || cap.sents[0] != "oc_x|"+receiptIn {
+	if cap.nsent() != 1 || cap.sents[0] != "oc_x|"+fmt.Sprintf(receiptFmt, "CEO") {
 		t.Fatalf("机械回执未发/发错: %v", cap.sents)
 	}
 
