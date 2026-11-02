@@ -209,6 +209,9 @@ type Gateway struct {
 	subs       map[string][]string // 事件 kind → 订阅角色列
 	patrolCh   chan Event          // 订阅命中事件缓冲（emit 非阻塞喂入）
 	patrolWake chan struct{}       // 批窗闹钟唤醒道（一次性 AfterFunc 信号）
+
+	patrolIdle     *time.Timer // 静默期心跳（票0031④）：30min 无真事件→patrol_tick
+	patrolIdleSpan time.Duration
 }
 
 // New 建仓：开库 → 建 run 目录 → 主 socket → 全相位启动对账。
@@ -325,6 +328,8 @@ func New(cfg Config) (*Gateway, error) {
 	go g.dispatcher()                           // spawn 调度器：事件驱动，非周期
 	go g.ceoPump(g.subscribe())                 // CEO 事件泵：先订阅后起泵，不丢首事件
 	go g.patrolPump()                           // 巡检泵：订阅命中批收→两级过滤→派发
+	g.patrolIdleSpan = 30 * time.Minute         // 静默期心跳（票0031④）
+	g.armPatrolIdle()                           // 网内一次性闹钟版心跳——systemd timer 退役
 	return g, nil
 }
 
@@ -342,6 +347,11 @@ func (g *Gateway) Close() {
 	alarms := make([]*clock.Alarm, 0, len(g.alarms))
 	for _, a := range g.alarms {
 		alarms = append(alarms, a)
+	}
+	g.mu.Unlock()
+	g.mu.Lock()
+	if g.patrolIdle != nil {
+		g.patrolIdle.Stop()
 	}
 	g.mu.Unlock()
 	g.srv.Stop()
@@ -388,6 +398,33 @@ func (g *Gateway) emit(e Event) {
 		}
 	}
 	g.patrolFeed(e) // 票0030：订阅命中→巡检批收道（末位，非阻塞）
+	g.armPatrolIdle() // 票0031④：真事件武装——有事件即重置静默期闹钟
+}
+
+// armPatrolIdle 静默期心跳（票0031④，systemd timer 退役的网内等价件——
+// R2 合法：「随事件重置的一次性闹钟」钦定唯一时钟形态）：30min 无任何
+// 事件→emit patrol_tick（经订阅进巡检批收道，与外部 inject 同径同消费）。
+// 自产事件也走 emit 即自我重置——真静默定义＝整条事件道无活性。
+func (g *Gateway) armPatrolIdle() {
+	span := g.patrolIdleSpan
+	if span <= 0 {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return
+	}
+	if g.patrolIdle != nil {
+		g.patrolIdle.Reset(span)
+		return
+	}
+	g.patrolIdle = time.AfterFunc(span, func() {
+		_ = g.database.AppendEvent(context.Background(), "", "patrol_tick", db.Event{
+			Actor: "gateway", Note: "静默期心跳（30min 无事件）", Provenance: "idle_alarm"})
+		g.emit(Event{Kind: "patrol_tick", Note: "静默期心跳（30min 无事件）",
+			Provenance: "idle_alarm"})
+	})
 }
 
 // subscribe/unsubscribe Observe 面订户口。

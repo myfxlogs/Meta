@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -143,7 +142,7 @@ func (g *Gateway) cheapFilter(ctx context.Context, evs []Event) ([]Event, error)
 	if !ok {
 		// JSONL 壳兜底（实证 opencode --format json）：裸文本判不出→
 		// 逐行 JSON 解字符串字段重扫——KEEP/DROP 藏在助手文本载荷里。
-		keep, ok = parseKeepAll(jsonlText(string(out)), len(evs))
+		keep, ok = parseKeepAll(adapter.JSONLText(string(out)), len(evs))
 	}
 	if !ok {
 		return nil, fmt.Errorf("过滤壳输出不可判（无 KEEP/DROP 行）")
@@ -188,39 +187,6 @@ func parseKeepAll(out string, n int) (map[int]bool, bool) {
 	return keep, seen
 }
 
-// jsonlText JSONL 行集→文本载荷：每行按 JSON 对象解码、递归抽全部字符串
-// 值拼接（opencode --format json / claude stream-json 的助手文本都在
-// 字符串字段里——裸扫描判不出 KEEP/DROP 行首）。
-func jsonlText(out string) string {
-	var b strings.Builder
-	var walk func(v any)
-	walk = func(v any) {
-		switch t := v.(type) {
-		case string:
-			b.WriteString(t)
-			b.WriteByte('\n')
-		case map[string]any:
-			for _, x := range t {
-				walk(x)
-			}
-		case []any:
-			for _, x := range t {
-				walk(x)
-			}
-		}
-	}
-	for _, ln := range strings.Split(out, "\n") {
-		ln = strings.TrimSpace(ln)
-		if !strings.HasPrefix(ln, "{") {
-			continue
-		}
-		var v any
-		if err := json.Unmarshal([]byte(ln), &v); err == nil {
-			walk(v)
-		}
-	}
-	return b.String()
-}
 
 // routeSignal 信号→席位：带票事件→adjunct 巡检席（同票同角色去重闸天然
 // 防风暴；票终态/冻票 DispatchSeat 自拒落 patrol_skip 行）；无票事件
