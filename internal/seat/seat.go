@@ -131,6 +131,13 @@ type session struct {
 	deployFile  bool           // META_DEPLOY 同上
 	pending     map[string]int // 动作类哨兵原文配对计数（>0 流等文件，<0 文件等流）
 	sentinelOff int64          // $META_ART_DIR/sentinel.log 增量读 offset
+
+	// 票0045 锁序钦定（设计-0034-p3-p1 §3）：pumpMu → scanSentinel →
+	// {s.mu|pairMu} 单向不可逆。inotify watcher 使泵路径首次二协程化：
+	// pumpMu 罩泵体全体——stdout 行泵/watcher 泵/Wait 终泵三源互斥；
+	// pairMu 叶锁护 pending map——pairDedup 内部自握，不碰 s.mu。
+	pumpMu sync.Mutex
+	pairMu sync.Mutex
 }
 
 // adapterNew 注入缝（测试换伪适配器——哨兵闸的壳行为由 argv 脚本驱动）。
@@ -271,6 +278,11 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 	// 网关消息泵：Abort/PermissionAsk；流死走收养等待。
 	go s.pumpGateway()
 
+	// 哨兵文件泵第三触发径（票0045）：inotify watcher 盯 $META_ART_DIR
+	// 的 sentinel.log 名事件——壳 stdout 静默期（块缓冲）文件写径仍泵。
+	// ArtifactDir 空/init 败→nil 降级不起，既有两泵点语义不动。
+	stopWatch := s.watchSentinel()
+
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 1<<24), 1<<24) // 16MB：单 JSONL 事件超 1MB 曾致尾流哨兵全丢（D-42 同族）
 	var lastUsage int64
@@ -317,6 +329,9 @@ func (s *session) runChild(ad adapter.Adapter) (int, string) {
 		s.pumpSentinelFile() // 每 stdout 行处理后泵一次（事件驱动，零定时器）
 	}
 	werr := cmd.Wait()
+	if stopWatch != nil {
+		stopWatch() // 停管收口→watcher 归队，终泵仍是文件最后读者
+	}
 	s.pumpSentinelFile() // 净退闸判前最后一泵——文件兜底捕尾哨兵
 	s.mu.Lock()
 	s.tailLastUsage = lastUsage
@@ -621,8 +636,11 @@ func (s *session) drain() {
 // pumpSentinelFile $META_ART_DIR/sentinel.log 增量读兜底泵（D-42 第二信道——
 // 文件写径旁路一切壳渲染：行合并/JSON 包裹/截断全免疫，exec-resp.log 同构先例）。
 // 只处理 \n 收口的完整行，尾残段留下次；文件缺/空＝零成本直返。
-// 泵点全事件驱动：每 stdout 行处理后＋cmd.Wait() 后（净退闸判前）各一次。
+// 泵点全事件驱动（零定时器）：stdout 行后＋inotify watcher 事件批后＋
+// cmd.Wait() 后（净退闸判前）——三源经 pumpMu 串行互斥（票0045 锁序）。
 func (s *session) pumpSentinelFile() {
+	s.pumpMu.Lock()
+	defer s.pumpMu.Unlock()
 	if s.spec.ArtifactDir == "" {
 		return
 	}
@@ -652,7 +670,10 @@ func (s *session) pumpSentinelFile() {
 // pairDedup 动作类哨兵（RULE/ADMIN/EXEC）流↔文件原文配对去重（D-42 双发契约）：
 // 配对键＝行原文整体——被污染的流行与文件净行内容不同，不配对、各发各的；
 // 重试同文哨兵＝新一次出现，按出现序自配对。返回 true＝已配对消化（本次不处理）。
+// pairMu 叶锁自握（票0045）：流源（stdout 环）与文件源（watcher 泵）并发触。
 func (s *session) pairDedup(line string, fromFile bool) bool {
+	s.pairMu.Lock()
+	defer s.pairMu.Unlock()
 	if s.pending == nil {
 		s.pending = make(map[string]int)
 	}
