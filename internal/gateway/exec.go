@@ -193,7 +193,7 @@ func (g *Gateway) handleExec(ctx context.Context, st *runState, stream pbv1.Seat
 // 一次性闹钟杀→退码+输出文件+尾段+diff 文件清单→cmd_run+exec 事件。
 func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Project, sb *pbv1.SandboxSpec, step, cmdline, runAs, ref string) *pbv1.ExecResp {
 	tid := st.run.TicketID
-	workDir, cerr := g.ensureDeployClone(ctx, tid, proj.RepoURL, ref)
+	workDir, cerr := g.ensureDeployClone(ctx, tid, proj.RepoURL, proj.DefaultBranch)
 	rec := func(code int, outPath, tail, files, note string) *pbv1.ExecResp {
 		_ = g.database.InsertCmdRun(ctx, &db.CmdRun{
 			TicketID: tid, RunID: st.run.RunID, Step: step, ExitCode: code,
@@ -290,32 +290,46 @@ func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Projec
 	return rec(code, outPath, tailOfFile(outPath, 4096), g.diffFiles(workDir), "")
 }
 
-// ensureDeployClone 部署 cwd＝干净 clone（run/deploy/<tid>，网关用户自 clone
-// 交付 ref）：已存在即复用（同一部署支的四步共享）；repo_url 空＝干净空目录
-// （无仓配方）。票0029：clone 是自家仓可信操作，直跑不走 sudo——笼/直跑/遗留
-// 三径共用同一属主的 cwd。
-func (g *Gateway) ensureDeployClone(ctx context.Context, tid, repoURL, ref string) (string, error) {
+// ensureDeployClone 部署 cwd＝克隆（run/deploy/<tid>）同步到主线顶（T13：
+// 「每 attempt 同步到 <default_branch>」——存在即复用钉死在首尝试态、
+// checkout 交付 ref 测旧世界双缺陷实修）。有目录→fetch+checkout+reset
+// --hard FETCH_HEAD+clean -fdq（防陈旧克隆＋防脏残留）；无目录→clone 即
+// 主线顶。交付 ref 不再 checkout——检查/部署对象＝并后主线（integrate 已
+// 在主线做完合并；ref 仅作 integrate 输入经 META_EXEC_REF）。repo_url
+// 空＝干净空目录（无仓配方）。clone 是自家仓可信操作，直跑不走 sudo。
+func (g *Gateway) ensureDeployClone(ctx context.Context, tid, repoURL, branch string) (string, error) {
 	dir := filepath.Join(g.cfg.RunDir, "deploy", tid)
-	if st, err := os.Stat(dir); err == nil && st.IsDir() {
-		return dir, nil
-	}
 	if repoURL == "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", err
 		}
 		return dir, nil
 	}
-	for _, a := range [][]string{
-		{"clone", "-q", repoURL, dir},
-		{"-C", dir, "checkout", "-q", ref},
-	} {
-		if a[len(a)-1] == "" { // ref 空→只 clone 不 checkout
-			continue
-		}
-		c := exec.CommandContext(ctx, "git", a...)
+	if branch == "" {
+		branch = "master"
+	}
+	git := func(args ...string) error {
+		c := exec.CommandContext(ctx, "git", args...)
 		if out, err := c.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("clone: %w %s", err, tailOf(string(out), 512))
+			return fmt.Errorf("clone: %w %s", err, tailOf(string(out), 512))
 		}
+		return nil
+	}
+	if st, err := os.Stat(dir); err == nil && st.IsDir() {
+		for _, a := range [][]string{
+			{"-C", dir, "fetch", "-q", repoURL, branch},
+			{"-C", dir, "checkout", "-q", branch},
+			{"-C", dir, "reset", "--hard", "-q", "FETCH_HEAD"},
+			{"-C", dir, "clean", "-fdq"},
+		} {
+			if err := git(a...); err != nil {
+				return "", err
+			}
+		}
+		return dir, nil
+	}
+	if err := git("clone", "-q", "-b", branch, repoURL, dir); err != nil {
+		return "", err
 	}
 	return dir, nil
 }
