@@ -472,7 +472,24 @@ func cageArgv(img string, argv []string, workDir string, env []string) []string 
 	}
 	for _, m := range strings.Split(os.Getenv("META_SEAT_EXTRA_MOUNT"), ",") {
 		if m != "" {
-			out = append(out, "-v", m)
+			// T15返修1：extra_mount 同款绝对径闸——src 段必绝对径，
+			// 相对径拒收（同 mask 静默跳过，invalid volume spec 秒死实证）。
+			src := strings.SplitN(m, ":", 2)[0]
+			if filepath.IsAbs(src) {
+				out = append(out, "-v", m)
+			}
+		}
+	}
+	// T15返修3：笼内壳 CLI 通径（方案 b 宿主二进 ro 挂）——LookPath 解
+	// 宿主实径→其目录 ro 挂同径（PATH 不变即达）；shebang 解释器（node/
+	// bun 系）连带挂。镜像裸跑 executable not found 夜间实证根修。
+	for _, bin := range []string{argv[0], shebangOf(argv[0])} {
+		if bin == "" {
+			continue
+		}
+		if p, err := exec.LookPath(bin); err == nil {
+			d := filepath.Dir(p)
+			out = append(out, "-v", d+":"+d+":ro")
 		}
 	}
 	wl := map[string]bool{"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true}
@@ -499,6 +516,36 @@ func cageArgv(img string, argv []string, workDir string, env []string) []string 
 		out = append(out, "-e", e)
 	}
 	return append(append(out, img), argv...) // 镜像后整壳 argv 原序
+}
+
+// shebangOf 壳 CLI 首行 shebang 解释器名（node/bun/sh——重依赖壳连挂）。
+// 非脚本/读不了/非 #! 行→""（零影响）。
+func shebangOf(bin string) string {
+	p, err := exec.LookPath(bin)
+	if err != nil {
+		return ""
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	var hdr [128]byte
+	n, _ := f.Read(hdr[:])
+	line := string(hdr[:n])
+	if !strings.HasPrefix(line, "#!") {
+		return ""
+	}
+	line = strings.SplitN(line[2:], "\n", 2)[0]
+	parts := strings.Fields(line)
+	if len(parts) == 0 {
+		return ""
+	}
+	b := filepath.Base(parts[0])
+	if b == "env" && len(parts) > 1 {
+		b = parts[1]
+	}
+	return b
 }
 
 func envOr(k, def string) string {

@@ -49,6 +49,18 @@ type spawnReq struct {
 //
 // 共同：冻票拒派（§5.5）；同角色活席去重（§15.1——焊死 已派 重派双席并存洞）。
 func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec SeatSpec) error {
+	// T15/B1 锁泄实修（D-80）：取锁后一切早退径必须放锁——席秒死/attach
+	// 前死时票仍 待部署，释锁只在离 部署中 的 transition，每死一骑永占
+	// 双锁→spawn_blocked 死循环（夜间止血实证）。committed=已交派发点
+	// （claim 后由相位接管），未 committed 即退=本径责任释放。
+	deployCommitted := true
+	var deployProject string
+	defer func() {
+		if !deployCommitted && deployProject != "" {
+			g.releaseProjectLocks(context.Background(), deployProject, ticketID,
+				false, lockIntegrate, lockDeploy)
+		}
+	}()
 	// 禁区#10 机械码位：CEO 只经内部唤起（ensureCEO），一切派发径硬拒——
 	// admin 帧/caster/CLI 三路共用此闸。
 	if role == "CEO" {
@@ -153,6 +165,13 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 					return err
 				}
 				deployBranch = true
+				// T15/B1 锁泄实修（D-80）：取锁后一切早退径必须放锁——席
+				// 秒死/attach 前死时票仍 待部署，释锁只在离 部署中 的
+				// transition，每死一骑永占双锁→spawn_blocked 死循环（
+				// 夜间止血实证）。committed=已交派发点（claim 后由相位
+				// 接管），未 committed 即退=本径责任释放。
+				deployCommitted = false
+				deployProject = t.Project
 			case db.PhaseCreated:
 				// B1 项目设计锁（§1.8）：同项目一票在设计链上（派发→施工中→
 				// 交付/泊车）即拒第二票起设计。锁在本点取、持到本票离开施工中/
@@ -200,6 +219,7 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 	g.specs[specKey{ticketID, role}] = spec
 	g.mu.Unlock()
 	g.enqueueSpawn(ticketID, role)
+	deployCommitted = true // 入队成功＝责任移交（claim/死席径接释锁）
 	return nil
 }
 
