@@ -84,5 +84,5 @@ default_notify {
   kinds: "budget_reset_failed" kinds: "budget_stop"    kinds: "exec_denied"
   kinds: "shell_dead"      kinds: "shell_recovered"    kinds: "ceo_gap"
   kinds: "ceo_last_resort" kinds: "yield"              kinds: "req_pending"
-  kinds: "design_dead"     kinds: "void"               kinds: "budget_warn"
+  kinds: "design_dead"     kinds: "budget_warn"
 }
