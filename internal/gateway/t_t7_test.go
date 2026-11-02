@@ -43,12 +43,12 @@ func TestT7_ScopedSecrets(t *testing.T) {
 		t.Fatalf("凭据未落盘: %v %q", err, b)
 	}
 	fi, _ := os.Stat(secDir)
-	if fi.Mode().Perm() != 0o700 {
-		t.Fatalf("凭据目录权限 %v ≠ 0700", fi.Mode().Perm())
+	if fi.Mode().Perm() != 0o555 {
+		t.Fatalf("凭据目录权限 %v ≠ 0555（T18 真只读收紧）", fi.Mode().Perm())
 	}
 	fif, _ := os.Stat(filepath.Join(secDir, "k1"))
-	if fif.Mode().Perm() != 0o600 {
-		t.Fatalf("凭据文件权限 %v ≠ 0600", fif.Mode().Perm())
+	if fif.Mode().Perm() != 0o444 {
+		t.Fatalf("凭据文件权限 %v ≠ 0444（T18 真只读收紧）", fif.Mode().Perm())
 	}
 
 	// 锚2：越权读（角色外）→Denied＋secret_denied 事件。
