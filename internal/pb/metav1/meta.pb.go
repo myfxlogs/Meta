@@ -4406,24 +4406,25 @@ func (x *DispatchAction) GetProject() string {
 }
 
 type GatewayConfig struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	ProgressTimeout   *durationpb.Duration   `protobuf:"bytes,1,opt,name=progress_timeout,json=progressTimeout,proto3" json:"progress_timeout,omitempty"`          // 缺省 30m
-	AuthTimeout       *durationpb.Duration   `protobuf:"bytes,2,opt,name=auth_timeout,json=authTimeout,proto3" json:"auth_timeout,omitempty"`                      // 5s
-	AdoptDialTimeout  *durationpb.Duration   `protobuf:"bytes,3,opt,name=adopt_dial_timeout,json=adoptDialTimeout,proto3" json:"adopt_dial_timeout,omitempty"`     // 2s
-	Stagger           *durationpb.Duration   `protobuf:"bytes,4,opt,name=stagger,proto3" json:"stagger,omitempty"`                                                 // 10s
-	QuickExit         *durationpb.Duration   `protobuf:"bytes,5,opt,name=quick_exit,json=quickExit,proto3" json:"quick_exit,omitempty"`                            // 20s
-	MaxPerShell       int32                  `protobuf:"varint,6,opt,name=max_per_shell,json=maxPerShell,proto3" json:"max_per_shell,omitempty"`                   // 0=不限
-	DefaultAttemptCap int64                  `protobuf:"varint,7,opt,name=default_attempt_cap,json=defaultAttemptCap,proto3" json:"default_attempt_cap,omitempty"` // 角色行未配时的尝试内帽（毛值 token）
-	TicketHardCap     int64                  `protobuf:"varint,8,opt,name=ticket_hard_cap,json=ticketHardCap,proto3" json:"ticket_hard_cap,omitempty"`             // 票级累计硬顶缺省（毛值）
-	RoleBudget        []*RoleBudget          `protobuf:"bytes,9,rep,name=role_budget,json=roleBudget,proto3" json:"role_budget,omitempty"`
-	Shell             []*ShellRow            `protobuf:"bytes,10,rep,name=shell,proto3" json:"shell,omitempty"`
-	Project           []*ProjectSeed         `protobuf:"bytes,11,rep,name=project,proto3" json:"project,omitempty"`                                    // 项目配方种子（缺 id 行才落，DB 行是活态）
-	CeoEvents         []string               `protobuf:"bytes,12,rep,name=ceo_events,json=ceoEvents,proto3" json:"ceo_events,omitempty"`               // CeoGateway.Events 流放行 kind 列
-	CeoSpawnKinds     []string               `protobuf:"bytes,13,rep,name=ceo_spawn_kinds,json=ceoSpawnKinds,proto3" json:"ceo_spawn_kinds,omitempty"` // 无头 CEO 化身触发 kind 列（决策54/E16）
-	CeoPrompt         string                 `protobuf:"bytes,14,opt,name=ceo_prompt,json=ceoPrompt,proto3" json:"ceo_prompt,omitempty"`               // 无头席提示模板路径（{{kind}} 等占位）
-	BoardListen       string                 `protobuf:"bytes,15,opt,name=board_listen,json=boardListen,proto3" json:"board_listen,omitempty"`         // 前端面 TCP 监听（127.0.0.1:<port>；空=不挂板）
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	ProgressTimeout      *durationpb.Duration   `protobuf:"bytes,1,opt,name=progress_timeout,json=progressTimeout,proto3" json:"progress_timeout,omitempty"`          // 缺省 30m
+	AuthTimeout          *durationpb.Duration   `protobuf:"bytes,2,opt,name=auth_timeout,json=authTimeout,proto3" json:"auth_timeout,omitempty"`                      // 5s
+	AdoptDialTimeout     *durationpb.Duration   `protobuf:"bytes,3,opt,name=adopt_dial_timeout,json=adoptDialTimeout,proto3" json:"adopt_dial_timeout,omitempty"`     // 2s
+	Stagger              *durationpb.Duration   `protobuf:"bytes,4,opt,name=stagger,proto3" json:"stagger,omitempty"`                                                 // 10s
+	QuickExit            *durationpb.Duration   `protobuf:"bytes,5,opt,name=quick_exit,json=quickExit,proto3" json:"quick_exit,omitempty"`                            // 20s
+	MaxPerShell          int32                  `protobuf:"varint,6,opt,name=max_per_shell,json=maxPerShell,proto3" json:"max_per_shell,omitempty"`                   // 0=不限
+	DefaultAttemptCap    int64                  `protobuf:"varint,7,opt,name=default_attempt_cap,json=defaultAttemptCap,proto3" json:"default_attempt_cap,omitempty"` // 角色行未配时的尝试内帽（毛值 token）
+	TicketHardCap        int64                  `protobuf:"varint,8,opt,name=ticket_hard_cap,json=ticketHardCap,proto3" json:"ticket_hard_cap,omitempty"`             // 票级累计硬顶缺省（毛值）
+	RoleBudget           []*RoleBudget          `protobuf:"bytes,9,rep,name=role_budget,json=roleBudget,proto3" json:"role_budget,omitempty"`
+	Shell                []*ShellRow            `protobuf:"bytes,10,rep,name=shell,proto3" json:"shell,omitempty"`
+	Project              []*ProjectSeed         `protobuf:"bytes,11,rep,name=project,proto3" json:"project,omitempty"`                                                            // 项目配方种子（缺 id 行才落，DB 行是活态）
+	CeoEvents            []string               `protobuf:"bytes,12,rep,name=ceo_events,json=ceoEvents,proto3" json:"ceo_events,omitempty"`                                       // CeoGateway.Events 流放行 kind 列
+	CeoSpawnKinds        []string               `protobuf:"bytes,13,rep,name=ceo_spawn_kinds,json=ceoSpawnKinds,proto3" json:"ceo_spawn_kinds,omitempty"`                         // 无头 CEO 化身触发 kind 列（决策54/E16）
+	CeoPrompt            string                 `protobuf:"bytes,14,opt,name=ceo_prompt,json=ceoPrompt,proto3" json:"ceo_prompt,omitempty"`                                       // 无头席提示模板路径（{{kind}} 等占位）
+	BoardListen          string                 `protobuf:"bytes,15,opt,name=board_listen,json=boardListen,proto3" json:"board_listen,omitempty"`                                 // 前端面 TCP 监听（127.0.0.1:<port>；空=不挂板）
+	AuditShellSkipStreak int32                  `protobuf:"varint,16,opt,name=audit_shell_skip_streak,json=auditShellSkipStreak,proto3" json:"audit_shell_skip_streak,omitempty"` // 审计重派壳偏置连败阈值（D-46/票0022）：≤0=关
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *GatewayConfig) Reset() {
@@ -4559,6 +4560,13 @@ func (x *GatewayConfig) GetBoardListen() string {
 		return x.BoardListen
 	}
 	return ""
+}
+
+func (x *GatewayConfig) GetAuditShellSkipStreak() int32 {
+	if x != nil {
+		return x.AuditShellSkipStreak
+	}
+	return 0
 }
 
 // FeishuApp 飞书应用凭证载荷（票0013）：secret.feishu.app 行 vault.key
@@ -5269,7 +5277,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\bwork_dir\x18\x03 \x01(\tR\aworkDir\x12!\n" +
 	"\fprefer_shell\x18\x04 \x01(\tR\vpreferShell\x12\x18\n" +
 	"\aadjunct\x18\x05 \x01(\bR\aadjunct\x12\x18\n" +
-	"\aproject\x18\x06 \x01(\tR\aproject\"\xdf\x05\n" +
+	"\aproject\x18\x06 \x01(\tR\aproject\"\x96\x06\n" +
 	"\rGatewayConfig\x12D\n" +
 	"\x10progress_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0fprogressTimeout\x12<\n" +
 	"\fauth_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\vauthTimeout\x12G\n" +
@@ -5290,7 +5298,8 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\x0fceo_spawn_kinds\x18\r \x03(\tR\rceoSpawnKinds\x12\x1d\n" +
 	"\n" +
 	"ceo_prompt\x18\x0e \x01(\tR\tceoPrompt\x12!\n" +
-	"\fboard_listen\x18\x0f \x01(\tR\vboardListen\"~\n" +
+	"\fboard_listen\x18\x0f \x01(\tR\vboardListen\x125\n" +
+	"\x17audit_shell_skip_streak\x18\x10 \x01(\x05R\x14auditShellSkipStreak\"~\n" +
 	"\tFeishuApp\x12\x15\n" +
 	"\x06app_id\x18\x01 \x01(\tR\x05appId\x12\x1d\n" +
 	"\n" +

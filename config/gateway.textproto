@@ -7,6 +7,7 @@ adopt_dial_timeout { seconds: 2 }
 stagger            { seconds: 10 }    # ②a 限流错峰
 quick_exit         { seconds: 20 }    # ①秒退判定窗
 max_per_shell: 6
+audit_shell_skip_streak: 2            # D-46 审计重派壳偏置：同壳连败≥2 本轮跳过
 default_attempt_cap: 20000000
 ticket_hard_cap:     120000000        # ≈3 施工尝试+审计+CTO 合计毛值
 
