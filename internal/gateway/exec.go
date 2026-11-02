@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -170,12 +171,14 @@ func (g *Gateway) handleExec(ctx context.Context, st *runState, stream pbv1.Seat
 	return stream.Send(&pbv1.GatewayMsg{Body: &pbv1.GatewayMsg_ExecResp{ExecResp: resp}})
 }
 
-// runExecStep 执行一步：干净 clone（runner 以 run_as 自 clone 交付 ref）→
-// sudo -n -u <run_as> -- env … bash -lc <cmd>（cwd=clone）→一次性闹钟杀→
-// 退码+输出文件+尾段+diff 文件清单→cmd_run+exec 事件。
+// runExecStep 执行一步：干净 clone（runner 以网关用户自 clone 交付 ref）→
+// 三径代跑：container_image 置→docker 容器笼（票0029：不可信码进笼非切用户）；
+// run_as==网关用户→env 直跑（同用户短路——meta 配方五步自此零 sudoers）；
+// 余→遗留 sudo -n -u <run_as>（异用户且无笼形制，他项目可用）。cwd=clone→
+// 一次性闹钟杀→退码+输出文件+尾段+diff 文件清单→cmd_run+exec 事件。
 func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Project, sb *pbv1.SandboxSpec, step, cmdline, runAs, ref string) *pbv1.ExecResp {
 	tid := st.run.TicketID
-	workDir, cerr := g.ensureDeployClone(ctx, tid, runAs, proj.RepoURL, ref)
+	workDir, cerr := g.ensureDeployClone(ctx, tid, proj.RepoURL, ref)
 	rec := func(code int, outPath, tail, files, note string) *pbv1.ExecResp {
 		_ = g.database.InsertCmdRun(ctx, &db.CmdRun{
 			TicketID: tid, RunID: st.run.RunID, Step: step, ExitCode: code,
@@ -203,17 +206,54 @@ func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Projec
 	if sb.GetExecTimeout().AsDuration() > 0 {
 		timeout = sb.GetExecTimeout().AsDuration()
 	}
-	argv := []string{"-n", "-u", runAs, "--",
-		"env", "META_TICKET_ID=" + tid, "META_EXEC_STEP=" + step,
+	envs := []string{
+		"META_TICKET_ID=" + tid, "META_EXEC_STEP=" + step,
 		"META_EXEC_REF=" + ref, "META_PROJECT=" + proj.ID,
 		"META_GATEWAY_SOCK=" + g.cfg.SocketPath,
-		"bash", "-lc", cmdline}
-	cmd := exec.CommandContext(ctx, g.cfg.SudoBin, argv...)
+	}
+	var cmd *exec.Cmd
+	var cname string // 容器名——非空则退场 docker rm -f 扫孤儿
+	switch img := sb.GetStepContainerImage()[step]; {
+	case img != "":
+		// 容器笼径（票0029）：--rm＋确定性名＋internal 网（lo 通无外通）＋
+		// clone rw＋模块缓存 ro（新依赖无网必败＝fail-closed 加料门）＋
+		// --user 同网关 uid（落盘产物不污属主）。run_as 仅身份主张落档。
+		self := currentUser()
+		uid, gid := "0", "0"
+		if self != nil {
+			uid, gid = self.Uid, self.Gid
+		}
+		cname = fmt.Sprintf("meta-exec-%s-%s-%d", tid, step, time.Now().UnixNano())
+		argv := []string{"run", "--rm", "--name", cname,
+			"--network", "meta-sandbox", "--user", uid + ":" + gid,
+			"-v", workDir + ":/work", "-w", "/work",
+			"-v", goModCache() + ":/gomod:ro",
+			"-e", "GOMODCACHE=/gomod", "-e", "GOCACHE=/work/.gocache",
+			"-e", "HOME=/work", "-e", "GOFLAGS=-buildvcs=false"}
+		for _, e := range envs {
+			argv = append(argv, "-e", e)
+		}
+		argv = append(argv, img, "bash", "-lc", cmdline)
+		cmd = exec.CommandContext(ctx, g.cfg.DockerBin, argv...)
+	case sameUser(runAs):
+		// 同用户短路（票0029）：身份已即网关用户，env 直跑无 sudo。
+		argv := append([]string{}, envs...)
+		argv = append(argv, "bash", "-lc", cmdline)
+		cmd = exec.CommandContext(ctx, "env", argv...)
+	default:
+		// 遗留 sudo 径（票0010）：异 run_as 且无笼形制——其他项目配方可用。
+		argv := append([]string{"-n", "-u", runAs, "--", "env"}, envs...)
+		argv = append(argv, "bash", "-lc", cmdline)
+		cmd = exec.CommandContext(ctx, g.cfg.SudoBin, argv...)
+	}
 	cmd.Dir = workDir
 	cmd.Stdout, cmd.Stderr = outf, outf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return rec(-1, "", err.Error(), "", "exec 起不来")
+	}
+	if cname != "" {
+		defer func() { _ = exec.Command(g.cfg.DockerBin, "rm", "-f", cname).Run() }()
 	}
 	// 一次性闹钟杀：超时杀整进程组（sudo 链下的配方命令同组）。
 	killed := make(chan struct{})
@@ -239,10 +279,11 @@ func (g *Gateway) runExecStep(ctx context.Context, st *runState, proj *db.Projec
 	return rec(code, outPath, tailOfFile(outPath, 4096), g.diffFiles(workDir), "")
 }
 
-// ensureDeployClone 部署 cwd＝干净 clone（run/deploy/<tid>，runner 以 run_as
-// 自 clone 交付 ref）：已存在即复用（同一部署支的四步共享）；repo_url 空＝
-// 干净空目录（无仓配方）。clone/checkout 同样走 sudo -n——禁网关自身用户写仓。
-func (g *Gateway) ensureDeployClone(ctx context.Context, tid, runAs, repoURL, ref string) (string, error) {
+// ensureDeployClone 部署 cwd＝干净 clone（run/deploy/<tid>，网关用户自 clone
+// 交付 ref）：已存在即复用（同一部署支的四步共享）；repo_url 空＝干净空目录
+// （无仓配方）。票0029：clone 是自家仓可信操作，直跑不走 sudo——笼/直跑/遗留
+// 三径共用同一属主的 cwd。
+func (g *Gateway) ensureDeployClone(ctx context.Context, tid, repoURL, ref string) (string, error) {
 	dir := filepath.Join(g.cfg.RunDir, "deploy", tid)
 	if st, err := os.Stat(dir); err == nil && st.IsDir() {
 		return dir, nil
@@ -254,13 +295,13 @@ func (g *Gateway) ensureDeployClone(ctx context.Context, tid, runAs, repoURL, re
 		return dir, nil
 	}
 	for _, a := range [][]string{
-		{"-n", "-u", runAs, "--", "git", "clone", "-q", repoURL, dir},
-		{"-n", "-u", runAs, "--", "git", "-C", dir, "checkout", "-q", ref},
+		{"clone", "-q", repoURL, dir},
+		{"-C", dir, "checkout", "-q", ref},
 	} {
 		if a[len(a)-1] == "" { // ref 空→只 clone 不 checkout
 			continue
 		}
-		c := exec.CommandContext(ctx, g.cfg.SudoBin, a...)
+		c := exec.CommandContext(ctx, "git", a...)
 		if out, err := c.CombinedOutput(); err != nil {
 			return "", fmt.Errorf("clone: %w %s", err, tailOf(string(out), 512))
 		}
@@ -318,6 +359,40 @@ func runAsFor(sb *pbv1.SandboxSpec, step string) string {
 		return u
 	}
 	return sb.GetRunAs()
+}
+
+// currentUser 网关进程用户（lookup 失败 nil——调用方按无声明处理）。
+func currentUser() *user.User {
+	u, err := user.Current()
+	if err != nil {
+		return nil
+	}
+	return u
+}
+
+// sameUser run_as 与网关进程同 uid——是则步直跑无 sudo（票0029 同用户短路）。
+func sameUser(runAs string) bool {
+	self := currentUser()
+	if self == nil {
+		return false
+	}
+	u, err := user.Lookup(runAs)
+	if err != nil {
+		return false
+	}
+	return u.Uid == self.Uid
+}
+
+// goModCache 容器笼的模块缓存挂点：GOMODCACHE 环境变量优先，缺省
+// 网关用户 home/go/pkg/mod（ro 挂入 /gomod——新依赖无网必败 fail-closed）。
+func goModCache() string {
+	if v := os.Getenv("GOMODCACHE"); v != "" {
+		return v
+	}
+	if u := currentUser(); u != nil {
+		return filepath.Join(u.HomeDir, "go", "pkg", "mod")
+	}
+	return filepath.Join(os.Getenv("HOME"), "go", "pkg", "mod")
 }
 
 // tailOfFile 读文件尾段（≤n 字节）。

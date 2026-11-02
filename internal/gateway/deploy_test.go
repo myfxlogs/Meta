@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -572,5 +573,161 @@ func TestPing_Probe(t *testing.T) {
 		"META_PROBE_TIMEOUT=1s")
 	if err := cmd2.Run(); err == nil {
 		t.Fatal("死 sock 探针应非零退")
+	}
+}
+
+// ---------- 票0029：容器笼＋同用户短路四锚 ----------
+
+// dockerStub 伪 docker：log argv 落盘；run 子令 sleepSec>0 则真睡（超时锚源），
+// 余令即退 0。断言源＝docker-argv.log 全文。
+func dockerStub(t *testing.T, dir string, sleepSec int) string {
+	t.Helper()
+	log := filepath.Join(dir, "docker-argv.log")
+	sleepLine := ":"
+	if sleepSec > 0 {
+		sleepLine = fmt.Sprintf("sleep %d", sleepSec)
+	}
+	body := fmt.Sprintf(`#!/usr/bin/env bash
+printf '%%s\n' "$*" >> %s
+if [ "$1" = "run" ]; then %s; fi
+exit 0
+`, log, sleepLine)
+	p := filepath.Join(dir, "docker")
+	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// execUnit 直驱 runExecStep 的最小 runState——不拉整席只验 argv 成型与收口。
+func execUnit(tid string) *runState {
+	return &runState{run: &db.Run{TicketID: tid, RunID: "r-" + tid}}
+}
+
+// TestExec_SameUserNoSudo 锚1：run_as＝网关用户→env 直跑——SudoBin 零调用且
+// 步真实执行出 stdout。（对抗锚：删 sameUser 短路→走 sudo 径→log 有行→红。）
+func TestExec_SameUserNoSudo(t *testing.T) {
+	dir := t.TempDir()
+	cfg := dispatchCfg(dir)
+	cfg.SudoBin = sudoStub(t, dir, 0)
+	g, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	me, err := user.Current()
+	if err != nil {
+		t.Skip("无当前用户")
+	}
+	proj := stubProject("P")
+	proj.SandboxSpec = fmt.Sprintf(`run_as: "%s"`, me.Username)
+	sb, err := parseSandbox(proj.SandboxSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := g.runExecStep(context.Background(), execUnit("t29a"), &proj, sb,
+		"integrate", "echo same-user-ok", me.Username, "deadbeef")
+	if resp.ExitCode != 0 {
+		t.Fatalf("同用户步应退 0: %+v", resp)
+	}
+	if !strings.Contains(resp.Tail, "same-user-ok") {
+		t.Fatalf("tail 缺步输出: %q", resp.Tail)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sudo-argv.log")); !os.IsNotExist(err) {
+		t.Fatal("同用户步竟调 sudo——短路未生效")
+	}
+}
+
+// TestExec_ContainerArgv 锚2：step_container_image 步→docker run argv：
+// --name meta-exec-<tid>-<step>-＋meta-sandbox 网＋--user 网关 uid＋clone→/work
+// ＋gomod ro＋-e META_* 注入＋镜像名＋bash -lc；且该步零 sudo。
+// （对抗锚：删笼分支→走 sudo 径→docker log 空→红。）
+func TestExec_ContainerArgv(t *testing.T) {
+	dir := t.TempDir()
+	dockerStub(t, dir, 0)
+	cfg := dispatchCfg(dir)
+	cfg.DockerBin = filepath.Join(dir, "docker")
+	cfg.SudoBin = sudoStub(t, dir, 0)
+	g, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	proj := stubProject("P")
+	proj.SandboxSpec = `run_as: "metaseat"
+step_container_image { key: "check" value: "golang:test-img" }`
+	sb, err := parseSandbox(proj.SandboxSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := g.runExecStep(context.Background(), execUnit("t29b"), &proj, sb,
+		"check", "echo caged", "metaseat", "ref123")
+	if resp.ExitCode != 0 {
+		t.Fatalf("笼步应退 0: %+v", resp)
+	}
+	log, err := os.ReadFile(filepath.Join(dir, "docker-argv.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLine := ""
+	rmLine := ""
+	for _, ln := range strings.Split(string(log), "\n") {
+		if strings.HasPrefix(ln, "run ") {
+			runLine = ln
+		}
+		if strings.HasPrefix(ln, "rm ") {
+			rmLine = ln
+		}
+	}
+	me, _ := user.Current()
+	for _, want := range []string{
+		"--name meta-exec-t29b-check-", "--network meta-sandbox",
+		"--user " + me.Uid + ":", "/deploy/t29b:/work", "-w /work",
+		":/gomod:ro", "GOMODCACHE=/gomod", "-e META_TICKET_ID=t29b",
+		"-e META_EXEC_STEP=check", "golang:test-img", "bash -lc",
+	} {
+		if !strings.Contains(runLine, want) {
+			t.Fatalf("run argv 缺 %q: %q", want, runLine)
+		}
+	}
+	if !strings.Contains(rmLine, "rm -f meta-exec-t29b-check-") {
+		t.Fatalf("退场未扫孤儿: %q", rmLine)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sudo-argv.log")); !os.IsNotExist(err) {
+		t.Fatal("笼步竟调 sudo")
+	}
+}
+
+// TestExec_ContainerOrphanSweep 锚3：超时杀进程组后 docker rm -f 必扫——
+// run 睡 60s ＋ sb 超时 1s→退码-1＋rm 行落 log。（对抗锚：删 defer 扫→rm 无→红。）
+func TestExec_ContainerOrphanSweep(t *testing.T) {
+	dir := t.TempDir()
+	dockerStub(t, dir, 60)
+	cfg := dispatchCfg(dir)
+	cfg.DockerBin = filepath.Join(dir, "docker")
+	g, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	proj := stubProject("P")
+	proj.SandboxSpec = `run_as: "metaseat"
+exec_timeout { nanos: 500000000 }
+step_container_image { key: "check" value: "golang:test-img" }`
+	sb, err := parseSandbox(proj.SandboxSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := g.runExecStep(context.Background(), execUnit("t29c"), &proj, sb,
+		"check", "sleep 60", "metaseat", "ref123")
+	if resp.ExitCode != -1 {
+		t.Fatalf("超时步应退-1: %+v", resp)
+	}
+	log, err := os.ReadFile(filepath.Join(dir, "docker-argv.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "rm -f meta-exec-t29c-check-") {
+		t.Fatalf("超时后孤儿未扫: %q", string(log))
 	}
 }

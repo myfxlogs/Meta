@@ -541,10 +541,13 @@ message FeishuApp {
 // SandboxSpec 沙箱形制（§11）：代跑执行身份——run_as 缺省＋按步覆盖。
 // D1 禁网关自身用户；meta 配方的诚实妥协＝不可信码只进 check 步（metaseat），
 // integrate/deploy/probe/rollback 为仓内固定脚本按步覆盖 run_as=mluser。
+// 票0029：step_container_image 按步置 docker 容器笼（run_as 仍作身份主张落
+// 审计档；同 run_as==网关用户步短路直跑不 sudo——meta 配方自此零 sudoers）。
 message SandboxSpec {
-  string run_as = 1;                        // 代跑缺省用户
+  string run_as = 1;                        // 代跑缺省用户（身份主张）
   map<string,string> step_run_as = 2;       // 按步覆盖（step→用户）
   google.protobuf.Duration exec_timeout = 3; // 单步超时（一次性闹钟杀）；空＝网关缺省
+  map<string,string> step_container_image = 4; // 按步容器笼（step→镜像；check 步钦定径）
 }
 
 // ProjectSeed 项目配方种行（§11 子集——本票消费列）：

@@ -44,6 +44,7 @@ project {
     step_run_as { key: "deploy"    value: "mluser" }
     step_run_as { key: "probe"     value: "mluser" }
     step_run_as { key: "rollback"  value: "mluser" }
+    step_container_image { key: "check" value: "golang:1.27-alpine" }
     exec_timeout { seconds: 900 }
   }
 }
