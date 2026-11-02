@@ -69,23 +69,81 @@ func Do(cfg Config) error {
 		c.Stdout, c.Stderr = cfg.Out, cfg.Out
 		return c.Run()
 	}
+	// 0034-p3：自检执行体移位——本进程必死于自己发的 restart（同
+	// cgroup），先 detached 起存活 checker（systemd-run scope，无则
+	// setsid），restart 后由它探活/回退，自检径不再是死码。
+	if cfg.CheckSock != "" {
+		spawnChecker(cfg, prev, wrotePrev)
+	}
 	if err := restart(); err != nil {
 		return fmt.Errorf("upgrade: 重启命令失败: %w", err)
 	}
 	if cfg.CheckSock == "" {
 		return nil
 	}
-	if err := Probe(cfg.CheckSock, cfg.CheckTimeout); err != nil {
-		if wrotePrev {
-			fmt.Fprintf(cfg.Out, "upgrade: 健康自检失败——回退 prev\n")
-			if rerr := copyAtomic(prev, cfg.Install); rerr == nil {
-				_ = restart()
-			}
-			return fmt.Errorf("upgrade: 健康自检失败，已回退 prev: %w", err)
-		}
-		return fmt.Errorf("upgrade: 健康自检失败（无 prev 可退）: %w", err)
+	fmt.Fprintf(cfg.Out, "upgrade: 自检已移交 detached checker（%s）\n", cfg.CheckSock)
+	return nil
+}
+
+// spawnChecker detached 自检执行体（0034-p3）：upgrade 自身死于 restart
+// ——checker 走 systemd-run scope（无则 setsid）逃 cgroup，restart 后探活，
+// 红则回退 prev 再 restart 一次。CheckCmd 是 checker 进程入口（`meta
+// upgrade-check`）。
+func spawnChecker(cfg Config, prev string, wrotePrev bool) {
+	self, err := os.Executable()
+	if err != nil {
+		return
 	}
-	fmt.Fprintf(cfg.Out, "upgrade: 健康自检绿 %s\n", cfg.CheckSock)
+	args := []string{"upgrade-check",
+		"--sock", cfg.CheckSock,
+		"--prev", prev,
+		"--install", cfg.Install,
+		"--restart-cmd", cfg.RestartCmd,
+		"--have-prev", fmt.Sprintf("%v", wrotePrev)}
+	// T返修①：去 --scope 走 transient service（--scope 前台阻塞，Run()
+	// 等 checker 退出才算完根本没 detach——transient service Run 即回）。
+	if p, err := exec.LookPath("systemd-run"); err == nil {
+		unit := fmt.Sprintf("meta-upg-check-%d", time.Now().Unix())
+		c := exec.Command(p, "--user", "--quiet", "--collect",
+			"--unit="+unit, "--", self)
+		c.Args = append(c.Args[:len(c.Args)-1], append([]string{self}, args...)...)
+		if c.Run() == nil {
+			return
+		}
+	}
+	if p, err := exec.LookPath("setsid"); err == nil {
+		c := exec.Command(p, append([]string{self}, args...)...)
+		c.Stdout, c.Stderr = io.Discard, io.Discard
+		_ = c.Start()
+	}
+}
+
+// CheckCmd upgrade-check 入口（T返修②等死再探）：先探旧口死（restart
+// 实发灭旧网关，超时上限防 restart 未发）→再探新口活→绿；红→回退 prev
+// ＋再 restart。checker 桩测缝＝probeFn（生产＝Probe）。
+var probeFn = Probe
+
+func CheckCmd(out io.Writer, sock, prev, install, restartCmd string, havePrev bool) error {
+	// 等死：旧口还活着不算新象——deadline 界内探到红才说明 restart 实发。
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := probeFn(sock, time.Second); err != nil {
+			break // 旧口已灭→restart 实发
+		}
+		t := time.NewTimer(300 * time.Millisecond) // 等死节拍（一次性非轮询）
+		<-t.C
+	}
+	if err := probeFn(sock, 15*time.Second); err != nil {
+		if havePrev {
+			fmt.Fprintf(out, "upgrade-check: 自检红——回退 prev\n")
+			if rerr := copyAtomic(prev, install); rerr == nil {
+				_ = exec.Command("sh", "-c", restartCmd).Run()
+			}
+			return fmt.Errorf("upgrade-check: 自检红已回退: %w", err)
+		}
+		return fmt.Errorf("upgrade-check: 自检红（无 prev）: %w", err)
+	}
+	fmt.Fprintf(out, "upgrade-check: 健康自检绿 %s\n", sock)
 	return nil
 }
 

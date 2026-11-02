@@ -11,6 +11,7 @@ import (
 
 	"meta/internal/db"
 	pbv1 "meta/internal/pb/metav1"
+	"meta/internal/upgrade"
 )
 
 // reconcile 启动对账（§5.3 全相位「相位×预期行动者」表，启动一次非周期）：
@@ -107,6 +108,25 @@ func (g *Gateway) reconcile(ctx context.Context) {
 	}
 }
 
+// deployStateOK 0034-p3 收口态判：末次 deploy cmd_run exit=0（已装）
+// ＋socket 探活绿＝部署实成（restart 杀席是必然不证败）。
+func (g *Gateway) deployStateOK(ctx context.Context, tid string) bool {
+	runs, err := g.database.CmdRuns(ctx, tid)
+	if err != nil || len(runs) == 0 {
+		return false
+	}
+	var last *db.CmdRun
+	for _, r := range runs {
+		if r.Step == "deploy" {
+			last = r
+		}
+	}
+	if last == nil || last.ExitCode != 0 {
+		return false
+	}
+	return upgrade.Probe(g.cfg.SocketPath, 2*time.Second) == nil
+}
+
 // spawnLine 无行动者相位→spawn_needed note 支线标（§14 半结构契约消费端＝
 // 路由表 note_contains）：已立→CTO-A 设计支，待部署→CTO-B 部署支，
 // 余相位＝角色本名（施工/审计）。
@@ -185,6 +205,18 @@ func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
 		to, kind = db.PhaseReview, db.EdgeAuditDead
 	case db.PhaseDeploying:
 		to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
+	}
+	// 0034-p3 态判：deploy restart 灭席是必然——收口不看席死活看态：
+	// 末次 deploy 步 exit=0（已装）＋现 socket 健康→deploy_ok（完成）；
+	// 否则照旧 deploy_failed（回滚态未核）。
+	if t.Phase == db.PhaseDeploying && g.deployStateOK(ctx, t.ID) {
+		if err := g.transition(ctx, t.ID, db.PhaseDone, db.EdgeDeployDone,
+			"gateway", "对账态判：已装+socket健康→deploy_ok"); err == nil {
+			g.emit(Event{Kind: "deploy_ok", TicketID: t.ID})
+			g.releaseProjectLocks(ctx, t.Project, t.ID, true,
+				lockIntegrate, lockDeploy)
+			return
+		}
 	}
 	note := "对账：行动者无响应"
 	if t.Phase == db.PhaseDeploying {
