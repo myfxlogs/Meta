@@ -117,6 +117,10 @@ func main() {
 		} else {
 			err = upgrade.CheckCmd(os.Stdout, *sock, *prev, *inst, *rc, *hp)
 		}
+	case "deploy":
+		err = deployCmd(os.Args[2:])
+	case "seat-drive":
+		err = seatDriveCmd()
 	case "version":
 		fmt.Println("meta", buildStamp)
 	default:
@@ -1434,4 +1438,122 @@ func importLegacy(ctx context.Context, d *db.DB, raw []byte) (int, error) {
 		n++
 	}
 	return n, nil
+}
+
+
+// deployCmd T25 钦定部署径：CLI 直驱——dispatch CliDrive=true（席进程＝
+// meta seat-drive 机械四步，零 AI 税）。seat-drive 经 env 拿 run 凭证。
+func deployCmd(args []string) error {
+	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	tid := fs.String("ticket", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ack, err := c.Dispatch(context.Background(), &pbv1.DispatchReq{
+		TicketId: *tid, Role: "CTO", CliDrive: true})
+	if err != nil {
+		return err
+	}
+	if !ack.Ok {
+		return fmt.Errorf("deploy: %s", ack.Note)
+	}
+	fmt.Println("deploy dispatched", *tid)
+	return nil
+}
+
+// seatDriveCmd T25 机械部署席：RunAuth→Claim→integrate→check→deploy→
+// probe 四步 ExecReq 确定性循环（零模型税）；断线重连继续（重启自杀
+// 解——网关 restart 后重 attach 补 probe+Deliver）。退码：0=done，
+// 91=某步红（尾因 stdout）。
+func seatDriveCmd() error {
+	sock, tok := os.Getenv("META_GATEWAY_SOCK"), os.Getenv("META_RUN_TOKEN")
+	tid := os.Getenv("META_TICKET_ID")
+	if sock == "" || tok == "" || tid == "" {
+		return fmt.Errorf("seat-drive: 凭证 env 缺")
+	}
+	attach := func() (pbv1.SeatGateway_AttachClient, *grpc.ClientConn, error) {
+		conn, err := grpc.NewClient("unix:"+sock,
+			grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return nil, nil, err
+		}
+		st, err := pbv1.NewSeatGatewayClient(conn).Attach(context.Background())
+		if err != nil {
+			conn.Close()
+			return nil, nil, err
+		}
+		if err := st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{
+			Auth: &pbv1.RunAuth{RunToken: tok}}}); err != nil {
+			conn.Close()
+			return nil, nil, err
+		}
+		return st, conn, nil
+	}
+	var st pbv1.SeatGateway_AttachClient
+	var conn *grpc.ClientConn
+	for i := 0; i < 60; i++ { // 重启窗内有界重连（deploy 步 restart 后回）
+		if s, c, err := attach(); err == nil {
+			st, conn = s, c
+			break
+		}
+		select {
+		case <-time.After(time.Second):
+		}
+	}
+	if st == nil {
+		return fmt.Errorf("seat-drive: attach 不可达")
+	}
+	defer conn.Close()
+	recv := func() (*pbv1.GatewayMsg, error) { return st.Recv() }
+	// claim（幂等重领放行——重连复跑同帧）。
+	if err := st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{
+		Claim: &pbv1.Claim{TicketId: tid}}}); err != nil {
+		return err
+	}
+	for _, step := range []string{"integrate", "check", "deploy", "probe"} {
+		if err := st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_ExecReq{
+			ExecReq: &pbv1.ExecReq{Step: step}}}); err != nil {
+			// deploy 步 restart 断流→重连后从当前步续跑（步幂等——
+			// integrate 幂等短路/check 重跑无害/deploy 幂等/probe 再探）。
+			if s2, c2, err := attach(); err == nil {
+				conn.Close()
+				st, conn = s2, c2
+				_ = st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{
+					Claim: &pbv1.Claim{TicketId: tid}}})
+				if err := st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_ExecReq{
+					ExecReq: &pbv1.ExecReq{Step: step}}}); err != nil {
+					return err
+				}
+			} else {
+				return fmt.Errorf("seat-drive: 断流重连败: %w", err)
+			}
+		}
+		// 等本步 ExecResp（其余帧丢——机械径不消费进度）。
+		var code int32 = -1
+		var tail string
+		for code < 0 {
+			m, err := recv()
+			if err != nil {
+				return fmt.Errorf("seat-drive: 步 %s 回执断: %w", step, err)
+			}
+			if r := m.GetExecResp(); r != nil {
+				code, tail = r.ExitCode, r.Tail
+			}
+		}
+		if code != 0 {
+			fmt.Printf("META_DEPLOY:failed 步 %s exit=%d %s\n", step, code, tail)
+			_ = st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{
+				Deliver: &pbv1.Deliver{Ref: "cli", Note: "META_DEPLOY:failed " + step}}})
+			return fmt.Errorf("seat-drive: 步 %s 红 exit=%d", step, code)
+		}
+	}
+	fmt.Println("META_DEPLOY:done")
+	return st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{
+		Deliver: &pbv1.Deliver{Ref: "cli", Note: "META_DEPLOY:done"}}})
 }

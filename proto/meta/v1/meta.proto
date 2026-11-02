@@ -242,6 +242,7 @@ message DispatchReq {
   bool adjunct = 6;        // 辅助席（裁决/诊断）：不占相位，必给 prompt_file
   string provenance = 7;   // 触发事件行的 provenance 透传（caster 自动带；spawn 盖进 seat_run）
   string project = 8;      // 派发径挂接（DispatchSeat 内、取锁闸之前 attachProject——锁键取新值）
+  bool cli_drive = 9;         // T25：CLI 直驱席（seat-drive 机械四步——钦定部署径）
 }
 
 message BudgetReq {
