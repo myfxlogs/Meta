@@ -20,7 +20,7 @@
 
 - 支名 `t/0034-p1-cage-identity` ✓；commit `t0034-p1: <为什么>` ✓（body 含「为什么之前会错」根因段，令#E4 合规）；推支 ✓；不并 master ✓；`META_DELIVER:20bc6f5` 双发——deliver 事件 2871 ref 对上＋施工 ART_DIR `sentinel.log` 实录在账。
 - 交付摘要五节（席位日志 `run/logs/d7f4dd86574115a2.log` 实录）：修改面四件逐一点名、根因（t0029 笼×t0031 deny 组合雷）、验证机器口径、下一步全量申报、可沉淀打法候选——形齐。
-- **范围复核**：diff 文件清单 vs §3 范围内逐一对上——`internal/gateway/exec.go`（sameUser/selfIDs）、`internal/gateway/deploy_test.go`（648 判空＋stubSandboxSpec 夹具＋新锚）、`docs/实现/债务台账.md`（D-67）、`docs/经验库/…osGetuid.md`（令#E1「遇坑即写」常态义务，非蔓延）。四件全部有据。
+- **范围复核**：diff 文件清单 vs §3 范围内逐一对上——`internal/gateway/exec.go`（sameUser/selfIDs）、`internal/gateway/deploy_test.go`（648 判空＋stubSandboxSpec 夹具＋新锚）、`docs/实现/债务台账.md`（D-69）、`docs/经验库/…osGetuid.md`（令#E1「遇坑即写」常态义务，非蔓延）。四件全部有据。
 - **范围外机械核对**：`git diff master...20bc6f5` 不含 patrol.go/dispatch.go 及其三测试件（t0034 交付零触碰）、不含 `config/gateway.textproto`、不含 docker 网络设施、deploy_failed 补发策略零改动（仅记账）；exec.go deny 段（legacy-sudo 径）零行改动——§4 禁线全守。
 - 禁区自查：diff 增面扫 `TODO|FIXME|XXX|HACK|绕过|临时|fmt.Print|println` 零命中；无周期/定时/心跳式新增；无 JSON。
 
@@ -41,9 +41,9 @@
 | 债 | 内容 | 摘要申报？ |
 |---|---|---|
 | D-p1a | `gofmt -l internal/` 5 文件为 master 基线脏区（adapter/claude.go、caster/caster.go、db/msg.go、db/phase_test.go、gateway/gateway.go） | 已申报，本席 master 复跑实证对上 |
-| D-p1b | D-67 只记账未施改（deploy_failed 补发无断路＋shells_exhausted 死锁）——票面钦定「本票只记账」 | 已申报，台账行内容与票面 §1 要求逐点对上 |
+| D-p1b | D-69 只记账未施改（deploy_failed 补发无断路＋shells_exhausted 死锁）——票面钦定「本票只记账」 | 已申报，台账行内容与票面 §1 要求逐点对上 |
 | D-p1c | 锚 5 端到端解堵待部署闸自验（0034 卡「待部署」） | 已申报，票面 §8 自明项 |
-| D-p1d | 票面所写「记 D-66」编号在交付前已被 `453c76a` 占用，顺延 D-67 | 已申报（摘要＋commit body 双处明示）——非偏差，占位顺延是唯一正解 |
+| D-p1d | 票面所写「记 D-66」编号在交付前已被 `453c76a` 占用先顺延，t0040 rebase 再让 master 侧已占号，终落 D-69 | 已申报（摘要＋commit body 双处明示）——非偏差，占位顺延是唯一正解 |
 
 **瞒报零起**：diff 扫描零 TODO/绕过命中；摘要「下一步」三项与本席复算逐条对上。
 
