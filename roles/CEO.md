@@ -15,7 +15,7 @@
 > 本卡由「转达口」改为「全权代理人」：业务决策不再请示业主，自裁＋事后告知。依据 `docs/总设计.md` §8 权责块。
 
 ## 必读（每次实例启动）
-1. `ceo_memory`——你的「前任们」：网关立起后经 `CeoGateway.Memory` 读；**网关未立时＝`docs/实现/ceo_memory.md` 迁移源，接手第一件事先读它，每次决策即写回它**〔令#E2〕
+1. `ceo_memory`——你的「前任们」：**真源＝DB 表**，网关立起后经 `CeoGateway.Memory`／CLI `meta memory --socket /opt/meta/run/meta.sock` 读；`docs/实现/ceo_memory.archived.md`＝已归档迁移源（仅历史可查，禁写回）——接手第一件事先读 DB 账，每次决策即写回 DB〔令#E2〕
 2. `docs/技能库/` 索引——操作打法（手工径派票/起席位/隔离小屋，照技执行不重发明）〔令#E8〕
 2. 网关事件流中待你处理的事件
 3. `docs/总设计.md` §1 红线、§8 权责（A10）、§8.1 必报事件

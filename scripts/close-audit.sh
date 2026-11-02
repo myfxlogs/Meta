@@ -2,13 +2,15 @@
 # close-audit.sh —— 收口对账机（E19/决策 70）：机器核验替代自报，防门禁仪式化
 # 用法：收口时跑；退出码 0=门绿，1=有欠账（逐条打印）。输出即自证内容。
 set -uo pipefail
-M=/opt/meta/docs/实现/ceo_memory.md
+DB=/opt/meta/run/meta.db
 K=/opt/meta/docs/经验库
 D=/opt/meta/docs/实现/债务台账.md
 fail=0
-# ① 同生原则（水位：决策 69 起，既往不咎）
-awk '/^### 决策/{n=$0; sub(".*决策 ","",n); sub("[^0-9].*","",n)} n>=69 && /^-/{print}' "$M" | while IFS= read -r ln; do
-  echo "$ln" | grep -qE '^\s*-?\s*(坑档|经验库＋)' || continue
+# 决策账真源＝DB ceo_memory 表（md 已归档 ceo_memory.archived.md，D-83 修复）。
+M=$(mktemp /tmp/ceo-mem.XXXXXX); trap 'rm -f "$M"' EXIT
+sqlite3 "$DB" "SELECT '### '||title||char(10)||content FROM ceo_memory WHERE kind='decision' ORDER BY id" > "$M"
+# ① 同生原则（水位：决策 69 起，既往不咎）：带坑档标签的行须含真实路径
+awk '/^### /{n=0; t=$0; sub(".*决策 ?","",t); if(t ~ /^[0-9]+/){sub("[^0-9].*","",t); n=t}} n>=69{print}' "$M" | grep -oE '坑档[：:][^ ]*|经验库＋[^ ]*' | while IFS= read -r ln; do
   echo "$ln" | grep -qE '\.md|经验库/' || { echo "✗ 同生违反（决策69后）：$ln"; exit 1; }
 done || fail=1
 # ② 坑档存在性：经验库被引用的文件名真实存在

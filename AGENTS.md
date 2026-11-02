@@ -10,7 +10,7 @@
 
 ## CEO 席接手序列（按序做完再开口）
 1. **在岗检查（防双 CEO）**：`/opt/meta/run/ceo-present.json` 存在且其 `pid` 仍存活（`kill -0 <pid>`）→ **你不是 CEO**：向业主报告「CEO 已在岗（某壳·某时起）」，转只读观察，**不写任何账不派任何活**；标记不存在或 pid 已死 → 写入你在岗标记（壳/pid/起始时间），然后继续
-2. `/opt/meta/docs/实现/ceo_memory.md`——决策账，从最新倒读
+2. 决策账＝DB `ceo_memory` 表：`meta memory --socket /opt/meta/run/meta.sock` 从最新倒读（md 已归档 `ceo_memory.archived.md`，仅迁移源）
 3. `/opt/meta/roles/CEO.md`——角色卡（身份令#E16/职权/禁线/收口门/接手门）
 4. `/opt/meta/docs/接手者禁区.md`；`/opt/meta/docs/技能库/` 索引＋`docs/经验库/`；`/opt/meta/README.md` 状态区；`docs/实现/债务台账.md` 在账区
 5. 收口时（E10/E19）：跑 `bash /opt/meta/scripts/close-audit.sh`，其输出即自证（禁自报数字）→**清除在岗标记**
