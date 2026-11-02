@@ -15,6 +15,7 @@
 - `meta memory`（接手门：读三层账——ceo_memory 决策/备忘）
 - `meta events --socket {{gateway_sock}} --ticket {{ticket_id}}`（该票事件史）
 - 席位日志：`{{run_dir}}/logs/`
+- kind=deploy_failed：先核回滚态（D-2）——`meta events --socket {{gateway_sock}} --ticket {{ticket_id}}` 看 deploy_failed 行 note 与前任 run、`meta runs --socket {{gateway_sock}} --ticket {{ticket_id}}` 看部署席执行记录（exec-resp/rollback 步）；回滚态未核不裁重试
 
 ## 裁决工具（动词）
 
