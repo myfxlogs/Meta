@@ -357,6 +357,14 @@ func TestAnchorG_AdoptMutualAuth(t *testing.T) {
 // TestAnchorE_SecretRPC Secret(name) 最小径：ACL 放行给对角色，拒错角色。
 func TestSecretRPC(t *testing.T) {
 	g, dir := newTestGateway(t, nil)
+	t.Cleanup(func() { // T18 只读凭据件清理前回权限位（unlinkat 闸）
+		_ = filepath.Walk(filepath.Join(dir, "run"), func(p string, _ os.FileInfo, e error) error {
+			if e == nil {
+				_ = os.Chmod(p, 0o700)
+			}
+			return nil
+		})
+	})
 	mkTicketAt(t, g, "ts", db.PhaseAssigned)
 
 	// 造 vault.key + secret（meta secret put 同径）。

@@ -80,6 +80,10 @@ func (g *Gateway) reconcile(ctx context.Context) {
 			}
 			_ = g.database.MarkDead(ctx, r.RunID)
 			killRunGroup(r.PID)
+			// T18②：孤儿席（不走 onRunDead）secrets 目录连收——
+			// 凭据作用域=run 生命周期，收尸漏净属凭据残面；
+			// wipeSecretsDir 先回权限位再删。
+			g.wipeSecretsDir(r.RunID)
 			kind := "seat_dead"
 			if r.Adjunct {
 				kind = "adjunct_dead"
