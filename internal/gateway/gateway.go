@@ -49,6 +49,10 @@ type Config struct {
 	InjectRoot    string   // 注入源根：roles/ 与 docs/经验库|技能库 所在
 	InjectRecipes []string // 项目配方/纪律文档（相对 InjectRoot，序即拼）
 
+	// 立票点火去抖窗（票0039/T11）：票事件落账→重置对账闹钟，缺省 30s，
+	// ≤0＝关。去抖非周期——静默期闹钟自灭，不违 R2。
+	ReconcileDebounce time.Duration
+
 	// 部署闸（票0010，§10/B1/B2/D1）。
 	Projects    []*pbv1.ProjectSeed // 项目配方种子（同 id 行已存在不动——DB 行是活态）
 	SudoBin     string              // 代跑 sudo 路径；缺省 "sudo"
@@ -134,6 +138,9 @@ func (c *Config) withDefaults() {
 			c.SelfPath = p
 		}
 	}
+	if c.ReconcileDebounce <= 0 {
+		c.ReconcileDebounce = 30 * time.Second
+	}
 }
 
 // runState 一张 seat_run 的运行时镜像＋双源判死所需的两条事件通道。
@@ -212,6 +219,16 @@ type Gateway struct {
 
 	patrolIdle     *time.Timer // 静默期心跳（票0031④）：30min 无真事件→patrol_tick
 	patrolIdleSpan time.Duration
+
+	// 票0039/T11：立票点火去抖闹钟——票事件落账（db eventHook）重置，
+	// 醒→goroutine 跑既有 reconcile。reconBusy＝对账在飞期抑制自锁环
+	// （对账自产事件不再续命闹钟——否则滞留票 spawn_needed 每窗重放成
+	// 变相周期轮询，违 R2）；reconDirty＝busy 期非静默事件脏标（判决
+	// 返修：不丢不续命——对账收尾查脏再醒一轮，竞态窗闭合）。
+	reconTimer  *time.Timer
+	reconBusy   bool
+	reconDirty  bool
+	reconcileNow func(ctx context.Context) // 测试注入缝；缺省 g.reconcile
 }
 
 // New 建仓：开库 → 建 run 目录 → 主 socket → 全相位启动对账。
@@ -330,6 +347,9 @@ func New(cfg Config) (*Gateway, error) {
 	go g.patrolPump()                           // 巡检泵：订阅命中批收→两级过滤→派发
 	g.patrolIdleSpan = 30 * time.Minute         // 静默期心跳（票0031④）
 	g.armPatrolIdle()                           // 网内一次性闹钟版心跳——systemd timer 退役
+	// 票0039/T11：点火去抖——DB 事件钩接 armRecon；reconcileNow 注入缝。
+	g.reconcileNow = g.reconcile
+	d.SetEventHook(g.armRecon)
 	return g, nil
 }
 
@@ -352,6 +372,9 @@ func (g *Gateway) Close() {
 	g.mu.Lock()
 	if g.patrolIdle != nil {
 		g.patrolIdle.Stop()
+	}
+	if g.reconTimer != nil {
+		g.reconTimer.Stop()
 	}
 	g.mu.Unlock()
 	g.srv.Stop()
@@ -399,6 +422,67 @@ func (g *Gateway) emit(e Event) {
 	}
 	g.patrolFeed(e) // 票0030：订阅命中→巡检批收道（末位，非阻塞）
 	g.armPatrolIdle() // 票0031④：真事件武装——有事件即重置静默期闹钟
+}
+
+// reconSilentKinds 机器记账类事件（票0039）：对账/派发/巡检泵自身产出——
+// 不武装闹钟。缺它们则滞留票走「醒→spawn_needed→dispatcher 异步落
+// shells_exhausted→再武装→再醒」＝变相周期轮询，违 R2 零心跳。
+// created/phase/msg/外部 inject 等真事件照常武装（点火本意）。
+var reconSilentKinds = map[string]bool{
+	"spawn_needed": true, "spawn_blocked": true, "shells_exhausted": true,
+	"inject_failed": true, "dispatch_failed": true, "patrol_tick": true,
+	"patrol_drop": true, "patrol_skip": true, "filter_degraded": true,
+	"seat_err": true, "adjunct_dead": true, "progress": true,
+	"usage": true, "msg_delivered": true, "stall_suspect": true,
+}
+
+// armRecon 立票点火去抖闹钟（票0039/T11，R2「随事件重置的一次性闹钟」
+// 钦定形态）：票事件落账（db eventHook，机器记账 kind 滤除）重置——
+// 醒→goroutine 跑既有 reconcile（判别逻辑不动只加触发）。对账在飞期
+// 到达的事件置 reconDirty（不续命＝不变相轮询，不丢＝竞态窗闭合）；
+// 收尾查脏再醒一轮。窗＝cfg.ReconcileDebounce，≤0 关。
+func (g *Gateway) armRecon(kind string) {
+	if reconSilentKinds[kind] {
+		return
+	}
+	span := g.cfg.ReconcileDebounce
+	if span <= 0 {
+		return
+	}
+	g.mu.Lock()
+	if g.closed {
+		g.mu.Unlock()
+		return
+	}
+	if g.reconBusy {
+		// 判决返修：busy 期事件置脏标不丢不续命——对账收尾查脏再醒
+		// 一轮（抗「先扫后落」竞态窗：重启风暴期立票掉缝=偶现点火洞）。
+		g.reconDirty = true
+		g.mu.Unlock()
+		return
+	}
+	if g.reconTimer != nil {
+		g.reconTimer.Reset(span)
+		g.mu.Unlock()
+		return
+	}
+	g.reconTimer = time.AfterFunc(span, func() {
+		g.mu.Lock()
+		g.reconBusy = true
+		g.reconTimer = nil
+		g.reconDirty = false
+		g.mu.Unlock()
+		g.reconcileNow(context.Background())
+		g.mu.Lock()
+		g.reconBusy = false
+		dirty := g.reconDirty
+		g.reconDirty = false
+		g.mu.Unlock()
+		if dirty {
+			g.armRecon("created") // 收尾查脏：busy 期真事件→再醒一轮
+		}
+	})
+	g.mu.Unlock()
 }
 
 // armPatrolIdle 静默期心跳（票0031④，systemd timer 退役的网内等价件——

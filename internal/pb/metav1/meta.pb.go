@@ -4457,6 +4457,7 @@ type GatewayConfig struct {
 	AuditShellSkipStreak int32                  `protobuf:"varint,16,opt,name=audit_shell_skip_streak,json=auditShellSkipStreak,proto3" json:"audit_shell_skip_streak,omitempty"` // 审计重派壳偏置连败阈值（D-46/票0022）：≤0=关
 	Subscribe            []*PatrolSub           `protobuf:"bytes,17,rep,name=subscribe,proto3" json:"subscribe,omitempty"`                                                        // 巡检订阅种子（票0030）：kind→role，种入 subscription 表
 	FilterShell          *FilterShell           `protobuf:"bytes,18,opt,name=filter_shell,json=filterShell,proto3" json:"filter_shell,omitempty"`                                 // 两级过滤便宜壳（票0030）：name 空＝过滤关全放行
+	ReconcileDebounce    *durationpb.Duration   `protobuf:"bytes,19,opt,name=reconcile_debounce,json=reconcileDebounce,proto3" json:"reconcile_debounce,omitempty"`               // 立票点火去抖窗（票0039/T11）：票事件落账重置，缺省 30s
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -4613,6 +4614,13 @@ func (x *GatewayConfig) GetSubscribe() []*PatrolSub {
 func (x *GatewayConfig) GetFilterShell() *FilterShell {
 	if x != nil {
 		return x.FilterShell
+	}
+	return nil
+}
+
+func (x *GatewayConfig) GetReconcileDebounce() *durationpb.Duration {
+	if x != nil {
+		return x.ReconcileDebounce
 	}
 	return nil
 }
@@ -5709,7 +5717,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\bwork_dir\x18\x03 \x01(\tR\aworkDir\x12!\n" +
 	"\fprefer_shell\x18\x04 \x01(\tR\vpreferShell\x12\x18\n" +
 	"\aadjunct\x18\x05 \x01(\bR\aadjunct\x12\x18\n" +
-	"\aproject\x18\x06 \x01(\tR\aproject\"\x81\a\n" +
+	"\aproject\x18\x06 \x01(\tR\aproject\"\xcb\a\n" +
 	"\rGatewayConfig\x12D\n" +
 	"\x10progress_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0fprogressTimeout\x12<\n" +
 	"\fauth_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\vauthTimeout\x12G\n" +
@@ -5733,7 +5741,8 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\fboard_listen\x18\x0f \x01(\tR\vboardListen\x125\n" +
 	"\x17audit_shell_skip_streak\x18\x10 \x01(\x05R\x14auditShellSkipStreak\x120\n" +
 	"\tsubscribe\x18\x11 \x03(\v2\x12.meta.v1.PatrolSubR\tsubscribe\x127\n" +
-	"\ffilter_shell\x18\x12 \x01(\v2\x14.meta.v1.FilterShellR\vfilterShell\"3\n" +
+	"\ffilter_shell\x18\x12 \x01(\v2\x14.meta.v1.FilterShellR\vfilterShell\x12H\n" +
+	"\x12reconcile_debounce\x18\x13 \x01(\v2\x19.google.protobuf.DurationR\x11reconcileDebounce\"3\n" +
 	"\tPatrolSub\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\"\xc7\x01\n" +
@@ -5976,65 +5985,66 @@ var file_meta_v1_meta_proto_depIdxs = []int32{
 	72, // 48: meta.v1.GatewayConfig.project:type_name -> meta.v1.ProjectSeed
 	64, // 49: meta.v1.GatewayConfig.subscribe:type_name -> meta.v1.PatrolSub
 	65, // 50: meta.v1.GatewayConfig.filter_shell:type_name -> meta.v1.FilterShell
-	77, // 51: meta.v1.FilterShell.batch_window:type_name -> google.protobuf.Duration
-	77, // 52: meta.v1.FilterShell.timeout:type_name -> google.protobuf.Duration
-	75, // 53: meta.v1.SandboxSpec.step_run_as:type_name -> meta.v1.SandboxSpec.StepRunAsEntry
-	77, // 54: meta.v1.SandboxSpec.exec_timeout:type_name -> google.protobuf.Duration
-	76, // 55: meta.v1.SandboxSpec.step_container_image:type_name -> meta.v1.SandboxSpec.StepContainerImageEntry
-	71, // 56: meta.v1.ProjectSeed.sandbox:type_name -> meta.v1.SandboxSpec
-	0,  // 57: meta.v1.SeatGateway.Attach:input_type -> meta.v1.SeatMsg
-	22, // 58: meta.v1.SeatAdopt.Adopt:input_type -> meta.v1.AdoptAuth
-	39, // 59: meta.v1.Board.SeatBoard:input_type -> meta.v1.BoardReq
-	24, // 60: meta.v1.AdminGateway.CreateTicket:input_type -> meta.v1.NewTicket
-	25, // 61: meta.v1.AdminGateway.Dispatch:input_type -> meta.v1.DispatchReq
-	26, // 62: meta.v1.AdminGateway.SetBudget:input_type -> meta.v1.BudgetReq
-	27, // 63: meta.v1.AdminGateway.Budget:input_type -> meta.v1.TicketRef
-	27, // 64: meta.v1.AdminGateway.Phase:input_type -> meta.v1.TicketRef
-	27, // 65: meta.v1.AdminGateway.Events:input_type -> meta.v1.TicketRef
-	32, // 66: meta.v1.AdminGateway.EventsAfter:input_type -> meta.v1.EventCursor
-	27, // 67: meta.v1.AdminGateway.Runs:input_type -> meta.v1.TicketRef
-	45, // 68: meta.v1.AdminGateway.Observe:input_type -> meta.v1.Empty
-	33, // 69: meta.v1.AdminGateway.RetroVerdict:input_type -> meta.v1.RetroReq
-	45, // 70: meta.v1.AdminGateway.Ping:input_type -> meta.v1.Empty
-	55, // 71: meta.v1.AdminGateway.IssueCeoToken:input_type -> meta.v1.CeoTokenReq
-	34, // 72: meta.v1.AdminGateway.SetTicketProject:input_type -> meta.v1.TicketProjectReq
-	45, // 73: meta.v1.AdminGateway.Reconcile:input_type -> meta.v1.Empty
-	68, // 74: meta.v1.AdminGateway.PostMsg:input_type -> meta.v1.MsgReq
-	69, // 75: meta.v1.AdminGateway.InjectEvent:input_type -> meta.v1.EventReq
-	46, // 76: meta.v1.CeoGateway.Events:input_type -> meta.v1.Subscribe
-	47, // 77: meta.v1.CeoGateway.SubmitRequirement:input_type -> meta.v1.Requirement
-	48, // 78: meta.v1.CeoGateway.Rule:input_type -> meta.v1.Ruling
-	50, // 79: meta.v1.CeoGateway.Inquire:input_type -> meta.v1.Inquiry
-	51, // 80: meta.v1.CeoGateway.Memory:input_type -> meta.v1.MemoryOp
-	1,  // 81: meta.v1.SeatGateway.Attach:output_type -> meta.v1.GatewayMsg
-	23, // 82: meta.v1.SeatAdopt.Adopt:output_type -> meta.v1.AdoptAck
-	40, // 83: meta.v1.Board.SeatBoard:output_type -> meta.v1.BoardFrame
-	28, // 84: meta.v1.AdminGateway.CreateTicket:output_type -> meta.v1.Ack
-	28, // 85: meta.v1.AdminGateway.Dispatch:output_type -> meta.v1.Ack
-	28, // 86: meta.v1.AdminGateway.SetBudget:output_type -> meta.v1.Ack
-	30, // 87: meta.v1.AdminGateway.Budget:output_type -> meta.v1.BudgetMsg
-	29, // 88: meta.v1.AdminGateway.Phase:output_type -> meta.v1.PhaseMsg
-	35, // 89: meta.v1.AdminGateway.Events:output_type -> meta.v1.EventList
-	35, // 90: meta.v1.AdminGateway.EventsAfter:output_type -> meta.v1.EventList
-	37, // 91: meta.v1.AdminGateway.Runs:output_type -> meta.v1.RunList
-	38, // 92: meta.v1.AdminGateway.Observe:output_type -> meta.v1.ObsEvent
-	28, // 93: meta.v1.AdminGateway.RetroVerdict:output_type -> meta.v1.Ack
-	28, // 94: meta.v1.AdminGateway.Ping:output_type -> meta.v1.Ack
-	56, // 95: meta.v1.AdminGateway.IssueCeoToken:output_type -> meta.v1.CeoTokenResp
-	28, // 96: meta.v1.AdminGateway.SetTicketProject:output_type -> meta.v1.Ack
-	28, // 97: meta.v1.AdminGateway.Reconcile:output_type -> meta.v1.Ack
-	28, // 98: meta.v1.AdminGateway.PostMsg:output_type -> meta.v1.Ack
-	28, // 99: meta.v1.AdminGateway.InjectEvent:output_type -> meta.v1.Ack
-	31, // 100: meta.v1.CeoGateway.Events:output_type -> meta.v1.EventItem
-	27, // 101: meta.v1.CeoGateway.SubmitRequirement:output_type -> meta.v1.TicketRef
-	49, // 102: meta.v1.CeoGateway.Rule:output_type -> meta.v1.RuleAck
-	28, // 103: meta.v1.CeoGateway.Inquire:output_type -> meta.v1.Ack
-	51, // 104: meta.v1.CeoGateway.Memory:output_type -> meta.v1.MemoryOp
-	81, // [81:105] is the sub-list for method output_type
-	57, // [57:81] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	77, // 51: meta.v1.GatewayConfig.reconcile_debounce:type_name -> google.protobuf.Duration
+	77, // 52: meta.v1.FilterShell.batch_window:type_name -> google.protobuf.Duration
+	77, // 53: meta.v1.FilterShell.timeout:type_name -> google.protobuf.Duration
+	75, // 54: meta.v1.SandboxSpec.step_run_as:type_name -> meta.v1.SandboxSpec.StepRunAsEntry
+	77, // 55: meta.v1.SandboxSpec.exec_timeout:type_name -> google.protobuf.Duration
+	76, // 56: meta.v1.SandboxSpec.step_container_image:type_name -> meta.v1.SandboxSpec.StepContainerImageEntry
+	71, // 57: meta.v1.ProjectSeed.sandbox:type_name -> meta.v1.SandboxSpec
+	0,  // 58: meta.v1.SeatGateway.Attach:input_type -> meta.v1.SeatMsg
+	22, // 59: meta.v1.SeatAdopt.Adopt:input_type -> meta.v1.AdoptAuth
+	39, // 60: meta.v1.Board.SeatBoard:input_type -> meta.v1.BoardReq
+	24, // 61: meta.v1.AdminGateway.CreateTicket:input_type -> meta.v1.NewTicket
+	25, // 62: meta.v1.AdminGateway.Dispatch:input_type -> meta.v1.DispatchReq
+	26, // 63: meta.v1.AdminGateway.SetBudget:input_type -> meta.v1.BudgetReq
+	27, // 64: meta.v1.AdminGateway.Budget:input_type -> meta.v1.TicketRef
+	27, // 65: meta.v1.AdminGateway.Phase:input_type -> meta.v1.TicketRef
+	27, // 66: meta.v1.AdminGateway.Events:input_type -> meta.v1.TicketRef
+	32, // 67: meta.v1.AdminGateway.EventsAfter:input_type -> meta.v1.EventCursor
+	27, // 68: meta.v1.AdminGateway.Runs:input_type -> meta.v1.TicketRef
+	45, // 69: meta.v1.AdminGateway.Observe:input_type -> meta.v1.Empty
+	33, // 70: meta.v1.AdminGateway.RetroVerdict:input_type -> meta.v1.RetroReq
+	45, // 71: meta.v1.AdminGateway.Ping:input_type -> meta.v1.Empty
+	55, // 72: meta.v1.AdminGateway.IssueCeoToken:input_type -> meta.v1.CeoTokenReq
+	34, // 73: meta.v1.AdminGateway.SetTicketProject:input_type -> meta.v1.TicketProjectReq
+	45, // 74: meta.v1.AdminGateway.Reconcile:input_type -> meta.v1.Empty
+	68, // 75: meta.v1.AdminGateway.PostMsg:input_type -> meta.v1.MsgReq
+	69, // 76: meta.v1.AdminGateway.InjectEvent:input_type -> meta.v1.EventReq
+	46, // 77: meta.v1.CeoGateway.Events:input_type -> meta.v1.Subscribe
+	47, // 78: meta.v1.CeoGateway.SubmitRequirement:input_type -> meta.v1.Requirement
+	48, // 79: meta.v1.CeoGateway.Rule:input_type -> meta.v1.Ruling
+	50, // 80: meta.v1.CeoGateway.Inquire:input_type -> meta.v1.Inquiry
+	51, // 81: meta.v1.CeoGateway.Memory:input_type -> meta.v1.MemoryOp
+	1,  // 82: meta.v1.SeatGateway.Attach:output_type -> meta.v1.GatewayMsg
+	23, // 83: meta.v1.SeatAdopt.Adopt:output_type -> meta.v1.AdoptAck
+	40, // 84: meta.v1.Board.SeatBoard:output_type -> meta.v1.BoardFrame
+	28, // 85: meta.v1.AdminGateway.CreateTicket:output_type -> meta.v1.Ack
+	28, // 86: meta.v1.AdminGateway.Dispatch:output_type -> meta.v1.Ack
+	28, // 87: meta.v1.AdminGateway.SetBudget:output_type -> meta.v1.Ack
+	30, // 88: meta.v1.AdminGateway.Budget:output_type -> meta.v1.BudgetMsg
+	29, // 89: meta.v1.AdminGateway.Phase:output_type -> meta.v1.PhaseMsg
+	35, // 90: meta.v1.AdminGateway.Events:output_type -> meta.v1.EventList
+	35, // 91: meta.v1.AdminGateway.EventsAfter:output_type -> meta.v1.EventList
+	37, // 92: meta.v1.AdminGateway.Runs:output_type -> meta.v1.RunList
+	38, // 93: meta.v1.AdminGateway.Observe:output_type -> meta.v1.ObsEvent
+	28, // 94: meta.v1.AdminGateway.RetroVerdict:output_type -> meta.v1.Ack
+	28, // 95: meta.v1.AdminGateway.Ping:output_type -> meta.v1.Ack
+	56, // 96: meta.v1.AdminGateway.IssueCeoToken:output_type -> meta.v1.CeoTokenResp
+	28, // 97: meta.v1.AdminGateway.SetTicketProject:output_type -> meta.v1.Ack
+	28, // 98: meta.v1.AdminGateway.Reconcile:output_type -> meta.v1.Ack
+	28, // 99: meta.v1.AdminGateway.PostMsg:output_type -> meta.v1.Ack
+	28, // 100: meta.v1.AdminGateway.InjectEvent:output_type -> meta.v1.Ack
+	31, // 101: meta.v1.CeoGateway.Events:output_type -> meta.v1.EventItem
+	27, // 102: meta.v1.CeoGateway.SubmitRequirement:output_type -> meta.v1.TicketRef
+	49, // 103: meta.v1.CeoGateway.Rule:output_type -> meta.v1.RuleAck
+	28, // 104: meta.v1.CeoGateway.Inquire:output_type -> meta.v1.Ack
+	51, // 105: meta.v1.CeoGateway.Memory:output_type -> meta.v1.MemoryOp
+	82, // [82:106] is the sub-list for method output_type
+	58, // [58:82] is the sub-list for method input_type
+	58, // [58:58] is the sub-list for extension type_name
+	58, // [58:58] is the sub-list for extension extendee
+	0,  // [0:58] is the sub-list for field type_name
 }
 
 func init() { file_meta_v1_meta_proto_init() }

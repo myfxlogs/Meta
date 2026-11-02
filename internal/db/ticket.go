@@ -182,6 +182,9 @@ func (d *DB) appendEvent(ctx context.Context, ticketID, kind string, from, to Ph
 		`INSERT INTO ticket_event (ticket_id, kind, from_phase, to_phase, actor, note, provenance, created_at)
 		 VALUES (?,?,?,?,?,?,?,?)`,
 		cargs(ticketID, kind, string(from), string(to), actor, note, provenance, d.now().UnixNano())...)
+	if err == nil && d.eventHook != nil {
+		d.eventHook(kind) // 票0039：落账成功唤醒去抖闹钟（kind 过滤在网关侧）
+	}
 	return err
 }
 

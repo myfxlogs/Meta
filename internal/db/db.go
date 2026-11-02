@@ -18,6 +18,9 @@ type DB struct {
 	db *sql.DB
 	// now 可注入（测试用），缺省 time.Now。
 	now func() time.Time
+	// eventHook 票事件落账成功后的唤醒钩（票0039/T11 点火洞：网关去抖
+	// 对账闹钟的接线点；appendEvent 末尾同步调，nil=无）。
+	eventHook func(kind string)
 }
 
 // Open 打开（不存在则建）库文件，开 WAL，跑迁移。
@@ -63,6 +66,9 @@ func Open(path string) (*DB, error) {
 	}
 	return &DB{db: sq, now: time.Now}, nil
 }
+
+// SetEventHook 装事件唤醒钩（票0039）：appendEvent 每笔落账成功后调。
+func (d *DB) SetEventHook(h func(kind string)) { d.eventHook = h }
 
 // SetClock 注入时钟（测试用）。
 func (d *DB) SetClock(now func() time.Time) { d.now = now }
