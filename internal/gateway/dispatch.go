@@ -105,6 +105,14 @@ chainOK:
 	if t.BudgetFrozen {
 		return fmt.Errorf("dispatch: 票 %s 已 budget_frozen", ticketID)
 	}
+	// T29② 巡逻角色映射：patrol- 族（含 -pN 子票）恒派巡检——任何派发
+	// 来源（路由表/backfill/席内 admin）报 CTO/其它角色一律机械归位，
+	// 进设计相位前即转完成（T5 免审免部署径），不占项目设计锁
+	// （0048 被杂票挡道实证）。对抗锚提名行：本归位行——删则 patrol
+	// 票又能被 CTO 支抓走设计锁。
+	if !spec.Adjunct && strings.HasPrefix(ticketID, "patrol-") && role != "巡检" {
+		role = "巡检"
+	}
 	// 派发径挂接（票0015）：取锁闸之前——对抗性锚提名行（锚 b），挪到
 	// acquireProjectLocks/designLocks 之后则锁按旧键（""）取，
 	// projectLocks[P] 桶空、设计锁落空票。
