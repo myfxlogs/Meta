@@ -262,7 +262,7 @@ func New(cfg Config) (*Gateway, error) {
 		}
 	}
 
-	g.Reconcile(context.Background())           // §5.3 全相位对账，启动一次非周期
+	g.reconcile(context.Background())           // §5.3 全相位对账，启动一次非周期
 	g.rebuildProjectLocks(context.Background()) // 项目锁按票相位重建（B1）
 	go g.dispatcher()                           // spawn 调度器：事件驱动，非周期
 	go g.ceoPump(g.subscribe())                 // CEO 事件泵：先订阅后起泵，不丢首事件

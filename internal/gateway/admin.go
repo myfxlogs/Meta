@@ -132,7 +132,7 @@ func eventItem(e *db.Event) *pbv1.EventItem {
 	return &pbv1.EventItem{
 		Id: e.ID, Kind: clean(e.Kind), FromPhase: clean(string(e.FromPhase)),
 		ToPhase: clean(string(e.ToPhase)),
-		Actor: clean(e.Actor), Note: clean(e.Note), AtUnixNano: e.CreatedAt.UnixNano(),
+		Actor:   clean(e.Actor), Note: clean(e.Note), AtUnixNano: e.CreatedAt.UnixNano(),
 		TicketId: clean(e.TicketID), Role: clean(e.Role), Provenance: clean(e.Provenance),
 	}
 }
@@ -143,8 +143,8 @@ func eventItemChecked(e *db.Event) *pbv1.EventItem {
 	it := eventItem(e)
 	if _, err := proto.Marshal(it); err != nil {
 		return &pbv1.EventItem{Id: e.ID, Kind: "bad_row",
-			TicketId:  clean(e.TicketID),
-			Note:      "bad_row: 事件行 marshal 败（存量毒）",
+			TicketId:   clean(e.TicketID),
+			Note:       "bad_row: 事件行 marshal 败（存量毒）",
 			AtUnixNano: e.CreatedAt.UnixNano()}
 	}
 	return it
@@ -196,6 +196,14 @@ func (g *Gateway) RetroVerdict(ctx context.Context, r *pbv1.RetroReq) (*pbv1.Ack
 // 的部署后健康探针落点。
 func (g *Gateway) Ping(_ context.Context, _ *pbv1.Empty) (*pbv1.Ack, error) {
 	return &pbv1.Ack{Ok: true, Note: "pong"}, nil
+}
+
+// Reconcile 手动对账径（票0021：「改路由表→重启 caster→meta reconcile」
+// 钦定规程的机械牙齿）——即启动对账同函数，幂等：活席收养判/死席回队/
+// 滞留相位补发 spawn_needed（派发去重闸兜底双发）。
+func (g *Gateway) Reconcile(ctx context.Context, _ *pbv1.Empty) (*pbv1.Ack, error) {
+	g.reconcile(ctx)
+	return &pbv1.Ack{Ok: true, Note: "对账完成"}, nil
 }
 
 // IssueCeoToken `meta ceo` 交互面开 run（terminal 戳）：建一条 pid=0 的

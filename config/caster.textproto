@@ -1,6 +1,9 @@
-# 播报员路由表（令#E13/D-26）：事件→动作电话簿；表外事件不动作（铁律②）。
+# 播报员路由表（令#E13/D-26）：事件→动作电话簿；表外事件不处置只按种子通知（铁律②）。
 # 改表走票；部署同步 /opt/meta/config/。模板相对本文件目录（配置根）解。
 # 通知格式＝令决策41：【Meta】角色:动作[票号]——模板不写死角色处用 {{role}}（事件自带）。
+# 改表规程（票0021 钦定）：改表 → systemctl --user restart meta-caster（载新表）
+#   → meta reconcile --socket /opt/meta/run/meta.sock（滞留票补发）——
+#   对账函数事件触发一次性扫表，幂等可重跑。
 
 routes {
   kind: "stall_suspect"
@@ -47,7 +50,8 @@ routes { kind: "audit_dead" note: "审计席死→通知＋重起审计（不计
   actions { notify { template: "【Meta】⚠️审计席中断[{{ticket_id}}]——自动重派中" } }
   actions { dispatch { role: "审计" prefer_shell: "devin" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
 routes { kind: "spawn_needed" note_contains: "审计" note: "对账补发消费端：待审滞留→派审计" actions { dispatch { role: "审计" prefer_shell: "devin" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
-routes { kind: "spawn_needed" note_contains: "CTO" note: "补发消费端：已立/待部署滞留或部署锁释补发→派 CTO" actions { dispatch { role: "CTO" work_dir: "/opt/meta" prompt_template: "caster/cto-deploy.md" } } }
+routes { kind: "spawn_needed" note_contains: "CTO-A" note: "补发消费端：已立滞留/设计锁释补发→派 CTO-A 设计席" actions { dispatch { role: "CTO" work_dir: "/opt/meta" prompt_template: "caster/cto-design.md" } } }
+routes { kind: "spawn_needed" note_contains: "CTO-B" note: "补发消费端：待部署滞留/部署锁释补发→派 CTO-B 部署席" actions { dispatch { role: "CTO" work_dir: "/opt/meta" prompt_template: "caster/cto-deploy.md" } } }
 routes { kind: "spawn_needed" note_contains: "施工" note: "对账补发消费端：已派滞留→派施工" actions { dispatch { role: "施工" work_dir: "/opt/meta" prompt_template: "caster/build-seat.md" } } }
 # ——飞书通道知行（票0013 通知面；dispatch CEO 行不写——消费径走 CeoGateway 泵/通道自身出站）——
 routes { kind: "feishu_cred_bad" note: "凭证行缺/坏→通道不启（fail loud；需业主重打包 secret.feishu.app）"
@@ -67,3 +71,17 @@ routes { kind: "project_set"       actions { notify { template: "【Meta】系�
 routes { kind: "shells_exhausted"  actions { notify { template: "【Meta】⚠️全壳耗尽[{{ticket_id}}]——换班链走完仍失败" } } }
 routes { kind: "dispatch"          actions { notify { template: "【Meta】系统:派单[{{ticket_id}}]" } } }
 routes { kind: "ruling"            actions { notify { template: "【Meta】{{role}}:裁决完毕[{{ticket_id}}]" } } }
+# ——表外兜底通知（令#E13 铁律②：表外事件只通知不处置）——
+# 无路由行匹配且 kind 命中种子集→至少通知；同 resync 批 (kind,ticket) 降噪只报首枚。
+# 种子集＝设计-0020 §2.1 钦定列（异常/阻塞/死类全收）——改集走票：
+# spawn_blocked 钦定不入（决策75：队列内务，终态有 shells_exhausted），seat_dead 不入
+# （正常交付退席同打此 kind，收则刷屏）；模板空＝缺省形【Meta】{{role}}:{{action}}[{{ticket_id}}]。
+default_notify {
+  kinds: "spawn_needed"    kinds: "spawn_failed"       kinds: "spawn_dup"
+  kinds: "spawnq_full"     kinds: "inject_failed"      kinds: "seat_err"
+  kinds: "adjunct_dead"    kinds: "adjunct_yield"      kinds: "adopt_failed"
+  kinds: "budget_reset_failed" kinds: "budget_stop"    kinds: "exec_denied"
+  kinds: "shell_dead"      kinds: "shell_recovered"    kinds: "ceo_gap"
+  kinds: "ceo_last_resort" kinds: "yield"              kinds: "req_pending"
+  kinds: "design_dead"     kinds: "void"               kinds: "budget_warn"
+}

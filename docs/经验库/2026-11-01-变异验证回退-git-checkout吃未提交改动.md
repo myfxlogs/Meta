@@ -17,5 +17,16 @@ cp file.go /tmp/x.bak && sed -i '锚行变异' file.go && go test -run 锚 ./pkg
 ```
 （或 `git stash` 亦可；`git checkout` 只对「确要扔掉的改动」用。）
 
+## 补记（2026-11-02·票0021 接替复验）：变异必须保编译，编译断的红证无效
+
+删 `if !matched { ... }` 整分支做变异 → `matched` 变未用变量 → `[build failed]`——
+测试包根本没跑到断言，红的是编译器不是锚。**编译断只证明「删法删不动」，不证明
+「锚能抓语义回归」**；语义删除在真实世界常伴随顺手清变量，照样编译、静默坏死。
+保编译死分支法：条件改 `if matched && false {`（变量仍被读，Go 不报 unused，
+分支必不进）——TestDefaultNotify 立刻出断言级红 `notify=0 预期 2`。
+
+一句话：**变异验证的红必须是 `--- FAIL: <锚测名>` 断言行**；出的若是
+`[build failed]`，换保编译的变异重做。
+
 ## 引用
-票0009 施工过程；commit t0009。
+票0009 施工过程；commit t0009。票0021 对抗锚①复验（commit a275f9c 接替复跑）。

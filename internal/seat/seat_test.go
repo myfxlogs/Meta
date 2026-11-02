@@ -360,7 +360,7 @@ func TestRun_缺env(t *testing.T) {
 // META_DELIVER:ref\xff→deliverRef 合法 UTF-8（决策 67 毒哨兵同形态）。
 func TestScanSentinel_BadLine(t *testing.T) {
 	s := newTestSession("t1")
-	if !s.scanSentinel([]byte("META_DELIVER:ref\xff tail")) {
+	if !s.scanSentinel("META_DELIVER:ref\xff tail", false) {
 		t.Fatal("毒字节哨兵行未吞")
 	}
 	if !utf8.ValidString(s.deliverRef) {
@@ -369,7 +369,7 @@ func TestScanSentinel_BadLine(t *testing.T) {
 	if !strings.Contains(s.deliverRef, "�") {
 		t.Fatalf("deliverRef 缺 U+FFFD: %q", s.deliverRef)
 	}
-	if !s.scanSentinel([]byte("META_VERDICT:reject:r\xff1")) {
+	if !s.scanSentinel("META_VERDICT:reject:r\xff1", false) {
 		t.Fatal("META_VERDICT 毒行未吞")
 	}
 	if !utf8.ValidString(s.verdict) || !utf8.ValidString(s.verdictRef) {

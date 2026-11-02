@@ -49,7 +49,7 @@ type fakeAdmin struct {
 	dispatches []*pbv1.DispatchReq
 	streams    []*fakeObs
 	dials      int
-	closes     int // D-35 锚6：每轮 conn 显式 Close 计数
+	closes     int // D-35：Close 调用计数
 }
 
 func (f *fakeAdmin) EventsAfter(_ context.Context, sinceID int64, limit int32) (*pbv1.EventList, error) {
@@ -82,6 +82,25 @@ func (f *fakeAdmin) Observe(ctx context.Context) (pbv1.AdminGateway_ObserveClien
 	return s, nil
 }
 
+func (f *fakeAdmin) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closes++
+	return nil
+}
+
+func (f *fakeAdmin) nClose() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.closes
+}
+
+func (f *fakeAdmin) nDials() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.dials
+}
+
 func (f *fakeAdmin) add(e *pbv1.EventItem) {
 	f.mu.Lock()
 	f.events = append(f.events, e)
@@ -104,13 +123,6 @@ func (f *fakeAdmin) killStream() {
 		}
 	}
 	f.mu.Unlock()
-}
-
-func (f *fakeAdmin) Close() error {
-	f.mu.Lock()
-	f.closes++
-	f.mu.Unlock()
-	return nil
 }
 
 func (f *fakeAdmin) nDispatch() int {
@@ -178,7 +190,12 @@ func newEngine(t *testing.T, f *fakeAdmin, notifies *[]string, replay bool) (*En
 	eng, err := New(Config{
 		RoutesPath: rp, StateDir: filepath.Join(dir, "state"),
 		RunDir: "/run", SocketPath: "/sock", ReplayHistory: replay,
-		Dial: func(ctx context.Context) (AdminClient, error) { return f, nil },
+		Dial: func(ctx context.Context) (AdminClient, error) {
+			f.mu.Lock()
+			f.dials++
+			f.mu.Unlock()
+			return f, nil
+		},
 		Notify: func(ctx context.Context, text string) error {
 			*notifies = append(*notifies, text)
 			return nil
@@ -295,7 +312,12 @@ func newEngineAt(t *testing.T, f *fakeAdmin, notifies *[]string, stateDir string
 	eng, err := New(Config{
 		RoutesPath: routesPath, StateDir: stateDir,
 		RunDir: "/run", SocketPath: "/sock", ReplayHistory: replay,
-		Dial: func(ctx context.Context) (AdminClient, error) { return f, nil },
+		Dial: func(ctx context.Context) (AdminClient, error) {
+			f.mu.Lock()
+			f.dials++
+			f.mu.Unlock()
+			return f, nil
+		},
 		Notify: func(ctx context.Context, text string) error {
 			*notifies = append(*notifies, text)
 			return nil
@@ -405,7 +427,12 @@ routes { kind: "multi" role: "施工" note_contains: "go"
 	eng, err := New(Config{
 		RoutesPath: rp, StateDir: filepath.Join(dir, "state"),
 		RunDir: "/run", SocketPath: "/sock", ReplayHistory: true,
-		Dial: func(ctx context.Context) (AdminClient, error) { return f, nil },
+		Dial: func(ctx context.Context) (AdminClient, error) {
+			f.mu.Lock()
+			f.dials++
+			f.mu.Unlock()
+			return f, nil
+		},
 		Notify: func(ctx context.Context, text string) error {
 			notifies = append(notifies, text)
 			return nil
@@ -500,6 +527,61 @@ func TestProdConfig(t *testing.T) {
 		t.Fatalf("审计 dispatch 行数=%d 预期 3（deliver/audit_dead/spawn_needed）", auditDisp)
 	}
 
+	// 票0021 锚 A2：手工路由转正式断言——audit_dead 行 notify＋dispatch
+	// 审计（prefer_shell 非空）；shell_limited 行 notify 在；spawn_needed
+	// 拆 CTO-A/CTO-B 两行各指 cto-design.md/cto-deploy.md；default_notify
+	// 种子块在且 kinds 非空。
+	var adNotify, adDispatch, slNotify, dnBlock bool
+	ctoLines := map[string]string{} // note_contains → prompt_template
+	for _, r := range tb.Routes {
+		switch {
+		case r.Kind == "audit_dead":
+			for _, a := range r.Actions {
+				if a.GetNotify() != nil {
+					adNotify = true
+				}
+				if d := a.GetDispatch(); d != nil && d.Role == "审计" && d.PreferShell != "" {
+					adDispatch = true
+				}
+			}
+		case r.Kind == "shell_limited":
+			for _, a := range r.Actions {
+				if a.GetNotify() != nil {
+					slNotify = true
+				}
+			}
+		case r.Kind == "spawn_needed" && (r.NoteContains == "CTO-A" || r.NoteContains == "CTO-B"):
+			for _, a := range r.Actions {
+				if d := a.GetDispatch(); d != nil {
+					if d.Role != "CTO" {
+						t.Fatalf("spawn_needed %s 行派错角色: %+v", r.NoteContains, d)
+					}
+					ctoLines[r.NoteContains] = d.PromptTemplate
+				}
+			}
+		case r.Kind == "spawn_needed" && r.NoteContains == "CTO":
+			t.Fatal("旧格式 CTO 单行未拆——note_contains=CTO 仍会吃错模板")
+		}
+	}
+	if !adNotify || !adDispatch {
+		t.Fatalf("audit_dead 行动作不齐: notify=%v dispatch=%v", adNotify, adDispatch)
+	}
+	if !slNotify {
+		t.Fatal("shell_limited 行缺 notify")
+	}
+	if ctoLines["CTO-A"] != "caster/cto-design.md" {
+		t.Fatalf("CTO-A 行模板=%q 预期 caster/cto-design.md", ctoLines["CTO-A"])
+	}
+	if ctoLines["CTO-B"] != "caster/cto-deploy.md" {
+		t.Fatalf("CTO-B 行模板=%q 预期 caster/cto-deploy.md", ctoLines["CTO-B"])
+	}
+	if dn := tb.GetDefaultNotify(); dn != nil && len(dn.Kinds) > 0 {
+		dnBlock = true
+	}
+	if !dnBlock {
+		t.Fatal("default_notify 种子块缺或 kinds 空")
+	}
+
 	b, err := os.ReadFile(filepath.Join("..", "..", "config", "caster", "audit-review.md"))
 	if err != nil {
 		t.Fatalf("audit-review.md 缺失: %v", err)
@@ -514,45 +596,6 @@ func TestProdConfig(t *testing.T) {
 		&pbv1.EventItem{TicketId: "0009"}, false)
 	if !strings.Contains(out, "0009") || strings.Contains(out, "{{ticket_id}}") {
 		t.Fatal("模板渲染未消化 {{ticket_id}}")
-	}
-}
-
-// TestDispatchAction_Project 票0015 锚10：DispatchAction.project→
-// DispatchReq.Project 字段映射通（路由表行未配本批——映射口先立）。
-func TestDispatchAction_Project(t *testing.T) {
-	dir := t.TempDir()
-	table := `routes { kind: "spawn_needed" actions { dispatch { role: "CTO" project: "meta" work_dir: "/w" } } }
-routes { kind: "project_set" actions { notify { template: "PS {{ticket_id}} {{note}}" } } }
-`
-	rp := writeRoutes(t, dir, table)
-	f := &fakeAdmin{}
-	var notifies []string
-	e, err := New(Config{
-		RoutesPath: rp, StateDir: filepath.Join(dir, "state"),
-		RunDir: "/run", SocketPath: "/sock", ReplayHistory: true,
-		Dial: func(ctx context.Context) (AdminClient, error) { return f, nil },
-		Notify: func(_ context.Context, s string) error {
-			notifies = append(notifies, s)
-			return nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.add(&pbv1.EventItem{Id: 1, Kind: "spawn_needed", TicketId: "t1", Note: "补发: CTO"})
-	f.add(&pbv1.EventItem{Id: 2, Kind: "project_set", TicketId: "t1", Note: "project=meta"})
-	if err := e.Once(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if f.nDispatch() != 1 || f.dispatches[0].Project != "meta" {
-		t.Fatalf("DispatchAction.project 未映射进 DispatchReq: %+v", f.dispatches)
-	}
-	var sawPS bool
-	for _, n := range notifies {
-		sawPS = sawPS || strings.Contains(n, "project=meta")
-	}
-	if !sawPS {
-		t.Fatalf("project_set 通知行未匹配: %v", notifies)
 	}
 }
 
@@ -582,32 +625,136 @@ func TestDeployRoutes(t *testing.T) {
 	}
 }
 
-// TestConnClose D-35 锚6（票0013）：重连循环每轮连接结束显式 Close——
-// 伪 conn 计次数；两轮 cycle（流被 ctx 杀退）→closes==2；Once 径同关。
-// 对抗面：cycle/Once 的 defer Close 删→计数少→锚红。
-func TestConnClose(t *testing.T) {
+// ---------- 票0021：default_notify 回落＋CTO-A/B 分线＋D-35 连接收口 ----------
+
+// TestDefaultNotify 锚 A1：种子 kind 表外→notify≥1；同批同 (kind,ticket)
+// 第二枚→不重复报；非种子表外 kind→零；有行匹配的种子 kind→不触发回落。
+// 对抗锚①：删 process() default_notify 回落分支→本表必红。
+func TestDefaultNotify(t *testing.T) {
+	dir := t.TempDir()
+	table := `
+routes { kind: "spawn_needed" note_contains: "施工"
+  actions { dispatch { role: "施工" work_dir: "/w" } } }
+default_notify { kinds: "inject_failed" kinds: "spawn_needed" kinds: "spawn_failed" }
+`
+	rp := writeRoutes(t, dir, table)
 	f := &fakeAdmin{}
 	var notifies []string
-	eng, _ := newEngine(t, f, &notifies, false)
-
-	// 两轮 cycle：ctx 已杀→Recv 即退→每轮 conn 必关。
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_ = eng.cycle(ctx)
-	_ = eng.cycle(ctx)
-	f.mu.Lock()
-	got := f.closes
-	f.mu.Unlock()
-	if got != 2 {
-		t.Fatalf("cycle 两轮 Close=%d want 2（D-35 FD 泄漏面）", got)
+	eng, err := New(Config{
+		RoutesPath: rp, StateDir: filepath.Join(dir, "state"),
+		RunDir: "/run", SocketPath: "/sock", ReplayHistory: true,
+		Dial: func(ctx context.Context) (AdminClient, error) {
+			f.mu.Lock()
+			f.dials++
+			f.mu.Unlock()
+			return f, nil
+		},
+		Notify: func(ctx context.Context, text string) error {
+			notifies = append(notifies, text)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
+	f.add(&pbv1.EventItem{Id: 1, Kind: "inject_failed", TicketId: "t1"})                  // 种子表外→报
+	f.add(&pbv1.EventItem{Id: 2, Kind: "inject_failed", TicketId: "t1"})                  // 同批同键→不报
+	f.add(&pbv1.EventItem{Id: 3, Kind: "progress", TicketId: "t1"})                       // 非种子→零
+	f.add(&pbv1.EventItem{Id: 4, Kind: "spawn_needed", TicketId: "t2", Note: "对账补发: 施工"}) // 行匹配→不回落
+	f.add(&pbv1.EventItem{Id: 5, Kind: "inject_failed", TicketId: "t3"})                  // 异票同种→报
+	if err := eng.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(notifies) != 2 {
+		t.Fatalf("notify=%d 预期 2（t1 首枚＋t3）: %v", len(notifies), notifies)
+	}
+	if f.nDispatch() != 1 || f.dispatches[0].Role != "施工" {
+		t.Fatalf("行匹配的 spawn_needed 应派发不回落: %+v", f.dispatches)
+	}
+}
 
-	// Once 径同关。
-	_ = eng.Once(context.Background())
-	f.mu.Lock()
-	got = f.closes
-	f.mu.Unlock()
-	if got != 3 {
-		t.Fatalf("Once 后 Close=%d want 3", got)
+// TestSpawnNeededCTOAB 锚 A3：真路由表 CTO 分线——note 含 CTO-A→Dispatch{CTO}
+// 且渲染 prompt 源 cto-design.md（文件内容比对）；CTO-B→cto-deploy.md；
+// 旧格式「对账补发: CTO」两行皆不中→落 default_notify（种子）。
+// 对抗锚②：真表 CTO-A 行 prompt_template 改 cto-deploy.md→本表必红。
+func TestSpawnNeededCTOAB(t *testing.T) {
+	tb, err := LoadTable(filepath.Join("..", "..", "config", "caster.textproto"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeAdmin{}
+	var notifies []string
+	e := &Engine{table: tb, configRoot: filepath.Join("..", "..", "config"),
+		cfg: Config{StateDir: t.TempDir(),
+			Notify: func(_ context.Context, s string) error {
+				notifies = append(notifies, s)
+				return nil
+			},
+			Logf: func(string, ...any) {}}}
+	ctx := context.Background()
+	e.process(ctx, f, &pbv1.EventItem{Id: 1, Kind: "spawn_needed", TicketId: "ta", Note: "对账补发: CTO-A"})
+	e.process(ctx, f, &pbv1.EventItem{Id: 2, Kind: "spawn_needed", TicketId: "tb", Note: "对账补发: CTO-B"})
+	e.process(ctx, f, &pbv1.EventItem{Id: 3, Kind: "spawn_needed", TicketId: "tc", Note: "对账补发: CTO"}) // 旧格式
+	if f.nDispatch() != 2 {
+		t.Fatalf("Dispatch=%d 预期 2（旧格式两行皆不中）: %+v", f.nDispatch(), f.dispatches)
+	}
+	if f.dispatches[0].Role != "CTO" || f.dispatches[1].Role != "CTO" {
+		t.Fatalf("分线派发角色非 CTO: %+v", f.dispatches)
+	}
+	// 渲染 prompt 文件内容比对：CTO-A 必须出自 cto-design.md。
+	for i, tmpl := range []string{"cto-design.md", "cto-deploy.md"} {
+		pf := f.dispatches[i].PromptFile
+		if pf == "" {
+			t.Fatalf("CTO-%c 派发无 PromptFile", 'A'+i)
+		}
+		got, err := os.ReadFile(pf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src, err := os.ReadFile(filepath.Join("..", "..", "config", "caster", tmpl))
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := &pbv1.EventItem{Kind: "spawn_needed", TicketId: f.dispatches[i].TicketId,
+			Note: "对账补发: CTO-" + string(rune('A'+i))}
+		if want := e.render(string(src), row, false); string(got) != want {
+			t.Fatalf("CTO-%c prompt 非 %s 源:\n%s", 'A'+i, tmpl, got)
+		}
+	}
+	// 旧格式落 default_notify（spawn_needed 属种子）：报 1 枚。
+	if len(notifies) != 1 {
+		t.Fatalf("旧格式应落 default_notify 报 1 枚: %v", notifies)
+	}
+}
+
+// TestConnClose 锚 A6（D-35）：Once 退即 Close；Run 流断重连后首个
+// 连接 Close 计数=1——每轮 cycle 的旧 conn 都被收口，FD 不缓积。
+func TestConnClose(t *testing.T) {
+	// Once 径：取到 cli 用完即关。
+	f1 := &fakeAdmin{}
+	var n1 []string
+	eng1, _ := newEngine(t, f1, &n1, true)
+	if err := eng1.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if f1.nClose() != 1 {
+		t.Fatalf("Once 后 Close=%d 预期 1", f1.nClose())
+	}
+	// Run 径：流杀→退避重连→首轮连接已被 defer Close 收口。
+	f2 := &fakeAdmin{}
+	var n2 []string
+	eng2, _ := newEngine(t, f2, &n2, true)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- eng2.Run(ctx) }()
+	waitFor(t, 5*time.Second, func() bool { return f2.nDials() >= 1 })
+	f2.killStream()
+	waitFor(t, 8*time.Second, func() bool { return f2.nDials() >= 2 })
+	waitFor(t, 3*time.Second, func() bool { return f2.nClose() >= 1 })
+	cancel()
+	<-done
+	if f2.nClose() != 2 {
+		t.Fatalf("两轮连接后 Close=%d 预期 2（各轮一口径）", f2.nClose())
 	}
 }

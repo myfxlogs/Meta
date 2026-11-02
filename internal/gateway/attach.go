@@ -497,6 +497,9 @@ func (g *Gateway) onRunDead(st *runState) {
 	switch phase {
 	case db.PhaseWorking:
 		to, kind = db.PhaseAssigned, db.EdgeRequeue
+	case db.PhaseDesigning:
+		// 设计席死（钦定边 design_dead 活态补线）：回 已立＋补发 CTO-A 设计支。
+		to, kind = db.PhaseCreated, db.EdgeDesignDead
 	case db.PhaseAuditing:
 		to, kind = db.PhaseReview, db.EdgeAuditDead
 	case db.PhaseDeploying:
@@ -513,7 +516,7 @@ func (g *Gateway) onRunDead(st *runState) {
 				g.releaseProjectLocks(ctx, tk.Project, st.run.TicketID, true,
 					lockIntegrate, lockDeploy)
 				_ = g.database.AppendEvent(ctx, st.run.TicketID, "spawn_needed", db.Event{
-					Actor: "gateway", Note: "锁释补发: CTO"})
+					Actor: "gateway", Note: "锁释补发: CTO-B"})
 				g.emit(Event{Kind: "spawn_needed", TicketID: st.run.TicketID, Role: "CTO"})
 			}
 		}
@@ -531,6 +534,14 @@ func (g *Gateway) onRunDead(st *runState) {
 	}
 	g.emit(Event{Kind: "requeue", TicketID: st.run.TicketID, RunID: st.run.RunID,
 		Role: st.run.Role})
+	// 设计席死：票已回 已立——不走内部 spawn 队（claim 边须由 Dispatch 走边
+	// 拉起），补发 spawn_needed 经路由表 CTO-A 行消费（与 audit_dead 同构）。
+	if kind == db.EdgeDesignDead {
+		_ = g.database.AppendEvent(ctx, st.run.TicketID, "spawn_needed", db.Event{
+			Actor: "gateway", Note: "对账补发: CTO-A"})
+		g.emit(Event{Kind: "spawn_needed", TicketID: st.run.TicketID, Role: "CTO"})
+		return
+	}
 	// 回队即重派（换壳 redo；审计席死→重起审计——spec 在则秒接，失则
 	// 路由表 audit_dead→dispatch 审计补位）；预算硬停摆位与冻票不重派。
 	g.mu.Lock()

@@ -12,9 +12,10 @@ import (
 	pbv1 "meta/internal/pb/metav1"
 )
 
-// Reconcile 启动对账（§5.3 全相位「相位×预期行动者」表，启动一次非周期）：
+// reconcile 启动对账（§5.3 全相位「相位×预期行动者」表，启动一次非周期）：
 // 有行动者相位——活着收养、死了回队；无行动者相位——补发 spawn 事件。
-func (g *Gateway) Reconcile(ctx context.Context) {
+// AdminGateway.Reconcile RPC 即调本函数（同径幂等，meta reconcile 手动径）。
+func (g *Gateway) reconcile(ctx context.Context) {
 	tickets, err := g.database.NonTerminalTickets(ctx)
 	if err != nil {
 		return
@@ -29,11 +30,12 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 		switch t.Phase {
 		case db.PhaseAssigned, db.PhaseReview, db.PhaseToDeploy:
 			// 无行动者等 spawn：补发下一步 spawn 事件。
-			// 半结构约定（防漂，§14）：note「对账补发: <role>」是播报员路由表
+			// 半结构约定（防漂，§14）：note「对账补发: <支线>」
+			// （施工/审计/CTO-A 设计支/CTO-B 部署支）是播报员路由表
 			// spawn_needed+note_contains 行的消费契约——改文案必须同步改表。
 			role := roleForPhase(t.Phase)
 			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-				Actor: "gateway", Note: "对账补发: " + role,
+				Actor: "gateway", Note: "对账补发: " + spawnLine(t.Phase),
 			})
 			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
 		case db.PhaseWorking, db.PhaseDesigning, db.PhaseAuditing, db.PhaseDeploying:
@@ -47,7 +49,7 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 				continue
 			}
 			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-				Actor: "gateway", Note: "对账补发: CTO",
+				Actor: "gateway", Note: "对账补发: " + spawnLine(t.Phase),
 			})
 			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
 		}
@@ -68,6 +70,19 @@ func (g *Gateway) Reconcile(ctx context.Context) {
 			g.designLocks[t.Project] = t.ID
 		}
 	}
+}
+
+// spawnLine 无行动者相位→spawn_needed note 支线标（§14 半结构契约消费端＝
+// 路由表 note_contains）：已立→CTO-A 设计支，待部署→CTO-B 部署支，
+// 余相位＝角色本名（施工/审计）。
+func spawnLine(p db.Phase) string {
+	switch p {
+	case db.PhaseCreated:
+		return "CTO-A"
+	case db.PhaseToDeploy:
+		return "CTO-B"
+	}
+	return roleForPhase(p)
 }
 
 // roleForPhase 无行动者相位→下一步该起的角色。

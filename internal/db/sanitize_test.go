@@ -108,7 +108,7 @@ func TestSanitize_SpecBlob(t *testing.T) {
 		t.Fatalf("spec 栏值漂移: %q", ts.Goal)
 	}
 	// 立票径同闸：CreateTicketProv 伪 spec 整票拒立。
-	if err := d.CreateTicketProv(ctx, "s2", "t", bad, "test"); err == nil {
+	if err := d.CreateTicketProv(ctx, "s2", "t", bad, "test", ""); err == nil {
 		t.Fatal("CreateTicketProv 伪 spec 应拒")
 	}
 	if tk, _ := d.GetTicket(ctx, "s2"); tk != nil {

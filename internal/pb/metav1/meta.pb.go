@@ -4016,6 +4016,7 @@ func (x *CeoTokenResp) GetRunToken() string {
 type RouteTable struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Routes        []*Route               `protobuf:"bytes,1,rep,name=routes,proto3" json:"routes,omitempty"`
+	DefaultNotify *DefaultNotifyRule     `protobuf:"bytes,2,opt,name=default_notify,json=defaultNotify,proto3" json:"default_notify,omitempty"` // 表外只通知不处置（令#E13 铁律②）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4057,6 +4058,67 @@ func (x *RouteTable) GetRoutes() []*Route {
 	return nil
 }
 
+func (x *RouteTable) GetDefaultNotify() *DefaultNotifyRule {
+	if x != nil {
+		return x.DefaultNotify
+	}
+	return nil
+}
+
+// DefaultNotifyRule 表外事件兜底通知：无路由行匹配且 kind 命中种子集→
+// 至少通知（不处置）；同 resync 批 (kind,ticket_id) 降噪只报首枚。
+type DefaultNotifyRule struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kinds         []string               `protobuf:"bytes,1,rep,name=kinds,proto3" json:"kinds,omitempty"`       // 异常/阻塞/死类种子集（改集走票）
+	Template      string                 `protobuf:"bytes,2,opt,name=template,proto3" json:"template,omitempty"` // 空＝缺省模板【Meta】{{role}}:{{action}}[{{ticket_id}}]
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DefaultNotifyRule) Reset() {
+	*x = DefaultNotifyRule{}
+	mi := &file_meta_v1_meta_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DefaultNotifyRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DefaultNotifyRule) ProtoMessage() {}
+
+func (x *DefaultNotifyRule) ProtoReflect() protoreflect.Message {
+	mi := &file_meta_v1_meta_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DefaultNotifyRule.ProtoReflect.Descriptor instead.
+func (*DefaultNotifyRule) Descriptor() ([]byte, []int) {
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *DefaultNotifyRule) GetKinds() []string {
+	if x != nil {
+		return x.Kinds
+	}
+	return nil
+}
+
+func (x *DefaultNotifyRule) GetTemplate() string {
+	if x != nil {
+		return x.Template
+	}
+	return ""
+}
+
 type Route struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"` // 匹配 ticket_event.kind（精确等值；表外不动作）
@@ -4070,7 +4132,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_meta_v1_meta_proto_msgTypes[58]
+	mi := &file_meta_v1_meta_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4082,7 +4144,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[58]
+	mi := &file_meta_v1_meta_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4095,7 +4157,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{58}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *Route) GetKind() string {
@@ -4146,7 +4208,7 @@ type Action struct {
 
 func (x *Action) Reset() {
 	*x = Action{}
-	mi := &file_meta_v1_meta_proto_msgTypes[59]
+	mi := &file_meta_v1_meta_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4158,7 +4220,7 @@ func (x *Action) String() string {
 func (*Action) ProtoMessage() {}
 
 func (x *Action) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[59]
+	mi := &file_meta_v1_meta_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4171,7 +4233,7 @@ func (x *Action) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Action.ProtoReflect.Descriptor instead.
 func (*Action) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{59}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *Action) GetBody() isAction_Body {
@@ -4224,7 +4286,7 @@ type NotifyAction struct {
 
 func (x *NotifyAction) Reset() {
 	*x = NotifyAction{}
-	mi := &file_meta_v1_meta_proto_msgTypes[60]
+	mi := &file_meta_v1_meta_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4236,7 +4298,7 @@ func (x *NotifyAction) String() string {
 func (*NotifyAction) ProtoMessage() {}
 
 func (x *NotifyAction) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[60]
+	mi := &file_meta_v1_meta_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4249,7 +4311,7 @@ func (x *NotifyAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotifyAction.ProtoReflect.Descriptor instead.
 func (*NotifyAction) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{60}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *NotifyAction) GetTemplate() string {
@@ -4273,7 +4335,7 @@ type DispatchAction struct {
 
 func (x *DispatchAction) Reset() {
 	*x = DispatchAction{}
-	mi := &file_meta_v1_meta_proto_msgTypes[61]
+	mi := &file_meta_v1_meta_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4285,7 +4347,7 @@ func (x *DispatchAction) String() string {
 func (*DispatchAction) ProtoMessage() {}
 
 func (x *DispatchAction) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[61]
+	mi := &file_meta_v1_meta_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4298,7 +4360,7 @@ func (x *DispatchAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchAction.ProtoReflect.Descriptor instead.
 func (*DispatchAction) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{61}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *DispatchAction) GetRole() string {
@@ -4366,7 +4428,7 @@ type GatewayConfig struct {
 
 func (x *GatewayConfig) Reset() {
 	*x = GatewayConfig{}
-	mi := &file_meta_v1_meta_proto_msgTypes[62]
+	mi := &file_meta_v1_meta_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4378,7 +4440,7 @@ func (x *GatewayConfig) String() string {
 func (*GatewayConfig) ProtoMessage() {}
 
 func (x *GatewayConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[62]
+	mi := &file_meta_v1_meta_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4391,7 +4453,7 @@ func (x *GatewayConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayConfig.ProtoReflect.Descriptor instead.
 func (*GatewayConfig) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{62}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *GatewayConfig) GetProgressTimeout() *durationpb.Duration {
@@ -4513,7 +4575,7 @@ type FeishuApp struct {
 
 func (x *FeishuApp) Reset() {
 	*x = FeishuApp{}
-	mi := &file_meta_v1_meta_proto_msgTypes[63]
+	mi := &file_meta_v1_meta_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4525,7 +4587,7 @@ func (x *FeishuApp) String() string {
 func (*FeishuApp) ProtoMessage() {}
 
 func (x *FeishuApp) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[63]
+	mi := &file_meta_v1_meta_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4538,7 +4600,7 @@ func (x *FeishuApp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FeishuApp.ProtoReflect.Descriptor instead.
 func (*FeishuApp) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{63}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *FeishuApp) GetAppId() string {
@@ -4583,7 +4645,7 @@ type SandboxSpec struct {
 
 func (x *SandboxSpec) Reset() {
 	*x = SandboxSpec{}
-	mi := &file_meta_v1_meta_proto_msgTypes[64]
+	mi := &file_meta_v1_meta_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4595,7 +4657,7 @@ func (x *SandboxSpec) String() string {
 func (*SandboxSpec) ProtoMessage() {}
 
 func (x *SandboxSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[64]
+	mi := &file_meta_v1_meta_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4608,7 +4670,7 @@ func (x *SandboxSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxSpec.ProtoReflect.Descriptor instead.
 func (*SandboxSpec) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{64}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *SandboxSpec) GetRunAs() string {
@@ -4651,7 +4713,7 @@ type ProjectSeed struct {
 
 func (x *ProjectSeed) Reset() {
 	*x = ProjectSeed{}
-	mi := &file_meta_v1_meta_proto_msgTypes[65]
+	mi := &file_meta_v1_meta_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4663,7 +4725,7 @@ func (x *ProjectSeed) String() string {
 func (*ProjectSeed) ProtoMessage() {}
 
 func (x *ProjectSeed) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[65]
+	mi := &file_meta_v1_meta_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4676,7 +4738,7 @@ func (x *ProjectSeed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectSeed.ProtoReflect.Descriptor instead.
 func (*ProjectSeed) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{65}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *ProjectSeed) GetId() string {
@@ -4752,7 +4814,7 @@ type RoleBudget struct {
 
 func (x *RoleBudget) Reset() {
 	*x = RoleBudget{}
-	mi := &file_meta_v1_meta_proto_msgTypes[66]
+	mi := &file_meta_v1_meta_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4764,7 +4826,7 @@ func (x *RoleBudget) String() string {
 func (*RoleBudget) ProtoMessage() {}
 
 func (x *RoleBudget) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[66]
+	mi := &file_meta_v1_meta_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4777,7 +4839,7 @@ func (x *RoleBudget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoleBudget.ProtoReflect.Descriptor instead.
 func (*RoleBudget) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{66}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *RoleBudget) GetRole() string {
@@ -4808,7 +4870,7 @@ type ShellRow struct {
 
 func (x *ShellRow) Reset() {
 	*x = ShellRow{}
-	mi := &file_meta_v1_meta_proto_msgTypes[67]
+	mi := &file_meta_v1_meta_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4820,7 +4882,7 @@ func (x *ShellRow) String() string {
 func (*ShellRow) ProtoMessage() {}
 
 func (x *ShellRow) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[67]
+	mi := &file_meta_v1_meta_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4833,7 +4895,7 @@ func (x *ShellRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellRow.ProtoReflect.Descriptor instead.
 func (*ShellRow) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{67}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ShellRow) GetName() string {
@@ -5181,10 +5243,14 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\vCeoTokenReq\"B\n" +
 	"\fCeoTokenResp\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
-	"\trun_token\x18\x02 \x01(\tR\brunToken\"4\n" +
+	"\trun_token\x18\x02 \x01(\tR\brunToken\"w\n" +
 	"\n" +
 	"RouteTable\x12&\n" +
-	"\x06routes\x18\x01 \x03(\v2\x0e.meta.v1.RouteR\x06routes\"\x93\x01\n" +
+	"\x06routes\x18\x01 \x03(\v2\x0e.meta.v1.RouteR\x06routes\x12A\n" +
+	"\x0edefault_notify\x18\x02 \x01(\v2\x1a.meta.v1.DefaultNotifyRuleR\rdefaultNotify\"E\n" +
+	"\x11DefaultNotifyRule\x12\x14\n" +
+	"\x05kinds\x18\x01 \x03(\tR\x05kinds\x12\x1a\n" +
+	"\btemplate\x18\x02 \x01(\tR\btemplate\"\x93\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12)\n" +
 	"\aactions\x18\x02 \x03(\v2\x0f.meta.v1.ActionR\aactions\x12\x12\n" +
@@ -5267,7 +5333,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\tSeatAdopt\x12.\n" +
 	"\x05Adopt\x12\x12.meta.v1.AdoptAuth\x1a\x11.meta.v1.AdoptAck2>\n" +
 	"\x05Board\x125\n" +
-	"\tSeatBoard\x12\x11.meta.v1.BoardReq\x1a\x13.meta.v1.BoardFrame0\x012\x9c\x05\n" +
+	"\tSeatBoard\x12\x11.meta.v1.BoardReq\x1a\x13.meta.v1.BoardFrame0\x012\xc7\x05\n" +
 	"\fAdminGateway\x120\n" +
 	"\fCreateTicket\x12\x12.meta.v1.NewTicket\x1a\f.meta.v1.Ack\x12.\n" +
 	"\bDispatch\x12\x14.meta.v1.DispatchReq\x1a\f.meta.v1.Ack\x12-\n" +
@@ -5281,7 +5347,8 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\fRetroVerdict\x12\x11.meta.v1.RetroReq\x1a\f.meta.v1.Ack\x12$\n" +
 	"\x04Ping\x12\x0e.meta.v1.Empty\x1a\f.meta.v1.Ack\x12<\n" +
 	"\rIssueCeoToken\x12\x14.meta.v1.CeoTokenReq\x1a\x15.meta.v1.CeoTokenResp\x12;\n" +
-	"\x10SetTicketProject\x12\x19.meta.v1.TicketProjectReq\x1a\f.meta.v1.Ack2\x89\x02\n" +
+	"\x10SetTicketProject\x12\x19.meta.v1.TicketProjectReq\x1a\f.meta.v1.Ack\x12)\n" +
+	"\tReconcile\x12\x0e.meta.v1.Empty\x1a\f.meta.v1.Ack2\x89\x02\n" +
 	"\n" +
 	"CeoGateway\x122\n" +
 	"\x06Events\x12\x12.meta.v1.Subscribe\x1a\x12.meta.v1.EventItem0\x01\x12=\n" +
@@ -5302,7 +5369,7 @@ func file_meta_v1_meta_proto_rawDescGZIP() []byte {
 	return file_meta_v1_meta_proto_rawDescData
 }
 
-var file_meta_v1_meta_proto_msgTypes = make([]protoimpl.MessageInfo, 69)
+var file_meta_v1_meta_proto_msgTypes = make([]protoimpl.MessageInfo, 70)
 var file_meta_v1_meta_proto_goTypes = []any{
 	(*SeatMsg)(nil),             // 0: meta.v1.SeatMsg
 	(*GatewayMsg)(nil),          // 1: meta.v1.GatewayMsg
@@ -5362,18 +5429,19 @@ var file_meta_v1_meta_proto_goTypes = []any{
 	(*CeoTokenReq)(nil),         // 55: meta.v1.CeoTokenReq
 	(*CeoTokenResp)(nil),        // 56: meta.v1.CeoTokenResp
 	(*RouteTable)(nil),          // 57: meta.v1.RouteTable
-	(*Route)(nil),               // 58: meta.v1.Route
-	(*Action)(nil),              // 59: meta.v1.Action
-	(*NotifyAction)(nil),        // 60: meta.v1.NotifyAction
-	(*DispatchAction)(nil),      // 61: meta.v1.DispatchAction
-	(*GatewayConfig)(nil),       // 62: meta.v1.GatewayConfig
-	(*FeishuApp)(nil),           // 63: meta.v1.FeishuApp
-	(*SandboxSpec)(nil),         // 64: meta.v1.SandboxSpec
-	(*ProjectSeed)(nil),         // 65: meta.v1.ProjectSeed
-	(*RoleBudget)(nil),          // 66: meta.v1.RoleBudget
-	(*ShellRow)(nil),            // 67: meta.v1.ShellRow
-	nil,                         // 68: meta.v1.SandboxSpec.StepRunAsEntry
-	(*durationpb.Duration)(nil), // 69: google.protobuf.Duration
+	(*DefaultNotifyRule)(nil),   // 58: meta.v1.DefaultNotifyRule
+	(*Route)(nil),               // 59: meta.v1.Route
+	(*Action)(nil),              // 60: meta.v1.Action
+	(*NotifyAction)(nil),        // 61: meta.v1.NotifyAction
+	(*DispatchAction)(nil),      // 62: meta.v1.DispatchAction
+	(*GatewayConfig)(nil),       // 63: meta.v1.GatewayConfig
+	(*FeishuApp)(nil),           // 64: meta.v1.FeishuApp
+	(*SandboxSpec)(nil),         // 65: meta.v1.SandboxSpec
+	(*ProjectSeed)(nil),         // 66: meta.v1.ProjectSeed
+	(*RoleBudget)(nil),          // 67: meta.v1.RoleBudget
+	(*ShellRow)(nil),            // 68: meta.v1.ShellRow
+	nil,                         // 69: meta.v1.SandboxSpec.StepRunAsEntry
+	(*durationpb.Duration)(nil), // 70: google.protobuf.Duration
 }
 var file_meta_v1_meta_proto_depIdxs = []int32{
 	2,  // 0: meta.v1.SeatMsg.auth:type_name -> meta.v1.RunAuth
@@ -5410,68 +5478,71 @@ var file_meta_v1_meta_proto_depIdxs = []int32{
 	52, // 31: meta.v1.MemoryOp.put:type_name -> meta.v1.MemoryPut
 	53, // 32: meta.v1.MemoryOp.get:type_name -> meta.v1.MemoryGet
 	54, // 33: meta.v1.MemoryOp.row:type_name -> meta.v1.MemoryRow
-	58, // 34: meta.v1.RouteTable.routes:type_name -> meta.v1.Route
-	59, // 35: meta.v1.Route.actions:type_name -> meta.v1.Action
-	60, // 36: meta.v1.Action.notify:type_name -> meta.v1.NotifyAction
-	61, // 37: meta.v1.Action.dispatch:type_name -> meta.v1.DispatchAction
-	69, // 38: meta.v1.GatewayConfig.progress_timeout:type_name -> google.protobuf.Duration
-	69, // 39: meta.v1.GatewayConfig.auth_timeout:type_name -> google.protobuf.Duration
-	69, // 40: meta.v1.GatewayConfig.adopt_dial_timeout:type_name -> google.protobuf.Duration
-	69, // 41: meta.v1.GatewayConfig.stagger:type_name -> google.protobuf.Duration
-	69, // 42: meta.v1.GatewayConfig.quick_exit:type_name -> google.protobuf.Duration
-	66, // 43: meta.v1.GatewayConfig.role_budget:type_name -> meta.v1.RoleBudget
-	67, // 44: meta.v1.GatewayConfig.shell:type_name -> meta.v1.ShellRow
-	65, // 45: meta.v1.GatewayConfig.project:type_name -> meta.v1.ProjectSeed
-	68, // 46: meta.v1.SandboxSpec.step_run_as:type_name -> meta.v1.SandboxSpec.StepRunAsEntry
-	69, // 47: meta.v1.SandboxSpec.exec_timeout:type_name -> google.protobuf.Duration
-	64, // 48: meta.v1.ProjectSeed.sandbox:type_name -> meta.v1.SandboxSpec
-	0,  // 49: meta.v1.SeatGateway.Attach:input_type -> meta.v1.SeatMsg
-	22, // 50: meta.v1.SeatAdopt.Adopt:input_type -> meta.v1.AdoptAuth
-	39, // 51: meta.v1.Board.SeatBoard:input_type -> meta.v1.BoardReq
-	24, // 52: meta.v1.AdminGateway.CreateTicket:input_type -> meta.v1.NewTicket
-	25, // 53: meta.v1.AdminGateway.Dispatch:input_type -> meta.v1.DispatchReq
-	26, // 54: meta.v1.AdminGateway.SetBudget:input_type -> meta.v1.BudgetReq
-	27, // 55: meta.v1.AdminGateway.Budget:input_type -> meta.v1.TicketRef
-	27, // 56: meta.v1.AdminGateway.Phase:input_type -> meta.v1.TicketRef
-	27, // 57: meta.v1.AdminGateway.Events:input_type -> meta.v1.TicketRef
-	32, // 58: meta.v1.AdminGateway.EventsAfter:input_type -> meta.v1.EventCursor
-	27, // 59: meta.v1.AdminGateway.Runs:input_type -> meta.v1.TicketRef
-	45, // 60: meta.v1.AdminGateway.Observe:input_type -> meta.v1.Empty
-	33, // 61: meta.v1.AdminGateway.RetroVerdict:input_type -> meta.v1.RetroReq
-	45, // 62: meta.v1.AdminGateway.Ping:input_type -> meta.v1.Empty
-	55, // 63: meta.v1.AdminGateway.IssueCeoToken:input_type -> meta.v1.CeoTokenReq
-	34, // 64: meta.v1.AdminGateway.SetTicketProject:input_type -> meta.v1.TicketProjectReq
-	46, // 65: meta.v1.CeoGateway.Events:input_type -> meta.v1.Subscribe
-	47, // 66: meta.v1.CeoGateway.SubmitRequirement:input_type -> meta.v1.Requirement
-	48, // 67: meta.v1.CeoGateway.Rule:input_type -> meta.v1.Ruling
-	50, // 68: meta.v1.CeoGateway.Inquire:input_type -> meta.v1.Inquiry
-	51, // 69: meta.v1.CeoGateway.Memory:input_type -> meta.v1.MemoryOp
-	1,  // 70: meta.v1.SeatGateway.Attach:output_type -> meta.v1.GatewayMsg
-	23, // 71: meta.v1.SeatAdopt.Adopt:output_type -> meta.v1.AdoptAck
-	40, // 72: meta.v1.Board.SeatBoard:output_type -> meta.v1.BoardFrame
-	28, // 73: meta.v1.AdminGateway.CreateTicket:output_type -> meta.v1.Ack
-	28, // 74: meta.v1.AdminGateway.Dispatch:output_type -> meta.v1.Ack
-	28, // 75: meta.v1.AdminGateway.SetBudget:output_type -> meta.v1.Ack
-	30, // 76: meta.v1.AdminGateway.Budget:output_type -> meta.v1.BudgetMsg
-	29, // 77: meta.v1.AdminGateway.Phase:output_type -> meta.v1.PhaseMsg
-	35, // 78: meta.v1.AdminGateway.Events:output_type -> meta.v1.EventList
-	35, // 79: meta.v1.AdminGateway.EventsAfter:output_type -> meta.v1.EventList
-	37, // 80: meta.v1.AdminGateway.Runs:output_type -> meta.v1.RunList
-	38, // 81: meta.v1.AdminGateway.Observe:output_type -> meta.v1.ObsEvent
-	28, // 82: meta.v1.AdminGateway.RetroVerdict:output_type -> meta.v1.Ack
-	28, // 83: meta.v1.AdminGateway.Ping:output_type -> meta.v1.Ack
-	56, // 84: meta.v1.AdminGateway.IssueCeoToken:output_type -> meta.v1.CeoTokenResp
-	28, // 85: meta.v1.AdminGateway.SetTicketProject:output_type -> meta.v1.Ack
-	31, // 86: meta.v1.CeoGateway.Events:output_type -> meta.v1.EventItem
-	27, // 87: meta.v1.CeoGateway.SubmitRequirement:output_type -> meta.v1.TicketRef
-	49, // 88: meta.v1.CeoGateway.Rule:output_type -> meta.v1.RuleAck
-	28, // 89: meta.v1.CeoGateway.Inquire:output_type -> meta.v1.Ack
-	51, // 90: meta.v1.CeoGateway.Memory:output_type -> meta.v1.MemoryOp
-	70, // [70:91] is the sub-list for method output_type
-	49, // [49:70] is the sub-list for method input_type
-	49, // [49:49] is the sub-list for extension type_name
-	49, // [49:49] is the sub-list for extension extendee
-	0,  // [0:49] is the sub-list for field type_name
+	59, // 34: meta.v1.RouteTable.routes:type_name -> meta.v1.Route
+	58, // 35: meta.v1.RouteTable.default_notify:type_name -> meta.v1.DefaultNotifyRule
+	60, // 36: meta.v1.Route.actions:type_name -> meta.v1.Action
+	61, // 37: meta.v1.Action.notify:type_name -> meta.v1.NotifyAction
+	62, // 38: meta.v1.Action.dispatch:type_name -> meta.v1.DispatchAction
+	70, // 39: meta.v1.GatewayConfig.progress_timeout:type_name -> google.protobuf.Duration
+	70, // 40: meta.v1.GatewayConfig.auth_timeout:type_name -> google.protobuf.Duration
+	70, // 41: meta.v1.GatewayConfig.adopt_dial_timeout:type_name -> google.protobuf.Duration
+	70, // 42: meta.v1.GatewayConfig.stagger:type_name -> google.protobuf.Duration
+	70, // 43: meta.v1.GatewayConfig.quick_exit:type_name -> google.protobuf.Duration
+	67, // 44: meta.v1.GatewayConfig.role_budget:type_name -> meta.v1.RoleBudget
+	68, // 45: meta.v1.GatewayConfig.shell:type_name -> meta.v1.ShellRow
+	66, // 46: meta.v1.GatewayConfig.project:type_name -> meta.v1.ProjectSeed
+	69, // 47: meta.v1.SandboxSpec.step_run_as:type_name -> meta.v1.SandboxSpec.StepRunAsEntry
+	70, // 48: meta.v1.SandboxSpec.exec_timeout:type_name -> google.protobuf.Duration
+	65, // 49: meta.v1.ProjectSeed.sandbox:type_name -> meta.v1.SandboxSpec
+	0,  // 50: meta.v1.SeatGateway.Attach:input_type -> meta.v1.SeatMsg
+	22, // 51: meta.v1.SeatAdopt.Adopt:input_type -> meta.v1.AdoptAuth
+	39, // 52: meta.v1.Board.SeatBoard:input_type -> meta.v1.BoardReq
+	24, // 53: meta.v1.AdminGateway.CreateTicket:input_type -> meta.v1.NewTicket
+	25, // 54: meta.v1.AdminGateway.Dispatch:input_type -> meta.v1.DispatchReq
+	26, // 55: meta.v1.AdminGateway.SetBudget:input_type -> meta.v1.BudgetReq
+	27, // 56: meta.v1.AdminGateway.Budget:input_type -> meta.v1.TicketRef
+	27, // 57: meta.v1.AdminGateway.Phase:input_type -> meta.v1.TicketRef
+	27, // 58: meta.v1.AdminGateway.Events:input_type -> meta.v1.TicketRef
+	32, // 59: meta.v1.AdminGateway.EventsAfter:input_type -> meta.v1.EventCursor
+	27, // 60: meta.v1.AdminGateway.Runs:input_type -> meta.v1.TicketRef
+	45, // 61: meta.v1.AdminGateway.Observe:input_type -> meta.v1.Empty
+	33, // 62: meta.v1.AdminGateway.RetroVerdict:input_type -> meta.v1.RetroReq
+	45, // 63: meta.v1.AdminGateway.Ping:input_type -> meta.v1.Empty
+	55, // 64: meta.v1.AdminGateway.IssueCeoToken:input_type -> meta.v1.CeoTokenReq
+	34, // 65: meta.v1.AdminGateway.SetTicketProject:input_type -> meta.v1.TicketProjectReq
+	45, // 66: meta.v1.AdminGateway.Reconcile:input_type -> meta.v1.Empty
+	46, // 67: meta.v1.CeoGateway.Events:input_type -> meta.v1.Subscribe
+	47, // 68: meta.v1.CeoGateway.SubmitRequirement:input_type -> meta.v1.Requirement
+	48, // 69: meta.v1.CeoGateway.Rule:input_type -> meta.v1.Ruling
+	50, // 70: meta.v1.CeoGateway.Inquire:input_type -> meta.v1.Inquiry
+	51, // 71: meta.v1.CeoGateway.Memory:input_type -> meta.v1.MemoryOp
+	1,  // 72: meta.v1.SeatGateway.Attach:output_type -> meta.v1.GatewayMsg
+	23, // 73: meta.v1.SeatAdopt.Adopt:output_type -> meta.v1.AdoptAck
+	40, // 74: meta.v1.Board.SeatBoard:output_type -> meta.v1.BoardFrame
+	28, // 75: meta.v1.AdminGateway.CreateTicket:output_type -> meta.v1.Ack
+	28, // 76: meta.v1.AdminGateway.Dispatch:output_type -> meta.v1.Ack
+	28, // 77: meta.v1.AdminGateway.SetBudget:output_type -> meta.v1.Ack
+	30, // 78: meta.v1.AdminGateway.Budget:output_type -> meta.v1.BudgetMsg
+	29, // 79: meta.v1.AdminGateway.Phase:output_type -> meta.v1.PhaseMsg
+	35, // 80: meta.v1.AdminGateway.Events:output_type -> meta.v1.EventList
+	35, // 81: meta.v1.AdminGateway.EventsAfter:output_type -> meta.v1.EventList
+	37, // 82: meta.v1.AdminGateway.Runs:output_type -> meta.v1.RunList
+	38, // 83: meta.v1.AdminGateway.Observe:output_type -> meta.v1.ObsEvent
+	28, // 84: meta.v1.AdminGateway.RetroVerdict:output_type -> meta.v1.Ack
+	28, // 85: meta.v1.AdminGateway.Ping:output_type -> meta.v1.Ack
+	56, // 86: meta.v1.AdminGateway.IssueCeoToken:output_type -> meta.v1.CeoTokenResp
+	28, // 87: meta.v1.AdminGateway.SetTicketProject:output_type -> meta.v1.Ack
+	28, // 88: meta.v1.AdminGateway.Reconcile:output_type -> meta.v1.Ack
+	31, // 89: meta.v1.CeoGateway.Events:output_type -> meta.v1.EventItem
+	27, // 90: meta.v1.CeoGateway.SubmitRequirement:output_type -> meta.v1.TicketRef
+	49, // 91: meta.v1.CeoGateway.Rule:output_type -> meta.v1.RuleAck
+	28, // 92: meta.v1.CeoGateway.Inquire:output_type -> meta.v1.Ack
+	51, // 93: meta.v1.CeoGateway.Memory:output_type -> meta.v1.MemoryOp
+	72, // [72:94] is the sub-list for method output_type
+	50, // [50:72] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_meta_v1_meta_proto_init() }
@@ -5519,7 +5590,7 @@ func file_meta_v1_meta_proto_init() {
 		(*MemoryOp_Get)(nil),
 		(*MemoryOp_Row)(nil),
 	}
-	file_meta_v1_meta_proto_msgTypes[59].OneofWrappers = []any{
+	file_meta_v1_meta_proto_msgTypes[60].OneofWrappers = []any{
 		(*Action_Notify)(nil),
 		(*Action_Dispatch)(nil),
 	}
@@ -5529,7 +5600,7 @@ func file_meta_v1_meta_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_meta_v1_meta_proto_rawDesc), len(file_meta_v1_meta_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   69,
+			NumMessages:   70,
 			NumExtensions: 0,
 			NumServices:   5,
 		},
