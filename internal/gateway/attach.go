@@ -568,9 +568,28 @@ func (g *Gateway) onRunDead(st *runState) {
 	case db.PhaseDeploying:
 		// D-2：部署中席死＝部署失败（回滚态未核）——deploy_failed 边回
 		// 待部署＋note 带「先核回滚态」与前任 run/日志线索，归 CEO 裁。
+		// 0044 两级判前置：先排干死席 sentinel.log 末条 META_DEPLOY 哨兵
+		// （done→deploy_done 完成边；failed→哨兵在盘翻负）；无终哨兵再查
+		// deployStateOK——绿→deploy_done＋双锁释；双路俱无据才照旧翻负
+		// （真败径 D-2 语义不退）。
 		to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
 		note = fmt.Sprintf("部署中席死：先核回滚态（前任 run=%s log=%s）",
 			st.run.RunID, st.run.LogPath)
+		switch g.drainDeploySentinel(st.run.RunID) {
+		case "done":
+			if g.deployDone(ctx, st.run.TicketID,
+				"席死排干：META_DEPLOY:done 在盘") {
+				return
+			}
+		case "failed":
+			note = fmt.Sprintf("部署中席死：哨兵在盘 META_DEPLOY:failed——先核回滚态（前任 run=%s log=%s）",
+				st.run.RunID, st.run.LogPath)
+		default:
+			if g.deployStateOK(ctx, st.run.TicketID) && g.deployDone(ctx,
+				st.run.TicketID, "席死径态判：已装+socket健康→deploy_ok") {
+				return
+			}
+		}
 	case db.PhaseToDeploy:
 		// 部署席死在 claim 前（相位还没步行）：非部署失败＝机器失效——
 		// 放锁＋给本票补 spawn（重试径；failSet 已分级换壳，壳尽自然停）。
