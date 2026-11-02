@@ -227,24 +227,26 @@ func serve(args []string) error {
 		return flagV
 	}
 	gcfg := gateway.Config{
-		DBPath:            *f.db,
-		RunDir:            *f.runDir,
-		SocketPath:        *f.sock,
-		ProgressTimeout:   gcDur("progress-timeout", gc.ProgressTimeout, *f.progressTimeout),
-		Stagger:           gcDur("stagger", gc.Stagger, *f.stagger),
-		AuthTimeout:       gcDur("", gc.AuthTimeout, 0),
-		AdoptDialTimeout:  gcDur("", gc.AdoptDialTimeout, 0),
-		QuickExit:         gcDur("", gc.QuickExit, 0),
-		MaxPerShell:       int(gc.MaxPerShell),
-		DefaultAttemptCap: gc.DefaultAttemptCap,
-		TicketHardCap:     gc.TicketHardCap,
-		RoleCaps:          map[string]int64{},
-		InjectRoot:        *f.injectRoot,
-		InjectRecipes:     splitCSV(*f.injectRecipe),
-		Projects:          gc.Project, // 项目配方种子（票0010 部署闸）
-		CeoEvents:         map[string]bool{},
-		CeoSpawnKinds:     map[string]bool{},
-		CeoPrompt:         gc.CeoPrompt,
+		DBPath:           *f.db,
+		RunDir:           *f.runDir,
+		SocketPath:       *f.sock,
+		ProgressTimeout:  gcDur("progress-timeout", gc.ProgressTimeout, *f.progressTimeout),
+		Stagger:          gcDur("stagger", gc.Stagger, *f.stagger),
+		AuthTimeout:      gcDur("", gc.AuthTimeout, 0),
+		AdoptDialTimeout: gcDur("", gc.AdoptDialTimeout, 0),
+		QuickExit:        gcDur("", gc.QuickExit, 0),
+		MaxPerShell:      int(gc.MaxPerShell),
+		// 纯配置径（无旗标），随 MaxPerShell 惯例（票0022 D-46）。
+		AuditShellSkipStreak: int(gc.AuditShellSkipStreak),
+		DefaultAttemptCap:    gc.DefaultAttemptCap,
+		TicketHardCap:        gc.TicketHardCap,
+		RoleCaps:             map[string]int64{},
+		InjectRoot:           *f.injectRoot,
+		InjectRecipes:        splitCSV(*f.injectRecipe),
+		Projects:             gc.Project, // 项目配方种子（票0010 部署闸）
+		CeoEvents:            map[string]bool{},
+		CeoSpawnKinds:        map[string]bool{},
+		CeoPrompt:            gc.CeoPrompt,
 	}
 	for _, k := range gc.CeoEvents {
 		gcfg.CeoEvents[k] = true

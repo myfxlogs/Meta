@@ -41,6 +41,10 @@ type Config struct {
 	RoleCaps          map[string]int64 // 角色 → 尝试内帽缺省
 	ShellRows         []ShellSeed      // 壳登记表种子（角色行空才落，DB 行是活态）
 
+	// AuditShellSkipStreak 审计重派壳偏置连败阈值（D-46/票0022）：同壳尾部
+	// 连败 ≥N 从本轮 attempts 剔除；≤0=关。只偏置审计重派，不动健康语义。
+	AuditShellSkipStreak int
+
 	// 注入机（票0003，§4）：Root 空＝注入机关，dispatch 无 --prompt-file 即缺径。
 	InjectRoot    string   // 注入源根：roles/ 与 docs/经验库|技能库 所在
 	InjectRecipes []string // 项目配方/纪律文档（相对 InjectRoot，序即拼）

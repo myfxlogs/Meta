@@ -495,6 +495,7 @@ message GatewayConfig {
   repeated string ceo_spawn_kinds = 13; // 无头 CEO 化身触发 kind 列（决策54/E16）
   string ceo_prompt = 14;               // 无头席提示模板路径（{{kind}} 等占位）
   string board_listen = 15;             // 前端面 TCP 监听（127.0.0.1:<port>；空=不挂板）
+  int32 audit_shell_skip_streak = 16;   // 审计重派壳偏置连败阈值（D-46/票0022）：≤0=关
 }
 
 // SandboxSpec 沙箱形制（§11）：代跑执行身份——run_as 缺省＋按步覆盖。

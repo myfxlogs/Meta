@@ -281,6 +281,14 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 	if prefer != "" {
 		attempts = preferFirst(attempts, prefer)
 	}
+	// D-46 审计重派壳偏置（票0022）：role=="审计" 且阈值>0 时，seat_run 持久账
+	// 里同壳尾部连败达标的壳从本轮 attempts 剔除——只「本轮跳过」不标壳坏
+	// （不碰 failSet/NextHealth，D-40 分级语义不动），防单壳循环烧穿（0015×6/
+	// 0016×8 audit_dead 风暴实证）。码位：候选序+preferFirst 成后、空序判前
+	// ——剔除是序内过滤与 prefer 序无关；剔空照旧落 shellsExhausted。
+	if req.role == "审计" && g.cfg.AuditShellSkipStreak > 0 {
+		attempts = g.skipLosingAuditShells(ctx, req, attempts)
+	}
 	if len(attempts) == 0 {
 		g.shellsExhausted(ctx, req)
 		return
@@ -551,6 +559,55 @@ func preferFirst(attempts []route.Attempt, shell string) []route.Attempt {
 		}
 	}
 	return append(head, tail...)
+}
+
+// skipLosingAuditShells D-46 连败偏置（票0022，仅审计径调）：本票 seat_run 中
+// role=审计 非 adjunct 的 run 新→旧扫，逐壳算尾部连败——连败＝同壳连续行
+// Dead 且 ExitCode!=0，遇他壳或 ExitCode==0（含未判死行）断计；连败 ≥N 的壳
+// 自 attempts 剔除并落 audit_shell_skip 事件（note=壳名+连败数，落
+// default_notify 种子自然通知）。RunsForTicket 取不到不阻塞派发——偏置是
+// 优化不是闸，账故障时照原序试。
+func (g *Gateway) skipLosingAuditShells(ctx context.Context, req spawnReq, attempts []route.Attempt) []route.Attempt {
+	rs, err := g.database.RunsForTicket(ctx, req.ticketID)
+	if err != nil {
+		return attempts
+	}
+	streak, closed := map[string]int{}, map[string]bool{}
+	prev := ""
+	for i := len(rs) - 1; i >= 0; i-- { // 新→旧
+		r := rs[i]
+		if r.Role != "审计" || r.Adjunct {
+			continue
+		}
+		s := shellNameOf(r.Shell)
+		if s != prev {
+			if prev != "" {
+				closed[prev] = true // 遇他壳断计：上一壳的尾部连败就此定案
+			}
+			prev = s
+		}
+		if closed[s] {
+			continue
+		}
+		if r.Dead && r.ExitCode != 0 {
+			streak[s]++ // 连败：判死且非零退
+		} else {
+			closed[s] = true // ExitCode==0/未判死行断计
+		}
+	}
+	var kept []route.Attempt
+	for _, at := range attempts {
+		if n := streak[at.Shell]; n >= g.cfg.AuditShellSkipStreak {
+			note := fmt.Sprintf("%s 连败 %d 本轮跳过", at.Shell, n)
+			_ = g.database.AppendEvent(ctx, req.ticketID, "audit_shell_skip", db.Event{
+				Actor: "gateway", Note: note})
+			g.emit(Event{Kind: "audit_shell_skip", TicketID: req.ticketID, Role: req.role,
+				Note: note})
+			continue
+		}
+		kept = append(kept, at)
+	}
+	return kept
 }
 
 func shellLabel(at route.Attempt) string {
