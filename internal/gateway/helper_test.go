@@ -334,11 +334,12 @@ func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 		t.Fatal(err)
 	}
 	go g.Serve()
-	t.Cleanup(g.Close)
 	// T37 rig 收割：调和器/派发径补起的 helper 席不经 spawnSeat 账——
 	// idle 席不 attach 无流可断，网关关不通知＝孤儿永生烧机（非确定性族
-	// 根因实证：机台残留 5k+ gateway.test 进程）。测终按亲父子账收割。
+	// 根因实证：机台残留 5k+ gateway.test 进程）。注册序在 g.Close 前＝
+	// LIFO 执行序在 Close 后：网关死透再收尸，防存活径补席再漏。
 	t.Cleanup(func() { reapHelperChildren(os.Getpid()) })
+	t.Cleanup(g.Close)
 	return g, dir
 }
 
