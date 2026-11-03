@@ -364,73 +364,6 @@ func TestImportLegacy_Parser(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
-// TestBlockedCLI blocked 运维窗（票0050 锚）：空表显式「无」／blocked 票
-// 必现且带末因原文／非 blocked 票零出现／多票按票号序／--socket 推导库径。
-func TestBlockedCLI(t *testing.T) {
-	dir := t.TempDir()
-	dbp := filepath.Join(dir, "meta.db")
-	h, err := db.Open(dbp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer h.Close()
-	ctx := context.Background()
-	run := func(args ...string) string {
-		var sb strings.Builder
-		if err := blockedCmd(args, &sb); err != nil {
-			t.Fatalf("blockedCmd %v: %v", args, err)
-		}
-		return sb.String()
-	}
-
-	// 空表。
-	if out := run("--db", dbp); !strings.Contains(out, "无 blocked 票") {
-		t.Fatalf("空表应显式「无」: %q", out)
-	}
-
-	// 造票：先 B2 后 B1——输出须按票号序（B1 在 B2 前）；NC 非 blocked 零出现。
-	if err := h.CreateTicket(ctx, "B2", "乙票", nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.Transition(ctx, "B2", db.PhaseBlocked, db.EdgeBlocked,
-		"gateway", "失败表到限 kind=spawn_failed 计数=4>cap=3：next_shell"); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.CreateTicket(ctx, "B1", "甲票", nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.Transition(ctx, "B1", db.PhaseBlocked, db.EdgeBlocked,
-		"gateway", "未知/禁动失败 kind=seat_dead——人工裁定"); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.CreateTicket(ctx, "NC", "正常票", nil); err != nil {
-		t.Fatal(err)
-	}
-
-	out := run("--db", dbp)
-	i1, i2 := strings.Index(out, "B1"), strings.Index(out, "B2")
-	if i1 < 0 || i2 < 0 || i1 > i2 {
-		t.Fatalf("多票序应 B1 前 B2 后: %q", out)
-	}
-	for _, want := range []string{"甲票", "乙票",
-		"未知/禁动失败 kind=seat_dead——人工裁定",
-		"失败表到限 kind=spawn_failed 计数=4>cap=3：next_shell",
-		"meta rule --action redirect --ticket B1",
-		"meta rule --action void --ticket B2", "已立→blocked"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("输出缺 %q: %q", want, out)
-		}
-	}
-	if strings.Contains(out, "NC") || strings.Contains(out, "正常票") {
-		t.Fatalf("非 blocked 票应零出现: %q", out)
-	}
-
-	// --socket 推导库径（meta.sock→meta.db；sock 文件无需存在）。
-	out = run("--socket", filepath.Join(dir, "meta.sock"))
-	if !strings.Contains(out, "B1") || strings.Contains(out, "无 blocked 票") {
-		t.Fatalf("--socket 推导库径应读到同库: %q", out)
-=======
 // TestCLI_TicketResume T39 锚：blocked 票经 `meta ticket resume` 回原相位。
 func TestCLI_TicketResume(t *testing.T) {
 	d := t.TempDir()
@@ -468,6 +401,5 @@ func TestCLI_TicketResume(t *testing.T) {
 	}
 	if p, _ := g.DB().PhaseOf(ctx, "tr39"); p == db.PhaseBlocked {
 		t.Fatal("resume 后仍 blocked")
->>>>>>> t/T39
 	}
 }
