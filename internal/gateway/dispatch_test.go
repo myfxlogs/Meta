@@ -177,19 +177,27 @@ func TestBudget_ThreeGates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	send2 := func(m *pbv1.SeatMsg) {
-		if err := stream2.Send(m); err != nil {
-			t.Fatal(err)
+	// T35/T37：席死断流属常态——发送 EOF 重连重领至相位走（账即证）。
+	streamLive := stream2
+	trySend := func(m *pbv1.SeatMsg) {
+		if err := streamLive.Send(m); err != nil {
+			if ns, e := c.Attach(context.Background()); e == nil {
+				streamLive = ns
+				_ = streamLive.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{
+					Auth: &pbv1.RunAuth{RunToken: run2.RunToken}}})
+				_ = streamLive.Send(m)
+			}
 		}
 	}
 	waitFor2(t, 25*time.Second, func() bool {
 		if p, _ := g.DB().PhaseOf(ctx, "tb2"); p == db.PhaseWorking {
 			return true
 		}
-		send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: run2.RunToken}}})
-		send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "tb2"}}})
+		trySend(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: run2.RunToken}}})
+		trySend(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "tb2"}}})
 		return false
 	})
+	stream2 = streamLive
 	// T35：席死断流属常态——EOF 重连重发至冻结响（账即证）。
 	cur2, tok2 := stream2, run2.RunToken
 	waitFor2(t, 15*time.Second, func() bool {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -334,7 +335,68 @@ func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 	}
 	go g.Serve()
 	t.Cleanup(g.Close)
+	// T37 rig 收割：调和器/派发径补起的 helper 席不经 spawnSeat 账——
+	// idle 席不 attach 无流可断，网关关不通知＝孤儿永生烧机（非确定性族
+	// 根因实证：机台残留 5k+ gateway.test 进程）。测终按亲父子账收割。
+	t.Cleanup(func() { reapHelperChildren(os.Getpid()) })
 	return g, dir
+}
+
+// reapHelperChildren 杀本测试进程的全部直子（helper 席＝测试二进制子进程，
+// 调和中途补起者亦在其列）。按 /proc ppid 亲缘账收——不误伤外机进程。
+func reapHelperChildren(ppid int) {
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	mine := strconv.Itoa(ppid)
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		b, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		st := string(b)
+		i := strings.LastIndex(st, ")")
+		if i < 0 || i+4 > len(st) {
+			continue
+		}
+		fields := strings.Fields(st[i+2:])
+		if len(fields) < 2 || fields[1] != mine { // ppid 字段
+			continue
+		}
+		if pid, err := strconv.Atoi(e.Name()); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+	// scope 径补收：席经 systemd-run --user --unit=meta-seat-* 包装被
+	// reparent（非直子，上环漏网）——按属主单元账逐枚 stop（mluser 域
+	// 只见本域 scope，metaseat 生产域不涉）。stop 异步——轮至归零再返，
+	// 防 TempDir 拆除与席进程持 logs 句柄撞车（unlinkat 非空实证）。
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("systemctl", "--user", "list-units",
+			"--all", "meta-seat-*", "--no-legend", "--plain").Output()
+		if err != nil {
+			return
+		}
+		var live []string
+		for _, ln := range strings.Split(string(out), "\n") {
+			f := strings.Fields(ln)
+			if len(f) > 0 && strings.HasPrefix(f[0], "meta-seat-") {
+				live = append(live, f[0])
+			}
+		}
+		if len(live) == 0 {
+			return
+		}
+		for _, u := range live {
+			_ = exec.Command("systemctl", "--user", "stop", u).Run()
+		}
+		<-time.After(80 * time.Millisecond)
+	}
 }
 
 // spawnSeat 经网关 spawn 一个 helper 席位；测试结束自动补杀。
