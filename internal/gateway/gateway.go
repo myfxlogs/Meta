@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -68,23 +70,6 @@ type Config struct {
 	CeoEvents     map[string]bool // Events 流放行 kind 集
 	CeoSpawnKinds map[string]bool // 需 CEO 事件 kind 集（无订阅→pending+ensureCEO）
 	CeoPrompt     string          // 无头席提示模板（{{kind}}/{{ticket_id}}/{{note}}/{{run_dir}}/{{gateway_sock}}）
-
-	// 巡检（票0030）：事件订阅种子（kind→role）＋两级过滤便宜壳。
-	Subs   []SubSeed
-	Filter FilterSpec
-}
-
-// SubSeed 巡检订阅种行（kind→role；种入 subscription 表，DB 行是活态）。
-type SubSeed struct {
-	Kind, Role string
-}
-
-// FilterSpec 两级过滤便宜壳参数：Name 空＝过滤关（订阅命中全当信号）。
-type FilterSpec struct {
-	Name, Model string
-	BatchWindow time.Duration // 批收窗（首事件起一次性闹钟），缺省 20s
-	BatchMax    int           // 批满提前冲，缺省 20
-	Timeout     time.Duration // 单次过滤调用上限，缺省 120s
 }
 
 // ShellSeed 壳登记表种子一行（配置行→DB 活态行；attempt_cap 驻内存不持久化——
@@ -128,15 +113,6 @@ func (c *Config) withDefaults() {
 	}
 	if c.ExecTimeout <= 0 {
 		c.ExecTimeout = 15 * time.Minute
-	}
-	if c.Filter.BatchWindow <= 0 {
-		c.Filter.BatchWindow = 20 * time.Second
-	}
-	if c.Filter.BatchMax <= 0 {
-		c.Filter.BatchMax = 20
-	}
-	if c.Filter.Timeout <= 0 {
-		c.Filter.Timeout = 120 * time.Second
 	}
 	if c.SelfPath == "" {
 		if p, err := os.Executable(); err == nil {
@@ -224,14 +200,6 @@ type Gateway struct {
 	designLocks   map[string]string                                             // project → 持设计锁的票（B1 三锁之一，§1.8）
 	budgetOf      func(ctx context.Context, ticketID string) (db.Budget, error) // D-36 变异注入缝
 
-	// 巡检（票0030）：订阅表内存镜像（启动时由 DB 装载）＋批收道。
-	subs       map[string][]string // 事件 kind → 订阅角色列
-	patrolCh   chan Event          // 订阅命中事件缓冲（emit 非阻塞喂入）
-	patrolWake chan struct{}       // 批窗闹钟唤醒道（一次性 AfterFunc 信号）
-
-	patrolIdle     *time.Timer // 静默期心跳（票0031④）：30min 无真事件→patrol_tick
-	patrolIdleSpan time.Duration
-
 	// 票0039/T11：立票点火去抖闹钟——票事件落账（db eventHook）重置，
 	// 醒→goroutine 跑既有 reconcile。reconBusy＝对账在飞期抑制自锁环
 	// （对账自产事件不再续命闹钟——否则滞留票 spawn_needed 每窗重放成
@@ -274,22 +242,6 @@ func New(cfg Config) (*Gateway, error) {
 
 		ceoDispatched: map[string]int{},
 		designLocks:   map[string]string{},
-		subs:          map[string][]string{},
-		patrolCh:      make(chan Event, 256),
-		patrolWake:    make(chan struct{}, 1),
-	}
-	// 巡检订阅种子＋内存镜像装载（票0030）：种行同 id 不动（DB 行是活态）。
-	for _, s := range cfg.Subs {
-		if s.Kind != "" && s.Role != "" {
-			_ = d.SeedSubscription(context.Background(), s.Kind, s.Role)
-		}
-	}
-	if subs, err := d.ListSubscriptions(context.Background()); err == nil {
-		for _, s := range subs {
-			if s.Enabled {
-				g.subs[s.Kind] = append(g.subs[s.Kind], s.Role)
-			}
-		}
 	}
 	for _, dir := range []string{
 		filepath.Join(cfg.RunDir, "seats"),
@@ -353,7 +305,15 @@ func New(cfg Config) (*Gateway, error) {
 		d.Close()
 		return nil, fmt.Errorf("listen %s: %w", cfg.SocketPath, err)
 	}
-	_ = os.Chmod(cfg.SocketPath, 0o600)
+	// T34 §7.2：socket 0660＋属组 metaseat——交互 CEO（mluser 在组内）走正规
+	// gRPC，废 sudo-sqlite 明文轮询径。组解析失败降级保 0660（测试/开发机
+	// 无 metaseat 组不碍起）。
+	_ = os.Chmod(cfg.SocketPath, 0o660)
+	if grp, err := user.LookupGroup("metaseat"); err == nil {
+		if gid, err := strconv.Atoi(grp.Gid); err == nil {
+			_ = os.Chown(cfg.SocketPath, -1, gid)
+		}
+	}
 	g.ln = ln
 	g.srv = grpc.NewServer()
 	pbv1.RegisterSeatGatewayServer(g.srv, g)
@@ -373,9 +333,6 @@ func New(cfg Config) (*Gateway, error) {
 	g.rebuildProjectLocks(context.Background()) // 项目锁按票相位重建（B1）
 	go g.dispatcher()                           // spawn 调度器：事件驱动，非周期
 	go g.ceoPump(g.subscribe())                 // CEO 事件泵：先订阅后起泵，不丢首事件
-	go g.patrolPump()                           // 巡检泵：订阅命中批收→两级过滤→派发
-	g.patrolIdleSpan = 30 * time.Minute         // 静默期心跳（票0031④）
-	g.armPatrolIdle()                           // 网内一次性闹钟版心跳——systemd timer 退役
 	// 票0039/T11：点火去抖——DB 事件钩接 armRecon；reconcileNow 注入缝。
 	g.reconcileNow = g.reconcile
 	d.SetEventHook(g.armRecon)
@@ -399,9 +356,6 @@ func (g *Gateway) Close() {
 	}
 	g.mu.Unlock()
 	g.mu.Lock()
-	if g.patrolIdle != nil {
-		g.patrolIdle.Stop()
-	}
 	if g.reconTimer != nil {
 		g.reconTimer.Stop()
 	}
@@ -449,8 +403,6 @@ func (g *Gateway) emit(e Event) {
 		default:
 		}
 	}
-	g.patrolFeed(e)   // 票0030：订阅命中→巡检批收道（末位，非阻塞）
-	g.armPatrolIdle() // 票0031④：真事件武装——有事件即重置静默期闹钟
 }
 
 // reconSilentKinds 机器记账类事件（票0039）：对账/派发/巡检泵自身产出——
@@ -513,32 +465,6 @@ func (g *Gateway) armRecon(kind string) {
 		}
 	})
 	g.mu.Unlock()
-}
-
-// armPatrolIdle 静默期心跳（票0031④，systemd timer 退役的网内等价件——
-// R2 合法：「随事件重置的一次性闹钟」钦定唯一时钟形态）：30min 无任何
-// 事件→emit patrol_tick（经订阅进巡检批收道，与外部 inject 同径同消费）。
-// 自产事件也走 emit 即自我重置——真静默定义＝整条事件道无活性。
-func (g *Gateway) armPatrolIdle() {
-	span := g.patrolIdleSpan
-	if span <= 0 {
-		return
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.closed {
-		return
-	}
-	if g.patrolIdle != nil {
-		g.patrolIdle.Reset(span)
-		return
-	}
-	g.patrolIdle = time.AfterFunc(span, func() {
-		_ = g.database.AppendEvent(context.Background(), "", "patrol_tick", db.Event{
-			Actor: "gateway", Note: "静默期心跳（30min 无事件）", Provenance: "idle_alarm"})
-		g.emit(Event{Kind: "patrol_tick", Note: "静默期心跳（30min 无事件）",
-			Provenance: "idle_alarm"})
-	})
 }
 
 // batchDeployCheck 批量部署计数闸（T4/E17）：待部署≥5 或流水线清空

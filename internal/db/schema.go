@@ -145,12 +145,4 @@ CREATE TABLE IF NOT EXISTS ticket_msg (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_msg_ticket ON ticket_msg(ticket_id, id);
-
-CREATE TABLE IF NOT EXISTS subscription (
-  kind       TEXT NOT NULL,
-  role       TEXT NOT NULL,
-  enabled    INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (kind, role)
-);
 `

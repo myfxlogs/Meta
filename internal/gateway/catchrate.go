@@ -24,12 +24,11 @@ const catchScanLimit = 1024
 // 映射行→对应用例必红）。kind→谓词（ticketID 参判）：
 //   - reject：审计驳回
 //   - deploy_failed：部署失败
-//   - created 且 patrol-* 票：巡检立案（席自立案前缀非强制的已知
-//     偏差写死进卡附注——非 patrol- 前缀自立案 v1 不计）
+//
+// T34：created→patrol-* 外捕行随巡检立案径切除（P5 下席位不立票）。
 var extCatchRule = map[string]func(ticketID string) bool{
 	"reject":        func(string) bool { return true },
 	"deploy_failed": func(string) bool { return true },
-	"created":       func(tid string) bool { return strings.HasPrefix(tid, "patrol-") },
 }
 
 // pitTag 坑档自报标签（设计 §4 同生标签约定——META_DELIVER ref 自由

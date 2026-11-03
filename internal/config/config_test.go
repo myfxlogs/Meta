@@ -55,13 +55,17 @@ func TestProdGatewayConfig_CeoKinds(t *testing.T) {
 	for _, k := range c.GetCeoEvents() {
 		ev[k] = true
 	}
-	for _, k := range []string{"reject_limit", "budget_frozen", "shells_exhausted",
-		"deploy_failed", "defer_limit", "feishu_inbound"} {
+	// T34：无头化身触发集钦定缩到两种（feishu_inbound/requirement）——
+	// 异常类事件不再唤起 CEO（v2 §3.1/§3.3-E）。
+	for _, k := range []string{"feishu_inbound", "requirement"} {
 		if !spawn[k] {
 			t.Fatalf("ceo_spawn_kinds 缺 %q", k)
 		}
 		if !ev[k] {
 			t.Fatalf("ceo_events 缺 %q", k)
 		}
+	}
+	if len(c.GetCeoSpawnKinds()) != 2 {
+		t.Fatalf("ceo_spawn_kinds 应恰为两种: %v", c.GetCeoSpawnKinds())
 	}
 }

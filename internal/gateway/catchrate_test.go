@@ -46,7 +46,7 @@ func TestClassifyCatch_ReplayIdem(t *testing.T) {
 }
 
 // 锚3：空判例 fixture→「暂无」不显示 0%；非判例行（audit_pass/
-// 无标 progress/非 patrol- created）同不入分母。
+// 无标 progress/created——T34 起 created 不再作外捕判例）同不入分母。
 func TestClassifyCatch_Empty(t *testing.T) {
 	if got := classifyCatch(nil).line(); got != "暂无" {
 		t.Fatalf("空判例非暂无: %s", got)
@@ -54,7 +54,7 @@ func TestClassifyCatch_Empty(t *testing.T) {
 	rows := []*db.Event{
 		cev(4, "t1", "audit_pass", "pass ref"),
 		cev(3, "t1", "progress", "写码 落表"),
-		cev(2, "0038-p1", "created", ""), // 非 patrol- 前缀自立案不计（口径偏差写死）
+		cev(2, "0038-p1", "created", ""), // T34 起 created 一律非判例行
 		cev(1, "t1", "deliver", "abc 交付摘要"),
 	}
 	v := classifyCatch(rows)
@@ -113,20 +113,20 @@ func TestClassifyCatch_Dedup(t *testing.T) {
 	}
 }
 
-// 锚6 映射面：外捕三类各命中一判（删任一映射行→本条必红）；
+// 锚6 映射面：外捕两类各命中一判（删任一映射行→本条必红；T34 起
+// created 非判例行——巡检立案径切除，P5 下席位不立票）；
 // progress 携坑档标签同纳（kind 不拘——deliver/adjunct_deliver/
 // progress 均入自捕径）。
 func TestClassifyCatch_ExtKinds(t *testing.T) {
 	rows := []*db.Event{
 		cev(5, "t1", "progress", "自测 坑档：e.md"),
-		cev(4, "patrol-7", "created", ""),
-		cev(3, "t2", "deploy_failed", "META_DEPLOY:failed 回滚"),
-		cev(2, "t1", "reject", "驳回"),
-		cev(1, "t3", "created", ""), // 非 patrol-→非判例
+		cev(4, "t2", "deploy_failed", "META_DEPLOY:failed 回滚"),
+		cev(3, "t1", "reject", "驳回"),
+		cev(2, "t3", "created", ""), // T34：created 非判例
 	}
 	v := classifyCatch(rows)
-	if v.total != 4 || v.self != 1 {
-		t.Fatalf("外捕三类映射错: %+v", v)
+	if v.total != 3 || v.self != 1 {
+		t.Fatalf("外捕两类映射错: %+v", v)
 	}
 }
 

@@ -73,28 +73,11 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 	if role == "CEO" {
 		return fmt.Errorf("dispatch: role=CEO 永拒（禁区#10：CEO 只经内部唤起）")
 	}
-	// T27/D-87 链深闸改族世代计数：旧径 -pN 段数判被兄弟编号绕闸
-	// （0034 族 p4 实证——兄弟各一段段数永远<3）——改按族前缀全族成员
-	// 计数 ≥3 截断；同层新编号也入族。根票（无 -pN 段）不涉世代不查。
-	// 发 chain_depth_limit 事件（既有 notify 面到 CEO），不静默吞。
-	// 对抗性锚提名行：删此闸深链票直通。
-	if chainDepth(ticketID) > 0 {
-		fam, ferr := g.database.FamilyTicketCount(ctx, familyRoot(ticketID))
-		if ferr != nil {
-			return fmt.Errorf("dispatch: 族计数失败: %w", ferr)
-		}
-		if fam < 3 {
-			goto chainOK
-		}
-		note := fmt.Sprintf("票 %s 补票族 %d 员 ≥3 截断——人工裁定去向",
-			ticketID, fam)
-		_ = g.database.AppendEvent(ctx, ticketID, "chain_depth_limit", db.Event{
-			Actor: "gateway", Note: note})
-		g.emit(Event{Kind: "chain_depth_limit", TicketID: ticketID, Role: "CEO",
-			Note: note})
-		return fmt.Errorf("dispatch: %s", note)
+	// T34 切除：巡检席全径退役——任何来源（admin 帧/caster/CLI）派
+	// 巡检一律硬拒，防 P5 下已死角色被对账/手工唤起复活。
+	if role == "巡检" {
+		return fmt.Errorf("dispatch: 巡检席已切除（T34 v2 波1）")
 	}
-chainOK:
 	t, err := g.database.GetTicket(ctx, ticketID)
 	if err != nil {
 		return err
@@ -104,14 +87,6 @@ chainOK:
 	}
 	if t.BudgetFrozen {
 		return fmt.Errorf("dispatch: 票 %s 已 budget_frozen", ticketID)
-	}
-	// T29② 巡逻角色映射：patrol- 族（含 -pN 子票）恒派巡检——任何派发
-	// 来源（路由表/backfill/席内 admin）报 CTO/其它角色一律机械归位，
-	// 进设计相位前即转完成（T5 免审免部署径），不占项目设计锁
-	// （0048 被杂票挡道实证）。对抗锚提名行：本归位行——删则 patrol
-	// 票又能被 CTO 支抓走设计锁。
-	if !spec.Adjunct && strings.HasPrefix(ticketID, "patrol-") && role != "巡检" {
-		role = "巡检"
 	}
 	// 派发径挂接（票0015）：取锁闸之前——对抗性锚提名行（锚 b），挪到
 	// acquireProjectLocks/designLocks 之后则锁按旧键（""）取，
@@ -139,11 +114,6 @@ chainOK:
 	} else {
 		if role == "审计" && t.Phase != db.PhaseReview {
 			return fmt.Errorf("dispatch: 相位 %s 不可派审计（必须 待审）", t.Phase)
-		}
-		// D-55：巡检席只属 patrol-* 值班票——杂票派巡检会被机械走边
-		// 推进已派，相位污染（adjunct 径在另一支不受影响）。
-		if role == "巡检" && !strings.HasPrefix(ticketID, "patrol-") {
-			return fmt.Errorf("dispatch: 巡检角色只派 patrol-* 票")
 		}
 		if r, err := g.database.ActiveRunForTicketRole(ctx, ticketID, role); err != nil {
 			return err
@@ -351,8 +321,6 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 
 	// 注入机径：无 --prompt-file 覆盖且注入机开 → 组装提示前缀文件。
 	// 组装失败＝缺一不派（§6.1），出事件即返——非壳之错，不耗壳尝试。
-	// patrol-* 例外（票0034）：注入败不 return，续走下方兜底件——值班票是
-	// 报信链本体，组装败正是最需要报信的时刻（inject_failed 事件照落不吞错）。
 	if spec.PromptFile == "" && g.cfg.InjectRoot != "" {
 		pf, err := g.injectPrompt(ctx, req.ticketID, req.role, t)
 		if err != nil {
@@ -360,26 +328,6 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 				Actor: "gateway", Note: err.Error()})
 			g.emit(Event{Kind: "inject_failed", TicketID: req.ticketID, Role: req.role,
 				Note: err.Error()})
-			if !strings.HasPrefix(req.ticketID, "patrol-") {
-				return
-			}
-		} else {
-			spec.PromptFile = pf
-		}
-	}
-
-	// patrol-* 兜底件（票0034，对抗性锚提名行：删则值班票回撞 D-40 空提示
-	// 全灭）：注入机缺（InjectRoot 空——11-02 实证 unit 无 --inject-root）
-	// 或败时合成最简值班提示，不裸撞 D-40 闸。非 patrol-* 票无此支——注入机
-	// 缺/败是配置故障，照撞闸该响。
-	if spec.PromptFile == "" && strings.HasPrefix(req.ticketID, "patrol-") {
-		pf, err := g.patrolDutyPromptFile(ctx, req.ticketID, req.role, t)
-		if err != nil {
-			note := "值班兜底提示件: " + err.Error()
-			_ = g.database.AppendEvent(ctx, req.ticketID, "spawn_blocked", db.Event{
-				Actor: "gateway", Note: note + " role=" + req.role})
-			g.emit(Event{Kind: "spawn_blocked", TicketID: req.ticketID, Role: req.role,
-				Note: note})
 			return
 		}
 		spec.PromptFile = pf
@@ -603,6 +551,9 @@ func (g *Gateway) cliDriveSpawn(ctx context.Context, req spawnReq, spec SeatSpec
 // 返回 (st, 0, true)=立住；(st 或 nil, code, false)=失败——st 交 reportShell
 // 做同 run 去重与 seat_err 尾摘要取径（spawn 同步失败时无 runState 为 nil）。
 func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at route.Attempt) (*runState, int, bool) {
+	// T34 注入上限：最终提示件 >8k est token → 硬截断中段（保头保哨兵尾）
+	// 落 run/inject/ 副本＋inject_truncated 事件（V7：所有 run 前缀 ≤8k）。
+	spec.PromptFile = g.capPromptFile(ctx, req, spec.PromptFile)
 	run := g.newRun(req.ticketID, req.role, at.Shell)
 	run.Shell = shellLabel(at)
 	run.Adjunct = spec.Adjunct
@@ -789,35 +740,8 @@ func logTail(path string, n int64) string {
 	return strings.TrimSpace(clean(string(b)))
 }
 
-// chainDepth 票号补票链深（T4）："-pN" 尾缀计数——req-xxx-p1-p1-p1=3。
-// 纯函数测试锚；T27 起仅作「是否补票成员」闸前判（>0 才查族账）。
-func chainDepth(ticketID string) int {
-	depth := 0
-	for i := 0; i+1 < len(ticketID); i++ {
-		if ticketID[i] == '-' && ticketID[i+1] == 'p' &&
-			i+2 < len(ticketID) && ticketID[i+2] >= '0' && ticketID[i+2] <= '9' {
-			depth++
-		}
-	}
-	return depth
-}
-
-// familyRoot 补票族根（T27）：反复剥尾段 -pN（纯数字段）——
-// "x-p1-p1"→"x"；非 -pN 尾段即停（"x-foo" 根是自身不是 "x"）。
-func familyRoot(ticketID string) string {
-	for {
-		i := strings.LastIndex(ticketID, "-p")
-		if i < 0 || i+2 >= len(ticketID) {
-			return ticketID
-		}
-		for j := i + 2; j < len(ticketID); j++ {
-			if ticketID[j] < '0' || ticketID[j] > '9' {
-				return ticketID // -pN 段含非数字＝非补票段
-			}
-		}
-		ticketID = ticketID[:i]
-	}
-}
+// T34：链深闸/族世代计数随巡检立案径一并切除（P5 下席位不立票，
+// 补票族闸无对象）。
 
 // shellsExhausted 全壳耗尽：事件→CEO（§8.1 必报）。CTO 部署支连席都起
 // 不来时票仍卡在 待部署——把派发点取走的双锁放回（不补 spawn：再发就是

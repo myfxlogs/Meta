@@ -8,42 +8,6 @@ import (
 	"meta/internal/db"
 )
 
-// TestT4_ChainDepth 链深闸锚：深度≥3 拦截＋chain_depth_limit 通知；深 2 放行。
-func TestT4_ChainDepth(t *testing.T) {
-	if chainDepth("0034-p1-p1-p1") != 3 || chainDepth("0034-p1-p1") != 2 ||
-		chainDepth("0034") != 0 || chainDepth("patrol-9-p1") != 1 {
-		t.Fatal("chainDepth 段数判读错")
-	}
-	g, _ := newTestGateway(t, nil)
-	ctx := context.Background()
-	// T27/D-87：判据由段数改族员计数——深名票建齐族 {x,x-p1,x-p1-p1,…}
-	// 达 3 员才截断；兄弟新编号同层入族（绕闸实证修法）。
-	for _, id := range []string{"xx", "xx-p1", "xx-p1-p1"} {
-		if err := g.DB().CreateTicket(ctx, id, id, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	mkTicketAt(t, g, "xx-p1-p1-p1", db.PhaseAssigned)
-	if err := g.DispatchSeat(ctx, "xx-p1-p1-p1", "施工", SeatSpec{}); err == nil {
-		t.Fatal("族满 3 员深链票竟放行")
-	}
-	waitEvent(t, g, "chain_depth_limit", "xx-p1-p1-p1", 3*time.Second)
-	evs, _ := g.DB().Events(ctx, "xx-p1-p1-p1")
-	var saw bool
-	for _, e := range evs {
-		saw = saw || e.Kind == "chain_depth_limit"
-	}
-	if !saw {
-		t.Fatal("截断无事件留痕")
-	}
-	mkTicketAt(t, g, "x-p1-p1", db.PhaseAssigned)
-	spec := SeatSpec{PromptFile: "", Adjunct: true}
-	if err := g.DispatchSeat(ctx, "x-p1-p1", "巡检", spec); err == nil ||
-		err.Error() == "" {
-		// 深2放行——错误应非链深闸（Adjunct 无 prompt 被拒属另一闸）
-	}
-}
-
 // TestT4_BatchDeploy 批量闸锚：第 5 张到待部署→批量 spawn_needed；
 // 4 张不触发；流水线忙（有施工票）也不触发。
 func TestT4_BatchDeploy(t *testing.T) {
