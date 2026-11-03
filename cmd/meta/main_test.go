@@ -316,6 +316,144 @@ func TestCLI_ProjectLink(t *testing.T) {
 	}
 }
 
+// pushPhase 建票并沿主链推到目标相位（CreateTicket 自带 mandate v1，
+// 施工中/部署中边核过）。target=已立 时建完即返。
+func pushPhase(t *testing.T, h *db.DB, id, title string, target db.Phase) {
+	t.Helper()
+	ctx := context.Background()
+	if err := h.CreateTicket(ctx, id, title, nil); err != nil {
+		t.Fatal(err)
+	}
+	chain := []struct {
+		to   db.Phase
+		kind db.EdgeKind
+	}{
+		{db.PhaseDesigning, db.EdgeDesignStart},
+		{db.PhaseAssigned, db.EdgeDispatch},
+		{db.PhaseWorking, db.EdgeClaim},
+		{db.PhaseReview, db.EdgeDeliver},
+		{db.PhaseAuditing, db.EdgeAuditStart},
+		{db.PhaseToDeploy, db.EdgeAuditPass},
+		{db.PhaseDeploying, db.EdgeDeployStart},
+		{db.PhaseDone, db.EdgeDeployDone},
+	}
+	for _, s := range chain {
+		if p, _ := h.PhaseOf(ctx, id); p == target {
+			return
+		}
+		if _, err := h.Transition(ctx, id, s.to, s.kind, "test", ""); err != nil {
+			t.Fatalf("pushPhase %s→%s: %v", id, s.to, err)
+		}
+	}
+}
+
+// TestTicketsCLI 票0052 锚：非终态全列按票号序／终态零出现／空板
+// 「无在途票」／标题截断——直读库四态（无网关依赖，纯读命令面无
+// RPC 面）；另验 --socket 推导库径与库缺失报错不建空库。
+func TestTicketsCLI(t *testing.T) {
+	d := t.TempDir()
+	dbp := filepath.Join(d, "meta.db")
+	h, err := db.Open(dbp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	ctx := context.Background()
+
+	run := func(args ...string) (string, error) {
+		var sb strings.Builder
+		err := ticketsCmd(args, &sb)
+		return sb.String(), err
+	}
+
+	// 空板显式「无在途票」（严格单行）。
+	out, err := run("--db", dbp)
+	if err != nil || out != "无在途票\n" {
+		t.Fatalf("空板应单行无在途票: %q err=%v", out, err)
+	}
+
+	// 非终态三相位＋blocked（非终态照列）＋两终态——按反序立票验票号序。
+	pushPhase(t, h, "T30", "审票", db.PhaseAuditing)
+	pushPhase(t, h, "T04", "已派票", db.PhaseAssigned)
+	pushPhase(t, h, "T12", "完工票", db.PhaseDone)
+	pushPhase(t, h, "T07", "长题票 "+strings.Repeat("标题很长", 12), db.PhaseCreated)
+	if err := h.CreateTicket(ctx, "T25", "作废票", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Transition(ctx, "T25", db.PhaseVoid, db.EdgeVoid, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.CreateTicket(ctx, "T18", "卡票", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Transition(ctx, "T18", db.PhaseBlocked, db.EdgeBlocked, "gateway", "人工裁定"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err = run("--db", dbp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("非终态应 4 行（终态零出现）: %q", out)
+	}
+	for i, want := range []struct{ id, phase string }{
+		{"T04", "已派"}, {"T07", "已立"}, {"T18", "blocked"}, {"T30", "审计中"},
+	} {
+		f := strings.Split(lines[i], "\t")
+		if len(f) != 3 || f[0] != want.id || f[1] != want.phase {
+			t.Fatalf("行 %d 应 %s %s: %q", i, want.id, want.phase, lines[i])
+		}
+	}
+	// 标题截断：>40 rune 收「…」且恰 41 rune；短题原样。
+	if got := strings.Split(lines[1], "\t")[2]; !strings.HasSuffix(got, "…") ||
+		len([]rune(got)) != 41 {
+		t.Fatalf("长题应截 40+…: %q", got)
+	}
+	if got := strings.Split(lines[0], "\t")[2]; got != "已派票" {
+		t.Fatalf("短题应原样: %q", got)
+	}
+	for _, gone := range []string{"T12", "T25"} {
+		if strings.Contains(out, gone) {
+			t.Fatalf("终态票 %s 不应出现: %q", gone, out)
+		}
+	}
+
+	// 标题带 \n/\t 不裂行——一行一票格式自保（自由文本消毒面）。
+	if err := h.CreateTicket(ctx, "T02", "换行\n制表\t题", nil); err != nil {
+		t.Fatal(err)
+	}
+	out3, err := run("--db", dbp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l3 := strings.Split(strings.TrimSuffix(out3, "\n"), "\n")
+	if len(l3) != 5 || !strings.HasPrefix(l3[0], "T02\t已立\t换行 制表 题") {
+		t.Fatalf("毒标题应消毒单行: %q", out3)
+	}
+	// 作废 T02 回四行基线——下面推导径与 --db 径对比同输出。
+	if _, err := h.Transition(ctx, "T02", db.PhaseVoid, db.EdgeVoid, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// --socket 推导库径（*.sock→*.db 同位约定）。
+	out2, err := run("--socket", filepath.Join(d, "meta.sock"))
+	if err != nil || out2 != out {
+		t.Fatalf("推导径输出应同 --db: %q err=%v", out2, err)
+	}
+
+	// 库缺失报错不建空库。
+	miss := filepath.Join(d, "none.db")
+	if _, err := run("--db", miss); err == nil ||
+		!strings.Contains(err.Error(), "库不可读") {
+		t.Fatalf("库缺失应报错: %v", err)
+	}
+	if _, err := os.Stat(miss); !os.IsNotExist(err) {
+		t.Fatalf("缺失库不应被建: %v", err)
+	}
+}
+
 func mustNonTerminal(t *testing.T, g *gateway.Gateway) []*db.Ticket {
 	t.Helper()
 	ts, err := g.DB().NonTerminalTickets(context.Background())
