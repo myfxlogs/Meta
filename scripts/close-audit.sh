@@ -9,7 +9,10 @@ fail=0
 # 决策账真源＝DB ceo_memory 表（T27③ 陈账：改 meta memory CLI 读——
 # 不经 socket 以外死指针；md 已归档 ceo_memory.archived.md）。
 M=$(mktemp /tmp/ceo-mem.XXXXXX); trap 'rm -f "$M"' EXIT
-/opt/meta/bin/meta memory --socket /opt/meta/run/meta.sock --kind decision --limit 100000 > "$M"
+# D-91：memory 读侧双向流服务端不闭流（客户端 memoryGet 缺 CloseSend，
+# 两端互等挂死——11-03 接手实证，前班误诊为组权限）。超时截流取全量，
+# 真修（client CloseSend）在债台账。
+timeout 60 /opt/meta/bin/meta memory --socket /opt/meta/run/meta.sock --kind decision --limit 100000 > "$M" || true
 # ① 同生原则（水位：决策 69 起，既往不咎）：带坑档标签的行须含真实路径
 awk '/^### /{n=0; t=$0; sub(".*决策 ?","",t); if(t ~ /^[0-9]+/){sub("[^0-9].*","",t); n=t}} n>=69{print}' "$M" | { grep -oE '坑档[：:][^ ]*|经验库＋[^ ]*' || true; } | while IFS= read -r ln; do
   echo "$ln" | grep -qE '\.md|经验库/' || { echo "✗ 同生违反（决策69后）：$ln"; exit 1; }
