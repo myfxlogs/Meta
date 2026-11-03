@@ -122,6 +122,9 @@ func TestBudget_ThreeGates(t *testing.T) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
 		c.SeatArgv = []string{os.Args[0], "-test.run=TestHelperProcess", "-test.v=false"}
+		// T37 rig：秒退窗拉长断 churn 源——idle 席被 QuickExit 杀→
+		// seat_dead→换壳→候壳尽→blocked→claim 永拒（-p2 负载放大实证）。
+		c.QuickExit = 5 * time.Minute
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tb1", db.PhaseAssigned)
@@ -177,36 +180,50 @@ func TestBudget_ThreeGates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	send2 := func(m *pbv1.SeatMsg) {
-		if err := stream2.Send(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	waitFor2(t, 25*time.Second, func() bool {
+	// T35/T37：席换代常态——领票/发帧皆须打活席账（死席 token 帧
+	// 被死闸吞是钦定语义）。逐轮取最新活席领票至相位走。
+	waitFor2(t, 30*time.Second, func() bool {
 		if p, _ := g.DB().PhaseOf(ctx, "tb2"); p == db.PhaseWorking {
 			return true
 		}
-		send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: run2.RunToken}}})
-		send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "tb2"}}})
+		rs, _ := g.DB().RunsForTicket(ctx, "tb2")
+		for _, r := range rs {
+			if r.Dead {
+				continue
+			}
+			sx, err := c.Attach(context.Background())
+			if err != nil {
+				continue
+			}
+			_ = sx.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: r.RunToken}}})
+			_ = sx.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "tb2"}}})
+			sx.CloseSend()
+		}
 		return false
 	})
-	// T35：席死断流属常态——EOF 重连重发至冻结响（账即证）。
-	cur2, tok2 := stream2, run2.RunToken
-	waitFor2(t, 15*time.Second, func() bool {
+	_ = stream2
+	// T35/T37：冻结帧须打活席账（死席 token 帧被死闸吞是钦定语义，
+	// 调和器席换代下旧 token 帧不落账）——逐轮取最新活席发帧。
+	waitFor2(t, 25*time.Second, func() bool {
 		if tk, _ := g.DB().GetTicket(ctx, "tb2"); tk != nil && tk.BudgetFrozen {
 			return true
 		}
-		if err := cur2.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: tok2}}}); err != nil {
-			cur2, _ = c.Attach(context.Background())
-			if cur2 == nil {
-				return false
+		rs, _ := g.DB().RunsForTicket(ctx, "tb2")
+		for _, r := range rs {
+			if r.Dead {
+				continue
 			}
-			_ = cur2.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: tok2}}})
+			sx, err := c.Attach(context.Background())
+			if err != nil {
+				continue
+			}
+			_ = sx.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: r.RunToken}}})
+			_ = sx.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 160}}})
+			sx.CloseSend()
 		}
-		_ = cur2.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 160}}})
 		return false
 	})
-	cur2.CloseSend() // 双源互证第二源
+
 
 	tk, _ := g.DB().GetTicket(ctx, "tb2")
 	if tk == nil || !tk.BudgetFrozen {

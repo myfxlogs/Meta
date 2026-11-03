@@ -335,9 +335,12 @@ func TestT30_CliDriveResetByRuling(t *testing.T) {
 			<-time.After(20 * time.Millisecond)
 		}
 	}
-	n0 := deadCount()
+	// 截断判以 run 总数为凭（死账注册有滞后窗——死数对表会误报）。
+	waitFor2(t, 5*time.Second, func() bool { return deadCount() >= 3 })
+	runs0, _ := g.DB().RunsForTicket(ctx, "tr30")
 	g.cliDriveSpawn(ctx, req, spec) // 截断
-	if deadCount() != n0 {
+	runs1, _ := g.DB().RunsForTicket(ctx, "tr30")
+	if len(runs1) != len(runs0) {
 		t.Fatal("三停未截")
 	}
 	// ruling 裁决行落账→断路器复位→再 spawn 放行（T31 整合语义：续发径

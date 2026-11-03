@@ -91,6 +91,24 @@ func failCount(epoch []*db.Event, kind string) int {
 	return n
 }
 
+// seatDeadExempt T37 交付后退场豁免（0050 实证）：同票最近一条 deliver
+// 边在最后一笔失败类事件之后＝席交付功成正常退场，seat_dead 不入失败账。
+// 未交付而死（无 deliver 或 deliver 后又有失败类）照旧计。
+func seatDeadExempt(evs []*db.Event) bool {
+	edge, fail := -1, -1
+	for i, e := range evs {
+		if edgeKindSet[e.Kind] {
+			edge = i
+		}
+		if failureClasses[e.Kind] {
+			fail = i
+		}
+	}
+	// 豁免域＝最近一条边恰是 deliver 且其后无失败类——交付席退场。
+	// 之后新边（audit_start 等）已翻期：后序期席死照旧计。
+	return edge >= 0 && evs[edge].Kind == string(db.EdgeDeliver) && fail < edge
+}
+
 // lastFailure 期窗内最近一次失败类 kind（无→""）。
 func lastFailure(epoch []*db.Event) string {
 	for i := len(epoch) - 1; i >= 0; i-- {
@@ -300,7 +318,11 @@ func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string
 		epochStart = evs[len(evs)-len(epoch)-1].CreatedAt
 	}
 	kind := lastFailure(epoch)
-	if kind == "" && seatDied {
+	if kind == "seat_dead" && seatDeadExempt(evs) {
+		// T37：deliver 已落账后席退场＝功成身退——不入失败账、不判 blocked。
+		kind = ""
+	}
+	if kind == "" && seatDied && !seatDeadExempt(evs) {
 		// MarkDead↔seat_dead 落账竞序面：死行本身即凭——本轮死席照换壳，
 		// 防路过调和拿空排除集重放同壳后判重锁死。
 		kind = "seat_dead"
