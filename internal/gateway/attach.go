@@ -219,6 +219,17 @@ func (g *Gateway) handleProgress(ctx context.Context, st *runState, p *pbv1.Prog
 // handleUsage 用量帧：累计＋闹钟重置（用量帧亦活性帧）＋预算三闸
 // （80% 警→CEO / 100% 硬停 / 票级硬顶→先杀后冻，§5.5）。
 func (g *Gateway) handleUsage(ctx context.Context, st *runState, u *pbv1.Usage) error {
+	st.mu.Lock()
+	dead := st.dead
+	st.mu.Unlock()
+	if !dead {
+		if r, err := g.database.RunByToken(ctx, st.run.RunToken); err == nil && r != nil && r.Dead {
+			dead = true // 内存标滞后于 DB 账——双源核死
+		}
+	}
+	if dead {
+		return nil // 死席帧不收——濒死时序旧账不得染指新尝试（R1 病灶防径）
+	}
 	tid := st.run.TicketID
 	// adjunct 席只计票级 used_total 不进尝试内 used（§1.3：不占尝试帽）；
 	// 审计席是相位步行席——used/used_total 双计（§15.5，真尝试吃审计帽）。

@@ -101,19 +101,19 @@ func TestT44_AttachDrainDone(t *testing.T) {
 	g, dir := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 		c.SudoBin = sudoStub(t, filepath.Dir(c.DBPath), 0)
+			c.SelfPath = "/bin/false" // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
 	})
 	stubDeploySeams(t, nil, "", fmt.Errorf("probe 结构性红"))
 	ctx := context.Background()
 	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
 		t.Fatal(err)
 	}
-	mkToDeploy(t, g, "tk44", "P")
+	mkDeploying(t, g, "tk44", "P")
 	mkToDeploy(t, g, "tk44b", "P")
-	if err := g.DispatchSeat(ctx, "tk44", "CTO", dispatchSpec(t)); err != nil {
-		t.Fatal(err)
-	}
-	run := waitRun(t, g, "tk44", "CTO")
-	waitPhase(t, g, "tk44", db.PhaseDeploying, 10*time.Second)
+	// T35：部署中票立 CTO 席——spawnSeat 直立（调和器见对齐零 churn）。
+	run := spawnSeat(t, g, "tk44", "CTO", "idle", "META_ADOPT_GRACE=30")
+	d := driveSeat(t, g, dir, run)
+	_ = d.stream.CloseSend() // 双源互证：代驾流 EOF 先落，杀才判死
 	writeSentinel(t, dir, run.RunID, "META_EXEC:deploy e109692\nMETA_DEPLOY:done\n")
 	if err := syscall.Kill(-run.PID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)

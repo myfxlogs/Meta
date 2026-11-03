@@ -76,7 +76,7 @@ func TestBoardCLI_端到端(t *testing.T) {
 	}
 	// 造一条活 run——full 里至少一席。
 	if err := g.DB().CreateRun(context.Background(), &db.Run{
-		RunID: "run-cli", TicketID: "TC", Role: "施工", Shell: "testshell",
+		RunID: "run-cli", TicketID: "TC", Role: "施工", Shell: "testshell", PID: os.Getpid(), // T35：调和器收尸假 pid——测试进程自任活席
 		RunToken: "tk-cli", SocketPath: filepath.Join(runDir, "seats", "run-cli.sock"),
 		LogPath: filepath.Join(runDir, "logs", "run-cli.log"),
 	}); err != nil {

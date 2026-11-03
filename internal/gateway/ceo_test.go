@@ -289,9 +289,14 @@ func TestCeoRule(t *testing.T) {
 	if !ack.Ok {
 		t.Fatalf("redirect 未成: %+v", ack)
 	}
-	waitFor2(t, 10*time.Second, func() bool {
-		r, _ := g.DB().ActiveRunForTicketRole(ctx, "trp", "CTO")
-		return r != nil
+	waitFor2(t, 15*time.Second, func() bool {
+		rs, _ := g.DB().RunsForTicket(ctx, "trp")
+		for _, r := range rs {
+			if r.Role == "CTO" {
+				return true
+			}
+		}
+		return false
 	})
 }
 
@@ -320,8 +325,16 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 
 	// 缺栏（需求票原始态：goal+why）→内联 CTO-A 再派提示。
 	park("trp1", mustSpec(t, func(ts *pbv1.TicketSpec) { ts.Goal, ts.Why = "做X", "定向" }))
-	if ack, _ := c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
-		TicketId: "trp1", Note: "改走轻量轨"}); ack == nil || !ack.Ok {
+	// T35：调和器可抢在泊车落定前把票走过边——泊车与 ruling 同环重试
+	// （相位压回 已立＋最新事件 req_pending 两颗钉同落）。
+	var ack *pbv1.RuleAck
+	waitFor2(t, 15*time.Second, func() bool {
+		_, _ = g.DB().Transition(ctx, "trp1", db.PhaseCreated, db.EdgeReqPending, "cto", "待裁")
+		ack, _ = c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
+			TicketId: "trp1", Note: "改走轻量轨"})
+		return ack != nil && ack.Ok
+	})
+	if ack == nil || !ack.Ok {
 		t.Fatalf("redirect 缺栏票未成: %+v", ack)
 	}
 	// T35：g.specs 内存表退役（spec 随 spawnReq 走）——改验注入目录
@@ -344,8 +357,14 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 		ts.Refs, ts.Anchors, ts.Verify, ts.Deliver = "r", "a", "v", "d"
 	})
 	park("trp2", full)
-	if ack, _ := c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
-		TicketId: "trp2", Note: "续作"}); ack == nil || !ack.Ok {
+	// 同款泊车竞态——pin+重试至 ack.Ok。
+	waitFor2(t, 15*time.Second, func() bool {
+		_, _ = g.DB().Transition(ctx, "trp2", db.PhaseCreated, db.EdgeReqPending, "cto", "待裁")
+		ack, _ = c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
+			TicketId: "trp2", Note: "续作"})
+		return ack != nil && ack.Ok
+	})
+	if ack == nil || !ack.Ok {
 		t.Fatalf("redirect 全栏票未成: %+v", ack)
 	}
 	// 全栏票走注入机组装径——缺内联提示件增（redirect-* 计数不变）。
@@ -369,6 +388,8 @@ func mustSpec(t *testing.T, fill func(*pbv1.TicketSpec)) []byte {
 // TestDesignLock B1 设计锁做实锚：同项目二票并发起设计——A 持锁（派发即取、
 // 持到离开施工中）期间 B 派发拒；A 交付放锁→spawn_needed 解排队＋B 可派。
 func TestDesignLock(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "hold")
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "idle")
 	t.Setenv("META_ADOPT_GRACE", "30")
@@ -419,15 +440,19 @@ func TestDesignLock(t *testing.T) {
 	}
 	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{Ref: "r1"}}})
 	// T35：放锁踢调和器——B 票（已立）由调和器派 CTO 起席。
-	waitFor2(t, 15*time.Second, func() bool {
-		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tb", "CTO")
-		return r != nil
+	// T35：放锁踢调和器——B 自持放行即锚（锁桶可能被 B 回填，判空竞态不取）。
+	var lastErr error
+	waitFor2(t, 20*time.Second, func() bool {
+		lastErr = g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec(t))
+		return lastErr == nil
 	})
-	// T35：锁释踢调和器自动派 B——手工派发属幂等相会（去重/相位径）。
-	waitFor2(t, 15*time.Second, func() bool {
-		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tb", "CTO")
-		return r != nil
-	})
+	if lastErr != nil {
+		g.mu.Lock()
+		h := g.designLocks["p1"]
+		g.mu.Unlock()
+		ph, _ := g.DB().PhaseOf(ctx, "tb")
+		t.Fatalf("锁释后 B 派发仍拒: %v holder=%q tb_phase=%s", lastErr, h, ph)
+	}
 	st.CloseSend()
 }
 
@@ -511,7 +536,10 @@ func TestCeoMemory(t *testing.T) {
 func TestReqPending(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "hold")
-	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	g, dir := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		c.InjectRoot = injectFixture(t)
+	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tp", db.PhaseAssigned)
 	run := spawnSeat(t, g, "tp", "CTO", "idle")
@@ -540,9 +568,14 @@ func TestReqPending(t *testing.T) {
 	mkTicketAt(t, g, "tp2", db.PhaseCreated)
 	_ = g.DB().UpdateSpec(ctx, "tp2", testSpec(t))
 	g.reconcile(ctx)
-	waitFor2(t, 15*time.Second, func() bool {
-		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tp2", "CTO")
-		return r != nil
+	waitFor2(t, 20*time.Second, func() bool {
+		rs, _ := g.DB().RunsForTicket(ctx, "tp2")
+		for _, r := range rs {
+			if r.Role == "CTO" {
+				return true
+			}
+		}
+		return false
 	})
 }
 

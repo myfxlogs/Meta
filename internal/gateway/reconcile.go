@@ -39,7 +39,7 @@ var failureClasses = map[string]bool{
 	"seat_err": true, "spawn_failed": true, "shells_exhausted": true,
 	"shell_limited": true, "shell_dead": true, "stall_suspect": true,
 	"reject": true, "deploy_failed": true, "budget_frozen": true,
-	"clidrive_dead": true, "stall_kill": true,
+	"clidrive_dead": true, "stall_kill": true, "seat_dead": true,
 }
 
 // edgeKindSet 相位边 kind 集——期窗锚点（最近一条边之后才算本相位期窗）。
@@ -110,8 +110,11 @@ func (g *Gateway) failedShells(ctx context.Context, t *db.Ticket, epochStart tim
 		return out
 	}
 	for _, r := range rs {
-		if r.Adjunct || !r.Dead || r.StartedAt.Before(epochStart) || r.Shell == "" {
+		if r.Adjunct || !r.Dead || r.Shell == "" {
 			continue
+		}
+		if !r.ExitedAt.IsZero() && r.ExitedAt.Before(epochStart) {
+			continue // 死在本相位期窗前的不计（无死时戳的死行照计）
 		}
 		out[shellNameOf(r.Shell)] = true
 	}
@@ -239,6 +242,7 @@ func (g *Gateway) reconcile(ctx context.Context) {
 
 // reconcileTicket 单票对齐：actual 活着收养/跳过；缺则按失败表起或停。
 func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string) {
+	seatDied := false
 	run, _ := g.database.ActiveRunForTicket(ctx, t.ID)
 	if run != nil {
 		g.mu.Lock()
@@ -269,8 +273,14 @@ func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string
 		}
 		// 进程已消＝actual 缺——标死放新席。
 		_ = g.database.MarkDead(ctx, run.RunID)
+		seatDied = true
 	}
-	// actual 缺。Working 相位行动者角色由最近 run 血统定（非 adjunct）。
+	// actual 缺。MarkDead↔seat_dead 落账竞序兜底：最近 run 死账在
+	// 即本相位有席死过——kind 回退 seat_dead，排除集换壳保真。
+	if lr, err := g.database.LatestRunForTicket(ctx, t.ID); err == nil && lr != nil && lr.Dead {
+		seatDied = true
+	}
+	// Working 相位行动者角色由最近 run 血统定（非 adjunct）。
 	if t.Phase == db.PhaseWorking {
 		if er, err := g.database.LatestRunForTicket(ctx, t.ID); err == nil && er != nil && er.Role != "" {
 			role = er.Role
@@ -290,6 +300,11 @@ func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string
 		epochStart = evs[len(evs)-len(epoch)-1].CreatedAt
 	}
 	kind := lastFailure(epoch)
+	if kind == "" && seatDied {
+		// MarkDead↔seat_dead 落账竞序面：死行本身即凭——本轮死席照换壳，
+		// 防路过调和拿空排除集重放同壳后判重锁死。
+		kind = "seat_dead"
+	}
 	rule := g.ruleFor(kind)
 	if kind != "" {
 		n := failCount(epoch, kind)

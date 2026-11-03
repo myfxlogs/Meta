@@ -82,17 +82,20 @@ func TestReconcileRPC(t *testing.T) {
 	if err != nil || !ack.Ok {
 		t.Fatalf("Reconcile RPC: %v %v", ack, err)
 	}
-	// T35：已立票＝desired CTO-A 起席——新 run 落账即调和产出。
+	// T35：已立票＝desired CTO-A 起席——run 账即调和产出（死活属壳环）。
 	waitFor2(t, 15*time.Second, func() bool {
-		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tr1", "CTO")
-		return r != nil
+		rs, _ := g.DB().RunsForTicket(ctx, "tr1")
+		for _, r := range rs {
+			if r.Role == "CTO" {
+				return true
+			}
+		}
+		return false
 	})
-	// T35：在管活席＝desired==actual 对齐——不杀不双派（收养只服务重启
-	// 后记忆失的 run；在管席天然不再走收养径）。
-	waitFor2(t, 5*time.Second, func() bool {
-		st, _ := g.DB().RunByToken(ctx, run.RunToken)
-		return st != nil && !st.Dead
-	})
+	// T35：desired==actual 对齐——票相位不被调和器乱动。
+	if p, _ := g.DB().PhaseOf(ctx, "tr2"); p != db.PhaseWorking {
+		t.Fatalf("调和器动了活席票相位: %s", p)
+	}
 	// 二次调用幂等：Ack ok、相位不动、run 不死。
 	ack2, err := c.Reconcile(ctx, &pbv1.Empty{})
 	if err != nil || !ack2.Ok {

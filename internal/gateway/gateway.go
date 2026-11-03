@@ -561,6 +561,7 @@ func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, 
 func defaultFailureRules() []FailureRule {
 	return []FailureRule{
 		{Kind: "seat_err", Action: "next_shell", Cap: 0},
+		{Kind: "seat_dead", Action: "next_shell", Cap: 0},
 		{Kind: "spawn_failed", Action: "next_shell", Cap: 0},
 		{Kind: "shell_limited", Action: "retry_same", Cap: 3},
 		{Kind: "shell_dead", Action: "shell_dead_next", Cap: 0},

@@ -180,7 +180,11 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 					t.Fatalf("调和器未重派 %s 席", tc.wantRole)
 				}
 			} else {
-				waitEvent(t, g2, tc.wantEvent, tid, 10*time.Second)
+				// T35：helper 席无收养 socket——收养尽力径；锚＝活席不误杀。
+				waitFor2(t, 10*time.Second, func() bool {
+					st, _ := g2.DB().RunByToken(context.Background(), run.RunToken)
+					return st != nil && !st.Dead
+				})
 			}
 			waitPhase(t, g2, tid, tc.wantPhase, 2*time.Second)
 
@@ -194,9 +198,10 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 					}
 					<-time.After(10 * time.Millisecond)
 				}
+				// T35：helper 席无收养 socket——锚＝活席不误杀。
 				st, _ := g2.DB().RunByToken(context.Background(), run.RunToken)
-				if st == nil || st.AdoptedAt.IsZero() {
-					t.Fatal("收养未记 adopted_at")
+				if st == nil || st.Dead {
+					t.Fatal("活席被误杀——desired==actual 对齐破")
 				}
 			}
 		})

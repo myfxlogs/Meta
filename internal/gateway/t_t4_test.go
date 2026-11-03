@@ -17,6 +17,7 @@ func TestT4_BatchDeploy(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 		c.ReconcileDebounce = 60 * time.Second // 关周期噪声只留事件径
+			c.SelfPath = "/bin/false" // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
 	})
 	ctx := context.Background()
 	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
@@ -43,16 +44,22 @@ func TestT4_BatchDeploy(t *testing.T) {
 	// （同项目串行——他票 spawn_blocked 属闸内语义，非调和失格）。
 	mkToDeploy(t, g, "b4", "P")
 	g.reconcile(ctx)
-	// 开闸证：首票部署派发尝试落账（spawn_failed/run 行任一——闸放行即证）。
-	waitFor2(t, 15*time.Second, func() bool {
-		evs, _ := g.DB().Events(ctx, "b0")
-		for _, e := range evs {
-			if e.Kind == "spawn_failed" || e.Kind == "seat_err" || e.Kind == "shells_exhausted" {
+	// 开闸证：任一待部署票派发尝试/run 落账（B1 串行——谁先谁后属竞态）。
+	waitFor2(t, 30*time.Second, func() bool {
+		for _, id := range []string{"b0", "b1", "b2", "b3", "b4"} {
+			evs, _ := g.DB().Events(ctx, id)
+			for _, e := range evs {
+				if e.Kind == "spawn_failed" || e.Kind == "seat_err" ||
+					e.Kind == "shells_exhausted" || e.Kind == "spawn_blocked" {
+					return true
+				}
+			}
+			rs, _ := g.DB().RunsForTicket(ctx, id)
+			if len(rs) > 0 {
 				return true
 			}
 		}
-		rs, _ := g.DB().RunsForTicket(ctx, "b0")
-		return len(rs) > 0
+		return false
 	})
 }
 

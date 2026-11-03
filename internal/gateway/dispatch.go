@@ -381,7 +381,17 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 	if len(excl) > 0 {
 		rot = -1
 	}
-	attempts := route.Candidates(rows, excl, g.cfg.Stagger, rot)
+	// T35：排除集按壳名（seat_run 推导），Candidates 滤 ShellKey——桥接全键。
+	var exclByKey map[string]bool
+	if len(excl) > 0 {
+		exclByKey = map[string]bool{}
+		for _, r := range rows {
+			if excl[r.Name] {
+				exclByKey[r.ShellKey()] = true
+			}
+		}
+	}
+	attempts := route.Candidates(rows, exclByKey, g.cfg.Stagger, rot)
 	prefer := spec.PreferShell
 	// 同壳重做落点（§15.2）：施工驳回后重派若无 prefer，机械补＝票上最近
 	// non-adjunct 施工 run 的壳名（④级同壳＝模型一致性偏好；壳已在 failSet
@@ -493,6 +503,11 @@ func (g *Gateway) cliDriveSpawn(ctx context.Context, req spawnReq, spec SeatSpec
 		if t, err := g.database.GetTicket(ctx, req.ticketID); err == nil && t != nil {
 			g.releaseProjectLocks(ctx, t.Project, req.ticketID, false,
 				lockIntegrate, lockDeploy)
+			// 记忆锁桶兜底直清（锁行外预置/孤儿键同释）。
+			g.mu.Lock()
+			delete(g.projectLocks[t.Project], lockIntegrate)
+			delete(g.projectLocks[t.Project], lockDeploy)
+			g.mu.Unlock()
 		}
 	}
 	// T30 断路器重置径：连败账只计最近 ruling（CEO 裁决含 redirect 重派
@@ -535,6 +550,11 @@ func (g *Gateway) cliDriveSpawn(ctx context.Context, req spawnReq, spec SeatSpec
 		return
 	}
 	at := route.Attempt{Shell: cliShell}
+	// 新尝试起席：尝试内用量清零——cli-drive 伪尝试绕过 attempts 环，
+	// 此处同补（R1 病灶：旧账 95→105 秒杀新席实证）。
+	if !spec.Adjunct {
+		_ = g.database.ResetAttemptUsage(ctx, req.ticketID)
+	}
 	st, code, alive := g.trySpawn(ctx, req, spec, at)
 	if alive {
 		g.onSeatAlive(ctx, st, at)
@@ -559,6 +579,11 @@ func (g *Gateway) cliDriveSpawn(ctx context.Context, req spawnReq, spec SeatSpec
 // 返回 (st, 0, true)=立住；(st 或 nil, code, false)=失败——st 交 reportShell
 // 做同 run 去重与 seat_err 尾摘要取径（spawn 同步失败时无 runState 为 nil）。
 func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at route.Attempt) (*runState, int, bool) {
+	// 新尝试起席统一清零点（幂等）：attempts 环/cli-drive/兜底各径
+	// 共用此门——旧尝试 used 不得随席而起（R1 病灶统一防）。
+	if !spec.Adjunct {
+		_ = g.database.ResetAttemptUsage(ctx, req.ticketID)
+	}
 	// T34 注入上限：最终提示件 >8k est token → 硬截断中段（保头保哨兵尾）
 	// 落 run/inject/ 副本＋inject_truncated 事件（V7：所有 run 前缀 ≤8k）。
 	spec.PromptFile = g.capPromptFile(ctx, req, spec.PromptFile)

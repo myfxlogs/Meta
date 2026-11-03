@@ -382,6 +382,9 @@ func mkTicketAt(t *testing.T, g *Gateway, id string, target db.Phase) {
 		if p == target {
 			return
 		}
+		if p == s.to {
+			continue // 已在链步上（调和器先行迁边）——跳过重复边
+		}
 		if _, err := d.Transition(ctx, id, s.to, s.kind, "test", ""); err != nil {
 			t.Fatalf("mkTicketAt→%s: %v", s.to, err)
 		}
