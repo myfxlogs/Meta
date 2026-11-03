@@ -125,6 +125,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 		// T37 rig：秒退窗拉长断 churn 源——idle 席被 QuickExit 杀→
 		// seat_dead→换壳→候壳尽→blocked→claim 永拒（-p2 负载放大实证）。
 		c.QuickExit = 5 * time.Minute
+		c.InjectRoot = injectFixture(t) // 调和重派须立得住——空提示拒起实证
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tb1", db.PhaseAssigned)
@@ -172,6 +173,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 
 	// 票级硬顶：tb2 硬帽 150；两次用量过顶→先杀后冻。
 	mkTicketAt(t, g, "tb2", db.PhaseAssigned)
+	_ = g.DB().UpdateSpec(ctx, "tb2", testSpec(t)) // 调和重派注入须非空
 	if err := g.DB().SetBudgetCaps(ctx, "tb2", 1000, 150); err != nil {
 		t.Fatal(err)
 	}
@@ -182,9 +184,18 @@ func TestBudget_ThreeGates(t *testing.T) {
 	}
 	// T35/T37：席换代常态——领票/发帧皆须打活席账（死席 token 帧
 	// 被死闸吞是钦定语义）。逐轮取最新活席领票至相位走。
-	waitFor2(t, 30*time.Second, func() bool {
+	// claim 帧 CloseSend 竞 flush 窗实证（zz39 对照）——流保开至相位动。
+	var keeps []pbv1.SeatGateway_AttachClient
+	defer func() {
+		for _, k := range keeps {
+			k.CloseSend()
+		}
+	}()
+	moved := false
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline) && !moved; {
 		if p, _ := g.DB().PhaseOf(ctx, "tb2"); p == db.PhaseWorking {
-			return true
+			moved = true
+			break
 		}
 		rs, _ := g.DB().RunsForTicket(ctx, "tb2")
 		for _, r := range rs {
@@ -195,12 +206,24 @@ func TestBudget_ThreeGates(t *testing.T) {
 			if err != nil {
 				continue
 			}
+			keeps = append(keeps, sx)
 			_ = sx.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: r.RunToken}}})
 			_ = sx.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "tb2"}}})
-			sx.CloseSend()
 		}
-		return false
-	})
+		<-time.After(15 * time.Millisecond)
+	}
+	if !moved {
+		rs, _ := g.DB().RunsForTicket(ctx, "tb2")
+		for _, r := range rs {
+			t.Logf("DBG run=%s dead=%v shell=%s", r.RunID, r.Dead, r.Shell)
+		}
+		evs, _ := g.DB().Events(ctx, "tb2")
+		for _, e := range evs {
+			t.Logf("DBG EV %s %s", e.Kind, e.Note)
+		}
+		p, _ := g.DB().PhaseOf(ctx, "tb2")
+		t.Fatalf("claim 未动相位: %s", p)
+	}
 	_ = stream2
 	// T35/T37：冻结帧须打活席账（死席 token 帧被死闸吞是钦定语义，
 	// 调和器席换代下旧 token 帧不落账）——逐轮取最新活席发帧。

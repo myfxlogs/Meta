@@ -363,3 +363,43 @@ func TestImportLegacy_Parser(t *testing.T) {
 		t.Fatalf("正文未入: %q", m.Content)
 	}
 }
+
+// TestCLI_TicketResume T39 锚：blocked 票经 `meta ticket resume` 回原相位。
+func TestCLI_TicketResume(t *testing.T) {
+	d := t.TempDir()
+	sock := filepath.Join(d, "run", "meta.sock")
+	g, err := gateway.New(gateway.Config{
+		DBPath: filepath.Join(d, "meta.db"), RunDir: filepath.Join(d, "run"),
+		SocketPath: sock, SeatArgv: []string{"/bin/true"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go g.Serve()
+	defer g.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket 未起")
+		}
+		<-time.After(20 * time.Millisecond)
+	}
+	ctx := context.Background()
+	if err := g.DB().CreateTicketProv(ctx, "tr39", "blocked 票", nil, "terminal", ""); err != nil {
+		t.Fatal(err)
+	}
+	// 手工推到 blocked（已派→blocked 边存在径：dispatch→blocked 链可直跳——
+	// 用 blocked 边钦定径：Transition 任何相位皆可→blocked）。
+	if _, err := g.DB().Transition(ctx, "tr39", db.PhaseBlocked, db.EdgeBlocked, "gateway", "失败表到限"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ticketCmd([]string{"resume", "--socket", sock, "--ticket", "tr39"}); err != nil {
+		t.Fatal("ticket resume:", err)
+	}
+	if p, _ := g.DB().PhaseOf(ctx, "tr39"); p == db.PhaseBlocked {
+		t.Fatal("resume 后仍 blocked")
+	}
+}
