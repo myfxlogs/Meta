@@ -363,12 +363,13 @@ func (d *DB) LatestStages(ctx context.Context) (map[string]string, error) {
 // LastActivityAt 票上最近一次活性事件的墙上时间——闹钟 deadline 由此重算（§5.3 A4）。
 // 活性事件＝进度帧/用量帧/领票/代跑帧（T26：exec 是部署席唯一活性形——
 // 部署席只发 ExecReq，漏算则收养重算钟 deadline 漂旧误报停滞）；
-// 都没有则回退票 updated_at。
+// resume/ruling 人工干预行同算活性（T43：放行/裁决＝复位再观察的起点，
+// 否则新席带过期死线上岗即秒杀——0050 实证 9 秒处决）；都没有则退票 updated_at。
 func (d *DB) LastActivityAt(ctx context.Context, ticketID string) (time.Time, error) {
 	var ts sql.NullInt64
 	if err := d.db.QueryRowContext(ctx,
 		`SELECT MAX(created_at) FROM ticket_event
-		 WHERE ticket_id=? AND kind IN ('progress','usage','claim','exec')`, ticketID).Scan(&ts); err != nil {
+		 WHERE ticket_id=? AND kind IN ('progress','usage','claim','exec','resume','ruling')`, ticketID).Scan(&ts); err != nil {
 		return time.Time{}, err
 	}
 	if ts.Valid {
