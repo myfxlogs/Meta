@@ -39,11 +39,11 @@ project {
   probe_cmd: "bash /opt/meta/scripts/meta-probe.sh"
   rollback_cmd: "if git -C /opt/meta rev-parse -q --verify MERGE_HEAD >/dev/null; then git -C /opt/meta merge --abort && echo \"rollback: 半合并态已弃净\"; else echo \"rollback: 无 MERGE_HEAD 残留——显式告警，本部署无可回状态\"; fi"
   sandbox {
-    run_as: "mluser"
-    step_run_as { key: "integrate" value: "mluser" }
-    step_run_as { key: "deploy"    value: "mluser" }
-    step_run_as { key: "probe"     value: "mluser" }
-    step_run_as { key: "rollback"  value: "mluser" }
+    run_as: "metaseat"
+    step_run_as { key: "integrate" value: "metaseat" }
+    step_run_as { key: "deploy"    value: "metaseat" }
+    step_run_as { key: "probe"     value: "metaseat" }
+    step_run_as { key: "rollback"  value: "metaseat" }
     step_container_image { key: "check" value: "golang:1.27" }
     exec_timeout { seconds: 900 }
   }
