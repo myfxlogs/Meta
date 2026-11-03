@@ -16,6 +16,7 @@ type Ticket struct {
 	Spec         []byte // 序列化 pbv1.TicketSpec（票面八栏，可空）
 	Project      string
 	DedupeKey    string
+	Mandate      []byte // T36 §3.3-C 授权书（pbv1.Mandate BLOB）——不可变列，立票时落定后无写径
 	BudgetFrozen bool
 	RejectCount  int
 	DeferCount   int
@@ -51,9 +52,11 @@ func (d *DB) CreateTicketProv(ctx context.Context, id, title string, spec []byte
 		return fmt.Errorf("create ticket: %w", err)
 	}
 	now := d.now().UnixNano()
+	// T36 §3.3-C：mandate 授权书随票同 INSERT 落入——不可变列唯一写点，
+	// 由立票径 provenance 推导（席位提示词/注入面永不可写此列）。
 	_, err = d.db.ExecContext(ctx,
-		`INSERT INTO ticket (id, title, phase, spec, project, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
-		cargs(id, title, string(PhaseCreated), spec, project, now, now)...)
+		`INSERT INTO ticket (id, title, phase, spec, project, mandate, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+		cargs(id, title, string(PhaseCreated), spec, project, d.newMandate(provenance, project), now, now)...)
 	if err != nil {
 		return fmt.Errorf("create ticket: %w", err)
 	}
@@ -67,9 +70,9 @@ func (d *DB) GetTicket(ctx context.Context, id string) (*Ticket, error) {
 	var created, updated int64
 	var frozen int
 	err := d.db.QueryRowContext(ctx,
-		`SELECT id, title, phase, spec, project, dedupe_key, budget_frozen, reject_count, defer_count, created_at, updated_at
+		`SELECT id, title, phase, spec, project, dedupe_key, mandate, budget_frozen, reject_count, defer_count, created_at, updated_at
 		 FROM ticket WHERE id=?`, id).
-		Scan(&t.ID, &t.Title, &phase, &t.Spec, &t.Project, &t.DedupeKey, &frozen,
+		Scan(&t.ID, &t.Title, &phase, &t.Spec, &t.Project, &t.DedupeKey, &t.Mandate, &frozen,
 			&t.RejectCount, &t.DeferCount, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -111,6 +114,18 @@ func (d *DB) Transition(ctx context.Context, id string, to Phase, kind EdgeKind,
 	if !Can(Phase(from), to, kind) {
 		return 0, &ErrIllegalEdge{From: Phase(from), To: to, Kind: kind}
 	}
+	// T36 §3.3-C：施工中/部署中 边前核 mandate 授权书仍有效——缺/撤版本
+	// 即拒（授权书不可变，范围变大须立新票）。
+	if to == PhaseWorking || to == PhaseDeploying {
+		var mb []byte
+		if err := tx.QueryRowContext(ctx, `SELECT mandate FROM ticket WHERE id=?`, id).
+			Scan(&mb); err != nil {
+			return 0, fmt.Errorf("mandate read: %w", err)
+		}
+		if err := checkMandate(mb); err != nil {
+			return 0, err
+		}
+	}
 	now := d.now().UnixNano()
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE ticket SET phase=?, updated_at=?,
@@ -147,7 +162,7 @@ func (d *DB) NonTerminalTickets(ctx context.Context) ([]*Ticket, error) {
 		args = append(args, string(p))
 	}
 	rows, err := d.db.QueryContext(ctx,
-		`SELECT id, title, phase, project, dedupe_key, budget_frozen, reject_count, defer_count, created_at, updated_at
+		`SELECT id, title, phase, project, dedupe_key, mandate, budget_frozen, reject_count, defer_count, created_at, updated_at
 		 FROM ticket WHERE phase NOT IN (`+ph+`) ORDER BY created_at`, args...)
 	if err != nil {
 		return nil, err
@@ -159,7 +174,7 @@ func (d *DB) NonTerminalTickets(ctx context.Context) ([]*Ticket, error) {
 		var phase string
 		var created, updated int64
 		var frozen int
-		if err := rows.Scan(&t.ID, &t.Title, &phase, &t.Project, &t.DedupeKey, &frozen,
+		if err := rows.Scan(&t.ID, &t.Title, &phase, &t.Project, &t.DedupeKey, &t.Mandate, &frozen,
 			&t.RejectCount, &t.DeferCount, &created, &updated); err != nil {
 			return nil, err
 		}

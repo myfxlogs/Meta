@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -1986,6 +1987,102 @@ func (x *BudgetReq) GetHardCap() int64 {
 	return 0
 }
 
+// Mandate 授权书（v2 §3.3-C）：票表不可变列——立票时由网关按
+// 立票径推导落列，之后无任何写径；范围变大＝新票。席位提示词文字
+// 改变不了它（注入面与 mandate 面物理隔离）。进 施工中/部署中 边前核
+// 仍有效（策略版本未被撤）。
+type Mandate struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	SourceKind     string                 `protobuf:"bytes,1,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`             // terminal | feishu | external
+	SourceIdentity string                 `protobuf:"bytes,2,opt,name=source_identity,json=sourceIdentity,proto3" json:"source_identity,omitempty"` // 来源身份（open_id/终端/run 血统）
+	ScopeProject   string                 `protobuf:"bytes,3,opt,name=scope_project,json=scopeProject,proto3" json:"scope_project,omitempty"`       // 授权范围：项目（空＝未限）
+	ScopePaths     []string               `protobuf:"bytes,4,rep,name=scope_paths,json=scopePaths,proto3" json:"scope_paths,omitempty"`             // 授权范围：允许路径列
+	Strength       string                 `protobuf:"bytes,5,opt,name=strength,proto3" json:"strength,omitempty"`                                   // explicit | inferred
+	PolicyVersion  string                 `protobuf:"bytes,6,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`    // 签发时策略版本
+	IssuedAt       *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=issued_at,json=issuedAt,proto3" json:"issued_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *Mandate) Reset() {
+	*x = Mandate{}
+	mi := &file_meta_v1_meta_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Mandate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Mandate) ProtoMessage() {}
+
+func (x *Mandate) ProtoReflect() protoreflect.Message {
+	mi := &file_meta_v1_meta_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Mandate.ProtoReflect.Descriptor instead.
+func (*Mandate) Descriptor() ([]byte, []int) {
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *Mandate) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
+}
+
+func (x *Mandate) GetSourceIdentity() string {
+	if x != nil {
+		return x.SourceIdentity
+	}
+	return ""
+}
+
+func (x *Mandate) GetScopeProject() string {
+	if x != nil {
+		return x.ScopeProject
+	}
+	return ""
+}
+
+func (x *Mandate) GetScopePaths() []string {
+	if x != nil {
+		return x.ScopePaths
+	}
+	return nil
+}
+
+func (x *Mandate) GetStrength() string {
+	if x != nil {
+		return x.Strength
+	}
+	return ""
+}
+
+func (x *Mandate) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
+func (x *Mandate) GetIssuedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.IssuedAt
+	}
+	return nil
+}
+
 type TicketRef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1995,7 +2092,7 @@ type TicketRef struct {
 
 func (x *TicketRef) Reset() {
 	*x = TicketRef{}
-	mi := &file_meta_v1_meta_proto_msgTypes[27]
+	mi := &file_meta_v1_meta_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2007,7 +2104,7 @@ func (x *TicketRef) String() string {
 func (*TicketRef) ProtoMessage() {}
 
 func (x *TicketRef) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[27]
+	mi := &file_meta_v1_meta_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2020,7 +2117,7 @@ func (x *TicketRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TicketRef.ProtoReflect.Descriptor instead.
 func (*TicketRef) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{27}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *TicketRef) GetId() string {
@@ -2040,7 +2137,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_meta_v1_meta_proto_msgTypes[28]
+	mi := &file_meta_v1_meta_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2052,7 +2149,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[28]
+	mi := &file_meta_v1_meta_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2065,7 +2162,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{28}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Ack) GetOk() bool {
@@ -2092,7 +2189,7 @@ type PhaseMsg struct {
 
 func (x *PhaseMsg) Reset() {
 	*x = PhaseMsg{}
-	mi := &file_meta_v1_meta_proto_msgTypes[29]
+	mi := &file_meta_v1_meta_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2104,7 +2201,7 @@ func (x *PhaseMsg) String() string {
 func (*PhaseMsg) ProtoMessage() {}
 
 func (x *PhaseMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[29]
+	mi := &file_meta_v1_meta_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2117,7 +2214,7 @@ func (x *PhaseMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PhaseMsg.ProtoReflect.Descriptor instead.
 func (*PhaseMsg) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{29}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *PhaseMsg) GetPhase() string {
@@ -2146,7 +2243,7 @@ type BudgetMsg struct {
 
 func (x *BudgetMsg) Reset() {
 	*x = BudgetMsg{}
-	mi := &file_meta_v1_meta_proto_msgTypes[30]
+	mi := &file_meta_v1_meta_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2158,7 +2255,7 @@ func (x *BudgetMsg) String() string {
 func (*BudgetMsg) ProtoMessage() {}
 
 func (x *BudgetMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[30]
+	mi := &file_meta_v1_meta_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2171,7 +2268,7 @@ func (x *BudgetMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BudgetMsg.ProtoReflect.Descriptor instead.
 func (*BudgetMsg) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{30}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *BudgetMsg) GetCap() int64 {
@@ -2220,7 +2317,7 @@ type EventItem struct {
 
 func (x *EventItem) Reset() {
 	*x = EventItem{}
-	mi := &file_meta_v1_meta_proto_msgTypes[31]
+	mi := &file_meta_v1_meta_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2232,7 +2329,7 @@ func (x *EventItem) String() string {
 func (*EventItem) ProtoMessage() {}
 
 func (x *EventItem) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[31]
+	mi := &file_meta_v1_meta_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2245,7 +2342,7 @@ func (x *EventItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventItem.ProtoReflect.Descriptor instead.
 func (*EventItem) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{31}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *EventItem) GetId() int64 {
@@ -2328,7 +2425,7 @@ type EventCursor struct {
 
 func (x *EventCursor) Reset() {
 	*x = EventCursor{}
-	mi := &file_meta_v1_meta_proto_msgTypes[32]
+	mi := &file_meta_v1_meta_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2340,7 +2437,7 @@ func (x *EventCursor) String() string {
 func (*EventCursor) ProtoMessage() {}
 
 func (x *EventCursor) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[32]
+	mi := &file_meta_v1_meta_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2353,7 +2450,7 @@ func (x *EventCursor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventCursor.ProtoReflect.Descriptor instead.
 func (*EventCursor) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{32}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *EventCursor) GetSinceId() int64 {
@@ -2381,7 +2478,7 @@ type RetroReq struct {
 
 func (x *RetroReq) Reset() {
 	*x = RetroReq{}
-	mi := &file_meta_v1_meta_proto_msgTypes[33]
+	mi := &file_meta_v1_meta_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2393,7 +2490,7 @@ func (x *RetroReq) String() string {
 func (*RetroReq) ProtoMessage() {}
 
 func (x *RetroReq) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[33]
+	mi := &file_meta_v1_meta_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2406,7 +2503,7 @@ func (x *RetroReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetroReq.ProtoReflect.Descriptor instead.
 func (*RetroReq) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{33}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *RetroReq) GetTicketId() string {
@@ -2442,7 +2539,7 @@ type TicketProjectReq struct {
 
 func (x *TicketProjectReq) Reset() {
 	*x = TicketProjectReq{}
-	mi := &file_meta_v1_meta_proto_msgTypes[34]
+	mi := &file_meta_v1_meta_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2454,7 +2551,7 @@ func (x *TicketProjectReq) String() string {
 func (*TicketProjectReq) ProtoMessage() {}
 
 func (x *TicketProjectReq) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[34]
+	mi := &file_meta_v1_meta_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2467,7 +2564,7 @@ func (x *TicketProjectReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TicketProjectReq.ProtoReflect.Descriptor instead.
 func (*TicketProjectReq) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{34}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *TicketProjectReq) GetTicketId() string {
@@ -2493,7 +2590,7 @@ type EventList struct {
 
 func (x *EventList) Reset() {
 	*x = EventList{}
-	mi := &file_meta_v1_meta_proto_msgTypes[35]
+	mi := &file_meta_v1_meta_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2505,7 +2602,7 @@ func (x *EventList) String() string {
 func (*EventList) ProtoMessage() {}
 
 func (x *EventList) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[35]
+	mi := &file_meta_v1_meta_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2518,7 +2615,7 @@ func (x *EventList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventList.ProtoReflect.Descriptor instead.
 func (*EventList) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{35}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *EventList) GetItems() []*EventItem {
@@ -2547,7 +2644,7 @@ type RunItem struct {
 
 func (x *RunItem) Reset() {
 	*x = RunItem{}
-	mi := &file_meta_v1_meta_proto_msgTypes[36]
+	mi := &file_meta_v1_meta_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2559,7 +2656,7 @@ func (x *RunItem) String() string {
 func (*RunItem) ProtoMessage() {}
 
 func (x *RunItem) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[36]
+	mi := &file_meta_v1_meta_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2572,7 +2669,7 @@ func (x *RunItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunItem.ProtoReflect.Descriptor instead.
 func (*RunItem) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{36}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *RunItem) GetRunId() string {
@@ -2661,7 +2758,7 @@ type RunList struct {
 
 func (x *RunList) Reset() {
 	*x = RunList{}
-	mi := &file_meta_v1_meta_proto_msgTypes[37]
+	mi := &file_meta_v1_meta_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2673,7 +2770,7 @@ func (x *RunList) String() string {
 func (*RunList) ProtoMessage() {}
 
 func (x *RunList) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[37]
+	mi := &file_meta_v1_meta_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2686,7 +2783,7 @@ func (x *RunList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunList.ProtoReflect.Descriptor instead.
 func (*RunList) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{37}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *RunList) GetItems() []*RunItem {
@@ -2710,7 +2807,7 @@ type ObsEvent struct {
 
 func (x *ObsEvent) Reset() {
 	*x = ObsEvent{}
-	mi := &file_meta_v1_meta_proto_msgTypes[38]
+	mi := &file_meta_v1_meta_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2722,7 +2819,7 @@ func (x *ObsEvent) String() string {
 func (*ObsEvent) ProtoMessage() {}
 
 func (x *ObsEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[38]
+	mi := &file_meta_v1_meta_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2735,7 +2832,7 @@ func (x *ObsEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ObsEvent.ProtoReflect.Descriptor instead.
 func (*ObsEvent) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{38}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ObsEvent) GetKind() string {
@@ -2791,7 +2888,7 @@ type BoardReq struct {
 
 func (x *BoardReq) Reset() {
 	*x = BoardReq{}
-	mi := &file_meta_v1_meta_proto_msgTypes[39]
+	mi := &file_meta_v1_meta_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2803,7 +2900,7 @@ func (x *BoardReq) String() string {
 func (*BoardReq) ProtoMessage() {}
 
 func (x *BoardReq) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[39]
+	mi := &file_meta_v1_meta_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2816,7 +2913,7 @@ func (x *BoardReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoardReq.ProtoReflect.Descriptor instead.
 func (*BoardReq) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{39}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *BoardReq) GetToken() string {
@@ -2843,7 +2940,7 @@ type BoardFrame struct {
 
 func (x *BoardFrame) Reset() {
 	*x = BoardFrame{}
-	mi := &file_meta_v1_meta_proto_msgTypes[40]
+	mi := &file_meta_v1_meta_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2855,7 +2952,7 @@ func (x *BoardFrame) String() string {
 func (*BoardFrame) ProtoMessage() {}
 
 func (x *BoardFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[40]
+	mi := &file_meta_v1_meta_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2868,7 +2965,7 @@ func (x *BoardFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoardFrame.ProtoReflect.Descriptor instead.
 func (*BoardFrame) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{40}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *BoardFrame) GetBody() isBoardFrame_Body {
@@ -2952,7 +3049,7 @@ type BoardFull struct {
 
 func (x *BoardFull) Reset() {
 	*x = BoardFull{}
-	mi := &file_meta_v1_meta_proto_msgTypes[41]
+	mi := &file_meta_v1_meta_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2964,7 +3061,7 @@ func (x *BoardFull) String() string {
 func (*BoardFull) ProtoMessage() {}
 
 func (x *BoardFull) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[41]
+	mi := &file_meta_v1_meta_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2977,7 +3074,7 @@ func (x *BoardFull) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoardFull.ProtoReflect.Descriptor instead.
 func (*BoardFull) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{41}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *BoardFull) GetSeats() []*SeatRow {
@@ -3017,7 +3114,7 @@ type SeatRow struct {
 
 func (x *SeatRow) Reset() {
 	*x = SeatRow{}
-	mi := &file_meta_v1_meta_proto_msgTypes[42]
+	mi := &file_meta_v1_meta_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3029,7 +3126,7 @@ func (x *SeatRow) String() string {
 func (*SeatRow) ProtoMessage() {}
 
 func (x *SeatRow) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[42]
+	mi := &file_meta_v1_meta_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3042,7 +3139,7 @@ func (x *SeatRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SeatRow.ProtoReflect.Descriptor instead.
 func (*SeatRow) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{42}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *SeatRow) GetRunId() string {
@@ -3152,7 +3249,7 @@ type SeatGone struct {
 
 func (x *SeatGone) Reset() {
 	*x = SeatGone{}
-	mi := &file_meta_v1_meta_proto_msgTypes[43]
+	mi := &file_meta_v1_meta_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3164,7 +3261,7 @@ func (x *SeatGone) String() string {
 func (*SeatGone) ProtoMessage() {}
 
 func (x *SeatGone) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[43]
+	mi := &file_meta_v1_meta_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3177,7 +3274,7 @@ func (x *SeatGone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SeatGone.ProtoReflect.Descriptor instead.
 func (*SeatGone) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{43}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *SeatGone) GetRunId() string {
@@ -3203,7 +3300,7 @@ type TicketRow struct {
 
 func (x *TicketRow) Reset() {
 	*x = TicketRow{}
-	mi := &file_meta_v1_meta_proto_msgTypes[44]
+	mi := &file_meta_v1_meta_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3215,7 +3312,7 @@ func (x *TicketRow) String() string {
 func (*TicketRow) ProtoMessage() {}
 
 func (x *TicketRow) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[44]
+	mi := &file_meta_v1_meta_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3228,7 +3325,7 @@ func (x *TicketRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TicketRow.ProtoReflect.Descriptor instead.
 func (*TicketRow) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{44}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *TicketRow) GetId() string {
@@ -3281,7 +3378,7 @@ type Empty struct {
 
 func (x *Empty) Reset() {
 	*x = Empty{}
-	mi := &file_meta_v1_meta_proto_msgTypes[45]
+	mi := &file_meta_v1_meta_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3293,7 +3390,7 @@ func (x *Empty) String() string {
 func (*Empty) ProtoMessage() {}
 
 func (x *Empty) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[45]
+	mi := &file_meta_v1_meta_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3306,7 +3403,7 @@ func (x *Empty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Empty.ProtoReflect.Descriptor instead.
 func (*Empty) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{45}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{46}
 }
 
 type Subscribe struct {
@@ -3319,7 +3416,7 @@ type Subscribe struct {
 
 func (x *Subscribe) Reset() {
 	*x = Subscribe{}
-	mi := &file_meta_v1_meta_proto_msgTypes[46]
+	mi := &file_meta_v1_meta_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3331,7 +3428,7 @@ func (x *Subscribe) String() string {
 func (*Subscribe) ProtoMessage() {}
 
 func (x *Subscribe) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[46]
+	mi := &file_meta_v1_meta_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3344,7 +3441,7 @@ func (x *Subscribe) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Subscribe.ProtoReflect.Descriptor instead.
 func (*Subscribe) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{46}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *Subscribe) GetRunToken() string {
@@ -3376,7 +3473,7 @@ type Requirement struct {
 
 func (x *Requirement) Reset() {
 	*x = Requirement{}
-	mi := &file_meta_v1_meta_proto_msgTypes[47]
+	mi := &file_meta_v1_meta_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3388,7 +3485,7 @@ func (x *Requirement) String() string {
 func (*Requirement) ProtoMessage() {}
 
 func (x *Requirement) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[47]
+	mi := &file_meta_v1_meta_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3401,7 +3498,7 @@ func (x *Requirement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Requirement.ProtoReflect.Descriptor instead.
 func (*Requirement) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{47}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *Requirement) GetRunToken() string {
@@ -3462,7 +3559,7 @@ type Ruling struct {
 
 func (x *Ruling) Reset() {
 	*x = Ruling{}
-	mi := &file_meta_v1_meta_proto_msgTypes[48]
+	mi := &file_meta_v1_meta_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3474,7 +3571,7 @@ func (x *Ruling) String() string {
 func (*Ruling) ProtoMessage() {}
 
 func (x *Ruling) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[48]
+	mi := &file_meta_v1_meta_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3487,7 +3584,7 @@ func (x *Ruling) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ruling.ProtoReflect.Descriptor instead.
 func (*Ruling) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{48}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *Ruling) GetRunToken() string {
@@ -3543,7 +3640,7 @@ type RuleAck struct {
 
 func (x *RuleAck) Reset() {
 	*x = RuleAck{}
-	mi := &file_meta_v1_meta_proto_msgTypes[49]
+	mi := &file_meta_v1_meta_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3555,7 +3652,7 @@ func (x *RuleAck) String() string {
 func (*RuleAck) ProtoMessage() {}
 
 func (x *RuleAck) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[49]
+	mi := &file_meta_v1_meta_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3568,7 +3665,7 @@ func (x *RuleAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuleAck.ProtoReflect.Descriptor instead.
 func (*RuleAck) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{49}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *RuleAck) GetOk() bool {
@@ -3604,7 +3701,7 @@ type Inquiry struct {
 
 func (x *Inquiry) Reset() {
 	*x = Inquiry{}
-	mi := &file_meta_v1_meta_proto_msgTypes[50]
+	mi := &file_meta_v1_meta_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3616,7 +3713,7 @@ func (x *Inquiry) String() string {
 func (*Inquiry) ProtoMessage() {}
 
 func (x *Inquiry) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[50]
+	mi := &file_meta_v1_meta_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3629,7 +3726,7 @@ func (x *Inquiry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Inquiry.ProtoReflect.Descriptor instead.
 func (*Inquiry) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{50}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *Inquiry) GetRunToken() string {
@@ -3670,7 +3767,7 @@ type MemoryOp struct {
 
 func (x *MemoryOp) Reset() {
 	*x = MemoryOp{}
-	mi := &file_meta_v1_meta_proto_msgTypes[51]
+	mi := &file_meta_v1_meta_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3682,7 +3779,7 @@ func (x *MemoryOp) String() string {
 func (*MemoryOp) ProtoMessage() {}
 
 func (x *MemoryOp) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[51]
+	mi := &file_meta_v1_meta_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3695,7 +3792,7 @@ func (x *MemoryOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryOp.ProtoReflect.Descriptor instead.
 func (*MemoryOp) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{51}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *MemoryOp) GetRunToken() string {
@@ -3772,7 +3869,7 @@ type MemoryPut struct {
 
 func (x *MemoryPut) Reset() {
 	*x = MemoryPut{}
-	mi := &file_meta_v1_meta_proto_msgTypes[52]
+	mi := &file_meta_v1_meta_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3784,7 +3881,7 @@ func (x *MemoryPut) String() string {
 func (*MemoryPut) ProtoMessage() {}
 
 func (x *MemoryPut) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[52]
+	mi := &file_meta_v1_meta_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3797,7 +3894,7 @@ func (x *MemoryPut) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryPut.ProtoReflect.Descriptor instead.
 func (*MemoryPut) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{52}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *MemoryPut) GetKind() string {
@@ -3831,7 +3928,7 @@ type MemoryGet struct {
 
 func (x *MemoryGet) Reset() {
 	*x = MemoryGet{}
-	mi := &file_meta_v1_meta_proto_msgTypes[53]
+	mi := &file_meta_v1_meta_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3843,7 +3940,7 @@ func (x *MemoryGet) String() string {
 func (*MemoryGet) ProtoMessage() {}
 
 func (x *MemoryGet) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[53]
+	mi := &file_meta_v1_meta_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3856,7 +3953,7 @@ func (x *MemoryGet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryGet.ProtoReflect.Descriptor instead.
 func (*MemoryGet) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{53}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *MemoryGet) GetKind() string {
@@ -3888,7 +3985,7 @@ type MemoryRow struct {
 
 func (x *MemoryRow) Reset() {
 	*x = MemoryRow{}
-	mi := &file_meta_v1_meta_proto_msgTypes[54]
+	mi := &file_meta_v1_meta_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3900,7 +3997,7 @@ func (x *MemoryRow) String() string {
 func (*MemoryRow) ProtoMessage() {}
 
 func (x *MemoryRow) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[54]
+	mi := &file_meta_v1_meta_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3913,7 +4010,7 @@ func (x *MemoryRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryRow.ProtoReflect.Descriptor instead.
 func (*MemoryRow) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{54}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *MemoryRow) GetId() int64 {
@@ -3973,7 +4070,7 @@ type CeoTokenReq struct {
 
 func (x *CeoTokenReq) Reset() {
 	*x = CeoTokenReq{}
-	mi := &file_meta_v1_meta_proto_msgTypes[55]
+	mi := &file_meta_v1_meta_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3985,7 +4082,7 @@ func (x *CeoTokenReq) String() string {
 func (*CeoTokenReq) ProtoMessage() {}
 
 func (x *CeoTokenReq) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[55]
+	mi := &file_meta_v1_meta_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3998,7 +4095,7 @@ func (x *CeoTokenReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CeoTokenReq.ProtoReflect.Descriptor instead.
 func (*CeoTokenReq) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{55}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{56}
 }
 
 type CeoTokenResp struct {
@@ -4011,7 +4108,7 @@ type CeoTokenResp struct {
 
 func (x *CeoTokenResp) Reset() {
 	*x = CeoTokenResp{}
-	mi := &file_meta_v1_meta_proto_msgTypes[56]
+	mi := &file_meta_v1_meta_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4023,7 +4120,7 @@ func (x *CeoTokenResp) String() string {
 func (*CeoTokenResp) ProtoMessage() {}
 
 func (x *CeoTokenResp) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[56]
+	mi := &file_meta_v1_meta_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4036,7 +4133,7 @@ func (x *CeoTokenResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CeoTokenResp.ProtoReflect.Descriptor instead.
 func (*CeoTokenResp) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{56}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *CeoTokenResp) GetRunId() string {
@@ -4063,7 +4160,7 @@ type RouteTable struct {
 
 func (x *RouteTable) Reset() {
 	*x = RouteTable{}
-	mi := &file_meta_v1_meta_proto_msgTypes[57]
+	mi := &file_meta_v1_meta_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4075,7 +4172,7 @@ func (x *RouteTable) String() string {
 func (*RouteTable) ProtoMessage() {}
 
 func (x *RouteTable) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[57]
+	mi := &file_meta_v1_meta_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4088,7 +4185,7 @@ func (x *RouteTable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteTable.ProtoReflect.Descriptor instead.
 func (*RouteTable) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{57}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *RouteTable) GetRoutes() []*Route {
@@ -4117,7 +4214,7 @@ type DefaultNotifyRule struct {
 
 func (x *DefaultNotifyRule) Reset() {
 	*x = DefaultNotifyRule{}
-	mi := &file_meta_v1_meta_proto_msgTypes[58]
+	mi := &file_meta_v1_meta_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4129,7 +4226,7 @@ func (x *DefaultNotifyRule) String() string {
 func (*DefaultNotifyRule) ProtoMessage() {}
 
 func (x *DefaultNotifyRule) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[58]
+	mi := &file_meta_v1_meta_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4142,7 +4239,7 @@ func (x *DefaultNotifyRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DefaultNotifyRule.ProtoReflect.Descriptor instead.
 func (*DefaultNotifyRule) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{58}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *DefaultNotifyRule) GetKinds() []string {
@@ -4172,7 +4269,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_meta_v1_meta_proto_msgTypes[59]
+	mi := &file_meta_v1_meta_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4184,7 +4281,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[59]
+	mi := &file_meta_v1_meta_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4197,7 +4294,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{59}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *Route) GetKind() string {
@@ -4248,7 +4345,7 @@ type Action struct {
 
 func (x *Action) Reset() {
 	*x = Action{}
-	mi := &file_meta_v1_meta_proto_msgTypes[60]
+	mi := &file_meta_v1_meta_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4260,7 +4357,7 @@ func (x *Action) String() string {
 func (*Action) ProtoMessage() {}
 
 func (x *Action) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[60]
+	mi := &file_meta_v1_meta_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4273,7 +4370,7 @@ func (x *Action) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Action.ProtoReflect.Descriptor instead.
 func (*Action) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{60}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *Action) GetBody() isAction_Body {
@@ -4326,7 +4423,7 @@ type NotifyAction struct {
 
 func (x *NotifyAction) Reset() {
 	*x = NotifyAction{}
-	mi := &file_meta_v1_meta_proto_msgTypes[61]
+	mi := &file_meta_v1_meta_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4338,7 +4435,7 @@ func (x *NotifyAction) String() string {
 func (*NotifyAction) ProtoMessage() {}
 
 func (x *NotifyAction) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[61]
+	mi := &file_meta_v1_meta_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4351,7 +4448,7 @@ func (x *NotifyAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotifyAction.ProtoReflect.Descriptor instead.
 func (*NotifyAction) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{61}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *NotifyAction) GetTemplate() string {
@@ -4376,7 +4473,7 @@ type DispatchAction struct {
 
 func (x *DispatchAction) Reset() {
 	*x = DispatchAction{}
-	mi := &file_meta_v1_meta_proto_msgTypes[62]
+	mi := &file_meta_v1_meta_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4388,7 +4485,7 @@ func (x *DispatchAction) String() string {
 func (*DispatchAction) ProtoMessage() {}
 
 func (x *DispatchAction) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[62]
+	mi := &file_meta_v1_meta_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4401,7 +4498,7 @@ func (x *DispatchAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchAction.ProtoReflect.Descriptor instead.
 func (*DispatchAction) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{62}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *DispatchAction) GetRole() string {
@@ -4473,6 +4570,8 @@ type GatewayConfig struct {
 	AuditShellSkipStreak int32                  `protobuf:"varint,16,opt,name=audit_shell_skip_streak,json=auditShellSkipStreak,proto3" json:"audit_shell_skip_streak,omitempty"` // 审计重派壳偏置连败阈值（D-46/票0022）：≤0=关
 	ReconcileDebounce    *durationpb.Duration   `protobuf:"bytes,19,opt,name=reconcile_debounce,json=reconcileDebounce,proto3" json:"reconcile_debounce,omitempty"`               // T35 改义：幂等调和器周期（缺省 60s；≤0 关周期只留事件驱动）——R2′ 钦定唯一周期例外
 	FailureRule          []*FailureRule         `protobuf:"bytes,24,rep,name=failure_rule,json=failureRule,proto3" json:"failure_rule,omitempty"`                                 // 失败表（v2 §3.3-B）：kind→确定性处置＋上限，到限→blocked
+	MandatePolicyVersion string                 `protobuf:"bytes,25,opt,name=mandate_policy_version,json=mandatePolicyVersion,proto3" json:"mandate_policy_version,omitempty"`    // T36 §3.3-C：现行 Mandate 策略版本（缺省 "v1"）
+	MandateRevoked       []string               `protobuf:"bytes,26,rep,name=mandate_revoked,json=mandateRevoked,proto3" json:"mandate_revoked,omitempty"`                        // 已撤策略版本列——携该版本票的 施工中/部署中 边被拒
 	// 票0033/T8 席位容器笼出闸种子（码面未接前纯配置态——钦定径禁即刻生效）：
 	SeatImage      string   `protobuf:"bytes,20,opt,name=seat_image,json=seatImage,proto3" json:"seat_image,omitempty"`                  // 笼镜像（空＝笼关旧径活）
 	SeatNet        string   `protobuf:"bytes,21,opt,name=seat_net,json=seatNet,proto3" json:"seat_net,omitempty"`                        // 笼网（meta-seat，egress 照旧非 internal）
@@ -4484,7 +4583,7 @@ type GatewayConfig struct {
 
 func (x *GatewayConfig) Reset() {
 	*x = GatewayConfig{}
-	mi := &file_meta_v1_meta_proto_msgTypes[63]
+	mi := &file_meta_v1_meta_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4496,7 +4595,7 @@ func (x *GatewayConfig) String() string {
 func (*GatewayConfig) ProtoMessage() {}
 
 func (x *GatewayConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[63]
+	mi := &file_meta_v1_meta_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4509,7 +4608,7 @@ func (x *GatewayConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayConfig.ProtoReflect.Descriptor instead.
 func (*GatewayConfig) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{63}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *GatewayConfig) GetProgressTimeout() *durationpb.Duration {
@@ -4638,6 +4737,20 @@ func (x *GatewayConfig) GetFailureRule() []*FailureRule {
 	return nil
 }
 
+func (x *GatewayConfig) GetMandatePolicyVersion() string {
+	if x != nil {
+		return x.MandatePolicyVersion
+	}
+	return ""
+}
+
+func (x *GatewayConfig) GetMandateRevoked() []string {
+	if x != nil {
+		return x.MandateRevoked
+	}
+	return nil
+}
+
 func (x *GatewayConfig) GetSeatImage() string {
 	if x != nil {
 		return x.SeatImage
@@ -4683,7 +4796,7 @@ type FailureRule struct {
 
 func (x *FailureRule) Reset() {
 	*x = FailureRule{}
-	mi := &file_meta_v1_meta_proto_msgTypes[64]
+	mi := &file_meta_v1_meta_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4695,7 +4808,7 @@ func (x *FailureRule) String() string {
 func (*FailureRule) ProtoMessage() {}
 
 func (x *FailureRule) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[64]
+	mi := &file_meta_v1_meta_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4708,7 +4821,7 @@ func (x *FailureRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailureRule.ProtoReflect.Descriptor instead.
 func (*FailureRule) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{64}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *FailureRule) GetKind() string {
@@ -4743,7 +4856,7 @@ type Session struct {
 
 func (x *Session) Reset() {
 	*x = Session{}
-	mi := &file_meta_v1_meta_proto_msgTypes[65]
+	mi := &file_meta_v1_meta_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4755,7 +4868,7 @@ func (x *Session) String() string {
 func (*Session) ProtoMessage() {}
 
 func (x *Session) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[65]
+	mi := &file_meta_v1_meta_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4768,7 +4881,7 @@ func (x *Session) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Session.ProtoReflect.Descriptor instead.
 func (*Session) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{65}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *Session) GetSessionId() string {
@@ -4791,7 +4904,7 @@ type Feed struct {
 
 func (x *Feed) Reset() {
 	*x = Feed{}
-	mi := &file_meta_v1_meta_proto_msgTypes[66]
+	mi := &file_meta_v1_meta_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4803,7 +4916,7 @@ func (x *Feed) String() string {
 func (*Feed) ProtoMessage() {}
 
 func (x *Feed) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[66]
+	mi := &file_meta_v1_meta_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4816,7 +4929,7 @@ func (x *Feed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Feed.ProtoReflect.Descriptor instead.
 func (*Feed) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{66}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *Feed) GetId() int64 {
@@ -4852,7 +4965,7 @@ type MsgReq struct {
 
 func (x *MsgReq) Reset() {
 	*x = MsgReq{}
-	mi := &file_meta_v1_meta_proto_msgTypes[67]
+	mi := &file_meta_v1_meta_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4864,7 +4977,7 @@ func (x *MsgReq) String() string {
 func (*MsgReq) ProtoMessage() {}
 
 func (x *MsgReq) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[67]
+	mi := &file_meta_v1_meta_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4877,7 +4990,7 @@ func (x *MsgReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgReq.ProtoReflect.Descriptor instead.
 func (*MsgReq) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{67}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *MsgReq) GetTicketId() string {
@@ -4915,7 +5028,7 @@ type EventReq struct {
 
 func (x *EventReq) Reset() {
 	*x = EventReq{}
-	mi := &file_meta_v1_meta_proto_msgTypes[68]
+	mi := &file_meta_v1_meta_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4927,7 +5040,7 @@ func (x *EventReq) String() string {
 func (*EventReq) ProtoMessage() {}
 
 func (x *EventReq) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[68]
+	mi := &file_meta_v1_meta_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4940,7 +5053,7 @@ func (x *EventReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventReq.ProtoReflect.Descriptor instead.
 func (*EventReq) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{68}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *EventReq) GetKind() string {
@@ -4985,7 +5098,7 @@ type FeishuApp struct {
 
 func (x *FeishuApp) Reset() {
 	*x = FeishuApp{}
-	mi := &file_meta_v1_meta_proto_msgTypes[69]
+	mi := &file_meta_v1_meta_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4997,7 +5110,7 @@ func (x *FeishuApp) String() string {
 func (*FeishuApp) ProtoMessage() {}
 
 func (x *FeishuApp) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[69]
+	mi := &file_meta_v1_meta_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5010,7 +5123,7 @@ func (x *FeishuApp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FeishuApp.ProtoReflect.Descriptor instead.
 func (*FeishuApp) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{69}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *FeishuApp) GetAppId() string {
@@ -5058,7 +5171,7 @@ type SandboxSpec struct {
 
 func (x *SandboxSpec) Reset() {
 	*x = SandboxSpec{}
-	mi := &file_meta_v1_meta_proto_msgTypes[70]
+	mi := &file_meta_v1_meta_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5070,7 +5183,7 @@ func (x *SandboxSpec) String() string {
 func (*SandboxSpec) ProtoMessage() {}
 
 func (x *SandboxSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[70]
+	mi := &file_meta_v1_meta_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5083,7 +5196,7 @@ func (x *SandboxSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxSpec.ProtoReflect.Descriptor instead.
 func (*SandboxSpec) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{70}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *SandboxSpec) GetRunAs() string {
@@ -5127,13 +5240,16 @@ type ProjectSeed struct {
 	ProbeCmd      string                 `protobuf:"bytes,7,opt,name=probe_cmd,json=probeCmd,proto3" json:"probe_cmd,omitempty"`
 	RollbackCmd   string                 `protobuf:"bytes,8,opt,name=rollback_cmd,json=rollbackCmd,proto3" json:"rollback_cmd,omitempty"`
 	Sandbox       *SandboxSpec           `protobuf:"bytes,9,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// T36 §3.3-D 影子期第 0 道闸：record_only（缺省）=过闸事件只写
+	// "本会立票"账行不建票不派席；live=真立票。
+	AutoTicketMode string `protobuf:"bytes,10,opt,name=auto_ticket_mode,json=autoTicketMode,proto3" json:"auto_ticket_mode,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProjectSeed) Reset() {
 	*x = ProjectSeed{}
-	mi := &file_meta_v1_meta_proto_msgTypes[71]
+	mi := &file_meta_v1_meta_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5145,7 +5261,7 @@ func (x *ProjectSeed) String() string {
 func (*ProjectSeed) ProtoMessage() {}
 
 func (x *ProjectSeed) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[71]
+	mi := &file_meta_v1_meta_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5158,7 +5274,7 @@ func (x *ProjectSeed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectSeed.ProtoReflect.Descriptor instead.
 func (*ProjectSeed) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{71}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *ProjectSeed) GetId() string {
@@ -5224,6 +5340,13 @@ func (x *ProjectSeed) GetSandbox() *SandboxSpec {
 	return nil
 }
 
+func (x *ProjectSeed) GetAutoTicketMode() string {
+	if x != nil {
+		return x.AutoTicketMode
+	}
+	return ""
+}
+
 type RoleBudget struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Role          string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
@@ -5234,7 +5357,7 @@ type RoleBudget struct {
 
 func (x *RoleBudget) Reset() {
 	*x = RoleBudget{}
-	mi := &file_meta_v1_meta_proto_msgTypes[72]
+	mi := &file_meta_v1_meta_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5246,7 +5369,7 @@ func (x *RoleBudget) String() string {
 func (*RoleBudget) ProtoMessage() {}
 
 func (x *RoleBudget) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[72]
+	mi := &file_meta_v1_meta_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5259,7 +5382,7 @@ func (x *RoleBudget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoleBudget.ProtoReflect.Descriptor instead.
 func (*RoleBudget) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{72}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *RoleBudget) GetRole() string {
@@ -5290,7 +5413,7 @@ type ShellRow struct {
 
 func (x *ShellRow) Reset() {
 	*x = ShellRow{}
-	mi := &file_meta_v1_meta_proto_msgTypes[73]
+	mi := &file_meta_v1_meta_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5302,7 +5425,7 @@ func (x *ShellRow) String() string {
 func (*ShellRow) ProtoMessage() {}
 
 func (x *ShellRow) ProtoReflect() protoreflect.Message {
-	mi := &file_meta_v1_meta_proto_msgTypes[73]
+	mi := &file_meta_v1_meta_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5315,7 +5438,7 @@ func (x *ShellRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellRow.ProtoReflect.Descriptor instead.
 func (*ShellRow) Descriptor() ([]byte, []int) {
-	return file_meta_v1_meta_proto_rawDescGZIP(), []int{73}
+	return file_meta_v1_meta_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *ShellRow) GetName() string {
@@ -5364,7 +5487,7 @@ var File_meta_v1_meta_proto protoreflect.FileDescriptor
 
 const file_meta_v1_meta_proto_rawDesc = "" +
 	"\n" +
-	"\x12meta/v1/meta.proto\x12\ameta.v1\x1a\x1egoogle/protobuf/duration.proto\"\xba\x04\n" +
+	"\x12meta/v1/meta.proto\x12\ameta.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x04\n" +
 	"\aSeatMsg\x12&\n" +
 	"\x04auth\x18\x01 \x01(\v2\x10.meta.v1.RunAuthH\x00R\x04auth\x12&\n" +
 	"\x05claim\x18\x02 \x01(\v2\x0e.meta.v1.ClaimH\x00R\x05claim\x12/\n" +
@@ -5503,7 +5626,17 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\tticket_id\x18\x01 \x01(\tR\bticketId\x12\x1f\n" +
 	"\vattempt_cap\x18\x02 \x01(\x03R\n" +
 	"attemptCap\x12\x19\n" +
-	"\bhard_cap\x18\x03 \x01(\x03R\ahardCap\"\x1b\n" +
+	"\bhard_cap\x18\x03 \x01(\x03R\ahardCap\"\x95\x02\n" +
+	"\aMandate\x12\x1f\n" +
+	"\vsource_kind\x18\x01 \x01(\tR\n" +
+	"sourceKind\x12'\n" +
+	"\x0fsource_identity\x18\x02 \x01(\tR\x0esourceIdentity\x12#\n" +
+	"\rscope_project\x18\x03 \x01(\tR\fscopeProject\x12\x1f\n" +
+	"\vscope_paths\x18\x04 \x03(\tR\n" +
+	"scopePaths\x12\x1a\n" +
+	"\bstrength\x18\x05 \x01(\tR\bstrength\x12%\n" +
+	"\x0epolicy_version\x18\x06 \x01(\tR\rpolicyVersion\x127\n" +
+	"\tissued_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\bissuedAt\"\x1b\n" +
 	"\tTicketRef\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\")\n" +
 	"\x03Ack\x12\x0e\n" +
@@ -5693,7 +5826,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\fprefer_shell\x18\x04 \x01(\tR\vpreferShell\x12\x18\n" +
 	"\aadjunct\x18\x05 \x01(\bR\aadjunct\x12\x18\n" +
 	"\aproject\x18\x06 \x01(\tR\aproject\x12\x1b\n" +
-	"\tcli_drive\x18\a \x01(\bR\bcliDrive\"\xca\b\n" +
+	"\tcli_drive\x18\a \x01(\bR\bcliDrive\"\xa9\t\n" +
 	"\rGatewayConfig\x12D\n" +
 	"\x10progress_timeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0fprogressTimeout\x12<\n" +
 	"\fauth_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\vauthTimeout\x12G\n" +
@@ -5717,7 +5850,9 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\fboard_listen\x18\x0f \x01(\tR\vboardListen\x125\n" +
 	"\x17audit_shell_skip_streak\x18\x10 \x01(\x05R\x14auditShellSkipStreak\x12H\n" +
 	"\x12reconcile_debounce\x18\x13 \x01(\v2\x19.google.protobuf.DurationR\x11reconcileDebounce\x127\n" +
-	"\ffailure_rule\x18\x18 \x03(\v2\x14.meta.v1.FailureRuleR\vfailureRule\x12\x1d\n" +
+	"\ffailure_rule\x18\x18 \x03(\v2\x14.meta.v1.FailureRuleR\vfailureRule\x124\n" +
+	"\x16mandate_policy_version\x18\x19 \x01(\tR\x14mandatePolicyVersion\x12'\n" +
+	"\x0fmandate_revoked\x18\x1a \x03(\tR\x0emandateRevoked\x12\x1d\n" +
 	"\n" +
 	"seat_image\x18\x14 \x01(\tR\tseatImage\x12\x19\n" +
 	"\bseat_net\x18\x15 \x01(\tR\aseatNet\x12&\n" +
@@ -5759,7 +5894,7 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aE\n" +
 	"\x17StepContainerImageEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb0\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xda\x02\n" +
 	"\vProjectSeed\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\brepo_url\x18\x02 \x01(\tR\arepoUrl\x12%\n" +
@@ -5770,7 +5905,9 @@ const file_meta_v1_meta_proto_rawDesc = "" +
 	"deploy_cmd\x18\x06 \x01(\tR\tdeployCmd\x12\x1b\n" +
 	"\tprobe_cmd\x18\a \x01(\tR\bprobeCmd\x12!\n" +
 	"\frollback_cmd\x18\b \x01(\tR\vrollbackCmd\x12.\n" +
-	"\asandbox\x18\t \x01(\v2\x14.meta.v1.SandboxSpecR\asandbox\"A\n" +
+	"\asandbox\x18\t \x01(\v2\x14.meta.v1.SandboxSpecR\asandbox\x12(\n" +
+	"\x10auto_ticket_mode\x18\n" +
+	" \x01(\tR\x0eautoTicketMode\"A\n" +
 	"\n" +
 	"RoleBudget\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x1f\n" +
@@ -5828,85 +5965,87 @@ func file_meta_v1_meta_proto_rawDescGZIP() []byte {
 	return file_meta_v1_meta_proto_rawDescData
 }
 
-var file_meta_v1_meta_proto_msgTypes = make([]protoimpl.MessageInfo, 76)
+var file_meta_v1_meta_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
 var file_meta_v1_meta_proto_goTypes = []any{
-	(*SeatMsg)(nil),             // 0: meta.v1.SeatMsg
-	(*GatewayMsg)(nil),          // 1: meta.v1.GatewayMsg
-	(*RunAuth)(nil),             // 2: meta.v1.RunAuth
-	(*Claim)(nil),               // 3: meta.v1.Claim
-	(*Progress)(nil),            // 4: meta.v1.Progress
-	(*Usage)(nil),               // 5: meta.v1.Usage
-	(*Deliver)(nil),             // 6: meta.v1.Deliver
-	(*Rule)(nil),                // 7: meta.v1.Rule
-	(*ExecReq)(nil),             // 8: meta.v1.ExecReq
-	(*ExecResp)(nil),            // 9: meta.v1.ExecResp
-	(*PermissionReply)(nil),     // 10: meta.v1.PermissionReply
-	(*Yield)(nil),               // 11: meta.v1.Yield
-	(*SecretReq)(nil),           // 12: meta.v1.SecretReq
-	(*Ticket)(nil),              // 13: meta.v1.Ticket
-	(*TicketSpec)(nil),          // 14: meta.v1.TicketSpec
-	(*PermissionAsk)(nil),       // 15: meta.v1.PermissionAsk
-	(*Abort)(nil),               // 16: meta.v1.Abort
-	(*Extend)(nil),              // 17: meta.v1.Extend
-	(*SecretResp)(nil),          // 18: meta.v1.SecretResp
-	(*SeatAdmin)(nil),           // 19: meta.v1.SeatAdmin
-	(*FillSpec)(nil),            // 20: meta.v1.FillSpec
-	(*SetProject)(nil),          // 21: meta.v1.SetProject
-	(*AdoptAuth)(nil),           // 22: meta.v1.AdoptAuth
-	(*AdoptAck)(nil),            // 23: meta.v1.AdoptAck
-	(*NewTicket)(nil),           // 24: meta.v1.NewTicket
-	(*DispatchReq)(nil),         // 25: meta.v1.DispatchReq
-	(*BudgetReq)(nil),           // 26: meta.v1.BudgetReq
-	(*TicketRef)(nil),           // 27: meta.v1.TicketRef
-	(*Ack)(nil),                 // 28: meta.v1.Ack
-	(*PhaseMsg)(nil),            // 29: meta.v1.PhaseMsg
-	(*BudgetMsg)(nil),           // 30: meta.v1.BudgetMsg
-	(*EventItem)(nil),           // 31: meta.v1.EventItem
-	(*EventCursor)(nil),         // 32: meta.v1.EventCursor
-	(*RetroReq)(nil),            // 33: meta.v1.RetroReq
-	(*TicketProjectReq)(nil),    // 34: meta.v1.TicketProjectReq
-	(*EventList)(nil),           // 35: meta.v1.EventList
-	(*RunItem)(nil),             // 36: meta.v1.RunItem
-	(*RunList)(nil),             // 37: meta.v1.RunList
-	(*ObsEvent)(nil),            // 38: meta.v1.ObsEvent
-	(*BoardReq)(nil),            // 39: meta.v1.BoardReq
-	(*BoardFrame)(nil),          // 40: meta.v1.BoardFrame
-	(*BoardFull)(nil),           // 41: meta.v1.BoardFull
-	(*SeatRow)(nil),             // 42: meta.v1.SeatRow
-	(*SeatGone)(nil),            // 43: meta.v1.SeatGone
-	(*TicketRow)(nil),           // 44: meta.v1.TicketRow
-	(*Empty)(nil),               // 45: meta.v1.Empty
-	(*Subscribe)(nil),           // 46: meta.v1.Subscribe
-	(*Requirement)(nil),         // 47: meta.v1.Requirement
-	(*Ruling)(nil),              // 48: meta.v1.Ruling
-	(*RuleAck)(nil),             // 49: meta.v1.RuleAck
-	(*Inquiry)(nil),             // 50: meta.v1.Inquiry
-	(*MemoryOp)(nil),            // 51: meta.v1.MemoryOp
-	(*MemoryPut)(nil),           // 52: meta.v1.MemoryPut
-	(*MemoryGet)(nil),           // 53: meta.v1.MemoryGet
-	(*MemoryRow)(nil),           // 54: meta.v1.MemoryRow
-	(*CeoTokenReq)(nil),         // 55: meta.v1.CeoTokenReq
-	(*CeoTokenResp)(nil),        // 56: meta.v1.CeoTokenResp
-	(*RouteTable)(nil),          // 57: meta.v1.RouteTable
-	(*DefaultNotifyRule)(nil),   // 58: meta.v1.DefaultNotifyRule
-	(*Route)(nil),               // 59: meta.v1.Route
-	(*Action)(nil),              // 60: meta.v1.Action
-	(*NotifyAction)(nil),        // 61: meta.v1.NotifyAction
-	(*DispatchAction)(nil),      // 62: meta.v1.DispatchAction
-	(*GatewayConfig)(nil),       // 63: meta.v1.GatewayConfig
-	(*FailureRule)(nil),         // 64: meta.v1.FailureRule
-	(*Session)(nil),             // 65: meta.v1.Session
-	(*Feed)(nil),                // 66: meta.v1.Feed
-	(*MsgReq)(nil),              // 67: meta.v1.MsgReq
-	(*EventReq)(nil),            // 68: meta.v1.EventReq
-	(*FeishuApp)(nil),           // 69: meta.v1.FeishuApp
-	(*SandboxSpec)(nil),         // 70: meta.v1.SandboxSpec
-	(*ProjectSeed)(nil),         // 71: meta.v1.ProjectSeed
-	(*RoleBudget)(nil),          // 72: meta.v1.RoleBudget
-	(*ShellRow)(nil),            // 73: meta.v1.ShellRow
-	nil,                         // 74: meta.v1.SandboxSpec.StepRunAsEntry
-	nil,                         // 75: meta.v1.SandboxSpec.StepContainerImageEntry
-	(*durationpb.Duration)(nil), // 76: google.protobuf.Duration
+	(*SeatMsg)(nil),               // 0: meta.v1.SeatMsg
+	(*GatewayMsg)(nil),            // 1: meta.v1.GatewayMsg
+	(*RunAuth)(nil),               // 2: meta.v1.RunAuth
+	(*Claim)(nil),                 // 3: meta.v1.Claim
+	(*Progress)(nil),              // 4: meta.v1.Progress
+	(*Usage)(nil),                 // 5: meta.v1.Usage
+	(*Deliver)(nil),               // 6: meta.v1.Deliver
+	(*Rule)(nil),                  // 7: meta.v1.Rule
+	(*ExecReq)(nil),               // 8: meta.v1.ExecReq
+	(*ExecResp)(nil),              // 9: meta.v1.ExecResp
+	(*PermissionReply)(nil),       // 10: meta.v1.PermissionReply
+	(*Yield)(nil),                 // 11: meta.v1.Yield
+	(*SecretReq)(nil),             // 12: meta.v1.SecretReq
+	(*Ticket)(nil),                // 13: meta.v1.Ticket
+	(*TicketSpec)(nil),            // 14: meta.v1.TicketSpec
+	(*PermissionAsk)(nil),         // 15: meta.v1.PermissionAsk
+	(*Abort)(nil),                 // 16: meta.v1.Abort
+	(*Extend)(nil),                // 17: meta.v1.Extend
+	(*SecretResp)(nil),            // 18: meta.v1.SecretResp
+	(*SeatAdmin)(nil),             // 19: meta.v1.SeatAdmin
+	(*FillSpec)(nil),              // 20: meta.v1.FillSpec
+	(*SetProject)(nil),            // 21: meta.v1.SetProject
+	(*AdoptAuth)(nil),             // 22: meta.v1.AdoptAuth
+	(*AdoptAck)(nil),              // 23: meta.v1.AdoptAck
+	(*NewTicket)(nil),             // 24: meta.v1.NewTicket
+	(*DispatchReq)(nil),           // 25: meta.v1.DispatchReq
+	(*BudgetReq)(nil),             // 26: meta.v1.BudgetReq
+	(*Mandate)(nil),               // 27: meta.v1.Mandate
+	(*TicketRef)(nil),             // 28: meta.v1.TicketRef
+	(*Ack)(nil),                   // 29: meta.v1.Ack
+	(*PhaseMsg)(nil),              // 30: meta.v1.PhaseMsg
+	(*BudgetMsg)(nil),             // 31: meta.v1.BudgetMsg
+	(*EventItem)(nil),             // 32: meta.v1.EventItem
+	(*EventCursor)(nil),           // 33: meta.v1.EventCursor
+	(*RetroReq)(nil),              // 34: meta.v1.RetroReq
+	(*TicketProjectReq)(nil),      // 35: meta.v1.TicketProjectReq
+	(*EventList)(nil),             // 36: meta.v1.EventList
+	(*RunItem)(nil),               // 37: meta.v1.RunItem
+	(*RunList)(nil),               // 38: meta.v1.RunList
+	(*ObsEvent)(nil),              // 39: meta.v1.ObsEvent
+	(*BoardReq)(nil),              // 40: meta.v1.BoardReq
+	(*BoardFrame)(nil),            // 41: meta.v1.BoardFrame
+	(*BoardFull)(nil),             // 42: meta.v1.BoardFull
+	(*SeatRow)(nil),               // 43: meta.v1.SeatRow
+	(*SeatGone)(nil),              // 44: meta.v1.SeatGone
+	(*TicketRow)(nil),             // 45: meta.v1.TicketRow
+	(*Empty)(nil),                 // 46: meta.v1.Empty
+	(*Subscribe)(nil),             // 47: meta.v1.Subscribe
+	(*Requirement)(nil),           // 48: meta.v1.Requirement
+	(*Ruling)(nil),                // 49: meta.v1.Ruling
+	(*RuleAck)(nil),               // 50: meta.v1.RuleAck
+	(*Inquiry)(nil),               // 51: meta.v1.Inquiry
+	(*MemoryOp)(nil),              // 52: meta.v1.MemoryOp
+	(*MemoryPut)(nil),             // 53: meta.v1.MemoryPut
+	(*MemoryGet)(nil),             // 54: meta.v1.MemoryGet
+	(*MemoryRow)(nil),             // 55: meta.v1.MemoryRow
+	(*CeoTokenReq)(nil),           // 56: meta.v1.CeoTokenReq
+	(*CeoTokenResp)(nil),          // 57: meta.v1.CeoTokenResp
+	(*RouteTable)(nil),            // 58: meta.v1.RouteTable
+	(*DefaultNotifyRule)(nil),     // 59: meta.v1.DefaultNotifyRule
+	(*Route)(nil),                 // 60: meta.v1.Route
+	(*Action)(nil),                // 61: meta.v1.Action
+	(*NotifyAction)(nil),          // 62: meta.v1.NotifyAction
+	(*DispatchAction)(nil),        // 63: meta.v1.DispatchAction
+	(*GatewayConfig)(nil),         // 64: meta.v1.GatewayConfig
+	(*FailureRule)(nil),           // 65: meta.v1.FailureRule
+	(*Session)(nil),               // 66: meta.v1.Session
+	(*Feed)(nil),                  // 67: meta.v1.Feed
+	(*MsgReq)(nil),                // 68: meta.v1.MsgReq
+	(*EventReq)(nil),              // 69: meta.v1.EventReq
+	(*FeishuApp)(nil),             // 70: meta.v1.FeishuApp
+	(*SandboxSpec)(nil),           // 71: meta.v1.SandboxSpec
+	(*ProjectSeed)(nil),           // 72: meta.v1.ProjectSeed
+	(*RoleBudget)(nil),            // 73: meta.v1.RoleBudget
+	(*ShellRow)(nil),              // 74: meta.v1.ShellRow
+	nil,                           // 75: meta.v1.SandboxSpec.StepRunAsEntry
+	nil,                           // 76: meta.v1.SandboxSpec.StepContainerImageEntry
+	(*timestamppb.Timestamp)(nil), // 77: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),   // 78: google.protobuf.Duration
 }
 var file_meta_v1_meta_proto_depIdxs = []int32{
 	2,  // 0: meta.v1.SeatMsg.auth:type_name -> meta.v1.RunAuth
@@ -5920,105 +6059,106 @@ var file_meta_v1_meta_proto_depIdxs = []int32{
 	7,  // 8: meta.v1.SeatMsg.rule:type_name -> meta.v1.Rule
 	8,  // 9: meta.v1.SeatMsg.exec_req:type_name -> meta.v1.ExecReq
 	19, // 10: meta.v1.SeatMsg.admin:type_name -> meta.v1.SeatAdmin
-	65, // 11: meta.v1.SeatMsg.session:type_name -> meta.v1.Session
+	66, // 11: meta.v1.SeatMsg.session:type_name -> meta.v1.Session
 	13, // 12: meta.v1.GatewayMsg.ticket:type_name -> meta.v1.Ticket
 	15, // 13: meta.v1.GatewayMsg.permission_ask:type_name -> meta.v1.PermissionAsk
 	16, // 14: meta.v1.GatewayMsg.abort:type_name -> meta.v1.Abort
 	17, // 15: meta.v1.GatewayMsg.extend:type_name -> meta.v1.Extend
 	18, // 16: meta.v1.GatewayMsg.secret_resp:type_name -> meta.v1.SecretResp
-	28, // 17: meta.v1.GatewayMsg.ack:type_name -> meta.v1.Ack
+	29, // 17: meta.v1.GatewayMsg.ack:type_name -> meta.v1.Ack
 	9,  // 18: meta.v1.GatewayMsg.exec_resp:type_name -> meta.v1.ExecResp
-	28, // 19: meta.v1.GatewayMsg.admin_resp:type_name -> meta.v1.Ack
-	66, // 20: meta.v1.GatewayMsg.feed:type_name -> meta.v1.Feed
+	29, // 19: meta.v1.GatewayMsg.admin_resp:type_name -> meta.v1.Ack
+	67, // 20: meta.v1.GatewayMsg.feed:type_name -> meta.v1.Feed
 	20, // 21: meta.v1.SeatAdmin.fill_spec:type_name -> meta.v1.FillSpec
 	24, // 22: meta.v1.SeatAdmin.create_ticket:type_name -> meta.v1.NewTicket
 	25, // 23: meta.v1.SeatAdmin.dispatch:type_name -> meta.v1.DispatchReq
 	21, // 24: meta.v1.SeatAdmin.set_project:type_name -> meta.v1.SetProject
-	31, // 25: meta.v1.EventList.items:type_name -> meta.v1.EventItem
-	36, // 26: meta.v1.RunList.items:type_name -> meta.v1.RunItem
-	41, // 27: meta.v1.BoardFrame.full:type_name -> meta.v1.BoardFull
-	42, // 28: meta.v1.BoardFrame.seat_upsert:type_name -> meta.v1.SeatRow
-	43, // 29: meta.v1.BoardFrame.seat_gone:type_name -> meta.v1.SeatGone
-	44, // 30: meta.v1.BoardFrame.ticket_upsert:type_name -> meta.v1.TicketRow
-	42, // 31: meta.v1.BoardFull.seats:type_name -> meta.v1.SeatRow
-	44, // 32: meta.v1.BoardFull.tickets:type_name -> meta.v1.TicketRow
-	52, // 33: meta.v1.MemoryOp.put:type_name -> meta.v1.MemoryPut
-	53, // 34: meta.v1.MemoryOp.get:type_name -> meta.v1.MemoryGet
-	54, // 35: meta.v1.MemoryOp.row:type_name -> meta.v1.MemoryRow
-	59, // 36: meta.v1.RouteTable.routes:type_name -> meta.v1.Route
-	58, // 37: meta.v1.RouteTable.default_notify:type_name -> meta.v1.DefaultNotifyRule
-	60, // 38: meta.v1.Route.actions:type_name -> meta.v1.Action
-	61, // 39: meta.v1.Action.notify:type_name -> meta.v1.NotifyAction
-	62, // 40: meta.v1.Action.dispatch:type_name -> meta.v1.DispatchAction
-	76, // 41: meta.v1.GatewayConfig.progress_timeout:type_name -> google.protobuf.Duration
-	76, // 42: meta.v1.GatewayConfig.auth_timeout:type_name -> google.protobuf.Duration
-	76, // 43: meta.v1.GatewayConfig.adopt_dial_timeout:type_name -> google.protobuf.Duration
-	76, // 44: meta.v1.GatewayConfig.stagger:type_name -> google.protobuf.Duration
-	76, // 45: meta.v1.GatewayConfig.quick_exit:type_name -> google.protobuf.Duration
-	72, // 46: meta.v1.GatewayConfig.role_budget:type_name -> meta.v1.RoleBudget
-	73, // 47: meta.v1.GatewayConfig.shell:type_name -> meta.v1.ShellRow
-	71, // 48: meta.v1.GatewayConfig.project:type_name -> meta.v1.ProjectSeed
-	76, // 49: meta.v1.GatewayConfig.reconcile_debounce:type_name -> google.protobuf.Duration
-	64, // 50: meta.v1.GatewayConfig.failure_rule:type_name -> meta.v1.FailureRule
-	74, // 51: meta.v1.SandboxSpec.step_run_as:type_name -> meta.v1.SandboxSpec.StepRunAsEntry
-	76, // 52: meta.v1.SandboxSpec.exec_timeout:type_name -> google.protobuf.Duration
-	75, // 53: meta.v1.SandboxSpec.step_container_image:type_name -> meta.v1.SandboxSpec.StepContainerImageEntry
-	70, // 54: meta.v1.ProjectSeed.sandbox:type_name -> meta.v1.SandboxSpec
-	0,  // 55: meta.v1.SeatGateway.Attach:input_type -> meta.v1.SeatMsg
-	22, // 56: meta.v1.SeatAdopt.Adopt:input_type -> meta.v1.AdoptAuth
-	39, // 57: meta.v1.Board.SeatBoard:input_type -> meta.v1.BoardReq
-	24, // 58: meta.v1.AdminGateway.CreateTicket:input_type -> meta.v1.NewTicket
-	25, // 59: meta.v1.AdminGateway.Dispatch:input_type -> meta.v1.DispatchReq
-	26, // 60: meta.v1.AdminGateway.SetBudget:input_type -> meta.v1.BudgetReq
-	27, // 61: meta.v1.AdminGateway.Budget:input_type -> meta.v1.TicketRef
-	27, // 62: meta.v1.AdminGateway.Phase:input_type -> meta.v1.TicketRef
-	27, // 63: meta.v1.AdminGateway.Events:input_type -> meta.v1.TicketRef
-	32, // 64: meta.v1.AdminGateway.EventsAfter:input_type -> meta.v1.EventCursor
-	27, // 65: meta.v1.AdminGateway.Runs:input_type -> meta.v1.TicketRef
-	45, // 66: meta.v1.AdminGateway.Observe:input_type -> meta.v1.Empty
-	33, // 67: meta.v1.AdminGateway.RetroVerdict:input_type -> meta.v1.RetroReq
-	45, // 68: meta.v1.AdminGateway.Ping:input_type -> meta.v1.Empty
-	55, // 69: meta.v1.AdminGateway.IssueCeoToken:input_type -> meta.v1.CeoTokenReq
-	34, // 70: meta.v1.AdminGateway.SetTicketProject:input_type -> meta.v1.TicketProjectReq
-	45, // 71: meta.v1.AdminGateway.Reconcile:input_type -> meta.v1.Empty
-	27, // 72: meta.v1.AdminGateway.Resume:input_type -> meta.v1.TicketRef
-	67, // 73: meta.v1.AdminGateway.PostMsg:input_type -> meta.v1.MsgReq
-	68, // 74: meta.v1.AdminGateway.InjectEvent:input_type -> meta.v1.EventReq
-	46, // 75: meta.v1.CeoGateway.Events:input_type -> meta.v1.Subscribe
-	47, // 76: meta.v1.CeoGateway.SubmitRequirement:input_type -> meta.v1.Requirement
-	48, // 77: meta.v1.CeoGateway.Rule:input_type -> meta.v1.Ruling
-	50, // 78: meta.v1.CeoGateway.Inquire:input_type -> meta.v1.Inquiry
-	51, // 79: meta.v1.CeoGateway.Memory:input_type -> meta.v1.MemoryOp
-	1,  // 80: meta.v1.SeatGateway.Attach:output_type -> meta.v1.GatewayMsg
-	23, // 81: meta.v1.SeatAdopt.Adopt:output_type -> meta.v1.AdoptAck
-	40, // 82: meta.v1.Board.SeatBoard:output_type -> meta.v1.BoardFrame
-	28, // 83: meta.v1.AdminGateway.CreateTicket:output_type -> meta.v1.Ack
-	28, // 84: meta.v1.AdminGateway.Dispatch:output_type -> meta.v1.Ack
-	28, // 85: meta.v1.AdminGateway.SetBudget:output_type -> meta.v1.Ack
-	30, // 86: meta.v1.AdminGateway.Budget:output_type -> meta.v1.BudgetMsg
-	29, // 87: meta.v1.AdminGateway.Phase:output_type -> meta.v1.PhaseMsg
-	35, // 88: meta.v1.AdminGateway.Events:output_type -> meta.v1.EventList
-	35, // 89: meta.v1.AdminGateway.EventsAfter:output_type -> meta.v1.EventList
-	37, // 90: meta.v1.AdminGateway.Runs:output_type -> meta.v1.RunList
-	38, // 91: meta.v1.AdminGateway.Observe:output_type -> meta.v1.ObsEvent
-	28, // 92: meta.v1.AdminGateway.RetroVerdict:output_type -> meta.v1.Ack
-	28, // 93: meta.v1.AdminGateway.Ping:output_type -> meta.v1.Ack
-	56, // 94: meta.v1.AdminGateway.IssueCeoToken:output_type -> meta.v1.CeoTokenResp
-	28, // 95: meta.v1.AdminGateway.SetTicketProject:output_type -> meta.v1.Ack
-	28, // 96: meta.v1.AdminGateway.Reconcile:output_type -> meta.v1.Ack
-	28, // 97: meta.v1.AdminGateway.Resume:output_type -> meta.v1.Ack
-	28, // 98: meta.v1.AdminGateway.PostMsg:output_type -> meta.v1.Ack
-	28, // 99: meta.v1.AdminGateway.InjectEvent:output_type -> meta.v1.Ack
-	31, // 100: meta.v1.CeoGateway.Events:output_type -> meta.v1.EventItem
-	27, // 101: meta.v1.CeoGateway.SubmitRequirement:output_type -> meta.v1.TicketRef
-	49, // 102: meta.v1.CeoGateway.Rule:output_type -> meta.v1.RuleAck
-	28, // 103: meta.v1.CeoGateway.Inquire:output_type -> meta.v1.Ack
-	51, // 104: meta.v1.CeoGateway.Memory:output_type -> meta.v1.MemoryOp
-	80, // [80:105] is the sub-list for method output_type
-	55, // [55:80] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	77, // 25: meta.v1.Mandate.issued_at:type_name -> google.protobuf.Timestamp
+	32, // 26: meta.v1.EventList.items:type_name -> meta.v1.EventItem
+	37, // 27: meta.v1.RunList.items:type_name -> meta.v1.RunItem
+	42, // 28: meta.v1.BoardFrame.full:type_name -> meta.v1.BoardFull
+	43, // 29: meta.v1.BoardFrame.seat_upsert:type_name -> meta.v1.SeatRow
+	44, // 30: meta.v1.BoardFrame.seat_gone:type_name -> meta.v1.SeatGone
+	45, // 31: meta.v1.BoardFrame.ticket_upsert:type_name -> meta.v1.TicketRow
+	43, // 32: meta.v1.BoardFull.seats:type_name -> meta.v1.SeatRow
+	45, // 33: meta.v1.BoardFull.tickets:type_name -> meta.v1.TicketRow
+	53, // 34: meta.v1.MemoryOp.put:type_name -> meta.v1.MemoryPut
+	54, // 35: meta.v1.MemoryOp.get:type_name -> meta.v1.MemoryGet
+	55, // 36: meta.v1.MemoryOp.row:type_name -> meta.v1.MemoryRow
+	60, // 37: meta.v1.RouteTable.routes:type_name -> meta.v1.Route
+	59, // 38: meta.v1.RouteTable.default_notify:type_name -> meta.v1.DefaultNotifyRule
+	61, // 39: meta.v1.Route.actions:type_name -> meta.v1.Action
+	62, // 40: meta.v1.Action.notify:type_name -> meta.v1.NotifyAction
+	63, // 41: meta.v1.Action.dispatch:type_name -> meta.v1.DispatchAction
+	78, // 42: meta.v1.GatewayConfig.progress_timeout:type_name -> google.protobuf.Duration
+	78, // 43: meta.v1.GatewayConfig.auth_timeout:type_name -> google.protobuf.Duration
+	78, // 44: meta.v1.GatewayConfig.adopt_dial_timeout:type_name -> google.protobuf.Duration
+	78, // 45: meta.v1.GatewayConfig.stagger:type_name -> google.protobuf.Duration
+	78, // 46: meta.v1.GatewayConfig.quick_exit:type_name -> google.protobuf.Duration
+	73, // 47: meta.v1.GatewayConfig.role_budget:type_name -> meta.v1.RoleBudget
+	74, // 48: meta.v1.GatewayConfig.shell:type_name -> meta.v1.ShellRow
+	72, // 49: meta.v1.GatewayConfig.project:type_name -> meta.v1.ProjectSeed
+	78, // 50: meta.v1.GatewayConfig.reconcile_debounce:type_name -> google.protobuf.Duration
+	65, // 51: meta.v1.GatewayConfig.failure_rule:type_name -> meta.v1.FailureRule
+	75, // 52: meta.v1.SandboxSpec.step_run_as:type_name -> meta.v1.SandboxSpec.StepRunAsEntry
+	78, // 53: meta.v1.SandboxSpec.exec_timeout:type_name -> google.protobuf.Duration
+	76, // 54: meta.v1.SandboxSpec.step_container_image:type_name -> meta.v1.SandboxSpec.StepContainerImageEntry
+	71, // 55: meta.v1.ProjectSeed.sandbox:type_name -> meta.v1.SandboxSpec
+	0,  // 56: meta.v1.SeatGateway.Attach:input_type -> meta.v1.SeatMsg
+	22, // 57: meta.v1.SeatAdopt.Adopt:input_type -> meta.v1.AdoptAuth
+	40, // 58: meta.v1.Board.SeatBoard:input_type -> meta.v1.BoardReq
+	24, // 59: meta.v1.AdminGateway.CreateTicket:input_type -> meta.v1.NewTicket
+	25, // 60: meta.v1.AdminGateway.Dispatch:input_type -> meta.v1.DispatchReq
+	26, // 61: meta.v1.AdminGateway.SetBudget:input_type -> meta.v1.BudgetReq
+	28, // 62: meta.v1.AdminGateway.Budget:input_type -> meta.v1.TicketRef
+	28, // 63: meta.v1.AdminGateway.Phase:input_type -> meta.v1.TicketRef
+	28, // 64: meta.v1.AdminGateway.Events:input_type -> meta.v1.TicketRef
+	33, // 65: meta.v1.AdminGateway.EventsAfter:input_type -> meta.v1.EventCursor
+	28, // 66: meta.v1.AdminGateway.Runs:input_type -> meta.v1.TicketRef
+	46, // 67: meta.v1.AdminGateway.Observe:input_type -> meta.v1.Empty
+	34, // 68: meta.v1.AdminGateway.RetroVerdict:input_type -> meta.v1.RetroReq
+	46, // 69: meta.v1.AdminGateway.Ping:input_type -> meta.v1.Empty
+	56, // 70: meta.v1.AdminGateway.IssueCeoToken:input_type -> meta.v1.CeoTokenReq
+	35, // 71: meta.v1.AdminGateway.SetTicketProject:input_type -> meta.v1.TicketProjectReq
+	46, // 72: meta.v1.AdminGateway.Reconcile:input_type -> meta.v1.Empty
+	28, // 73: meta.v1.AdminGateway.Resume:input_type -> meta.v1.TicketRef
+	68, // 74: meta.v1.AdminGateway.PostMsg:input_type -> meta.v1.MsgReq
+	69, // 75: meta.v1.AdminGateway.InjectEvent:input_type -> meta.v1.EventReq
+	47, // 76: meta.v1.CeoGateway.Events:input_type -> meta.v1.Subscribe
+	48, // 77: meta.v1.CeoGateway.SubmitRequirement:input_type -> meta.v1.Requirement
+	49, // 78: meta.v1.CeoGateway.Rule:input_type -> meta.v1.Ruling
+	51, // 79: meta.v1.CeoGateway.Inquire:input_type -> meta.v1.Inquiry
+	52, // 80: meta.v1.CeoGateway.Memory:input_type -> meta.v1.MemoryOp
+	1,  // 81: meta.v1.SeatGateway.Attach:output_type -> meta.v1.GatewayMsg
+	23, // 82: meta.v1.SeatAdopt.Adopt:output_type -> meta.v1.AdoptAck
+	41, // 83: meta.v1.Board.SeatBoard:output_type -> meta.v1.BoardFrame
+	29, // 84: meta.v1.AdminGateway.CreateTicket:output_type -> meta.v1.Ack
+	29, // 85: meta.v1.AdminGateway.Dispatch:output_type -> meta.v1.Ack
+	29, // 86: meta.v1.AdminGateway.SetBudget:output_type -> meta.v1.Ack
+	31, // 87: meta.v1.AdminGateway.Budget:output_type -> meta.v1.BudgetMsg
+	30, // 88: meta.v1.AdminGateway.Phase:output_type -> meta.v1.PhaseMsg
+	36, // 89: meta.v1.AdminGateway.Events:output_type -> meta.v1.EventList
+	36, // 90: meta.v1.AdminGateway.EventsAfter:output_type -> meta.v1.EventList
+	38, // 91: meta.v1.AdminGateway.Runs:output_type -> meta.v1.RunList
+	39, // 92: meta.v1.AdminGateway.Observe:output_type -> meta.v1.ObsEvent
+	29, // 93: meta.v1.AdminGateway.RetroVerdict:output_type -> meta.v1.Ack
+	29, // 94: meta.v1.AdminGateway.Ping:output_type -> meta.v1.Ack
+	57, // 95: meta.v1.AdminGateway.IssueCeoToken:output_type -> meta.v1.CeoTokenResp
+	29, // 96: meta.v1.AdminGateway.SetTicketProject:output_type -> meta.v1.Ack
+	29, // 97: meta.v1.AdminGateway.Reconcile:output_type -> meta.v1.Ack
+	29, // 98: meta.v1.AdminGateway.Resume:output_type -> meta.v1.Ack
+	29, // 99: meta.v1.AdminGateway.PostMsg:output_type -> meta.v1.Ack
+	29, // 100: meta.v1.AdminGateway.InjectEvent:output_type -> meta.v1.Ack
+	32, // 101: meta.v1.CeoGateway.Events:output_type -> meta.v1.EventItem
+	28, // 102: meta.v1.CeoGateway.SubmitRequirement:output_type -> meta.v1.TicketRef
+	50, // 103: meta.v1.CeoGateway.Rule:output_type -> meta.v1.RuleAck
+	29, // 104: meta.v1.CeoGateway.Inquire:output_type -> meta.v1.Ack
+	52, // 105: meta.v1.CeoGateway.Memory:output_type -> meta.v1.MemoryOp
+	81, // [81:106] is the sub-list for method output_type
+	56, // [56:81] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_meta_v1_meta_proto_init() }
@@ -6057,18 +6197,18 @@ func file_meta_v1_meta_proto_init() {
 		(*SeatAdmin_Dispatch)(nil),
 		(*SeatAdmin_SetProject)(nil),
 	}
-	file_meta_v1_meta_proto_msgTypes[40].OneofWrappers = []any{
+	file_meta_v1_meta_proto_msgTypes[41].OneofWrappers = []any{
 		(*BoardFrame_Full)(nil),
 		(*BoardFrame_SeatUpsert)(nil),
 		(*BoardFrame_SeatGone)(nil),
 		(*BoardFrame_TicketUpsert)(nil),
 	}
-	file_meta_v1_meta_proto_msgTypes[51].OneofWrappers = []any{
+	file_meta_v1_meta_proto_msgTypes[52].OneofWrappers = []any{
 		(*MemoryOp_Put)(nil),
 		(*MemoryOp_Get)(nil),
 		(*MemoryOp_Row)(nil),
 	}
-	file_meta_v1_meta_proto_msgTypes[60].OneofWrappers = []any{
+	file_meta_v1_meta_proto_msgTypes[61].OneofWrappers = []any{
 		(*Action_Notify)(nil),
 		(*Action_Dispatch)(nil),
 	}
@@ -6078,7 +6218,7 @@ func file_meta_v1_meta_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_meta_v1_meta_proto_rawDesc), len(file_meta_v1_meta_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   76,
+			NumMessages:   77,
 			NumExtensions: 0,
 			NumServices:   5,
 		},

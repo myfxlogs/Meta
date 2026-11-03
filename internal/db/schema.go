@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS ticket (
   spec          BLOB,
   project       TEXT NOT NULL DEFAULT '',
   dedupe_key    TEXT NOT NULL DEFAULT '',
+  mandate       BLOB,
   budget_frozen INTEGER NOT NULL DEFAULT 0,
   reject_count  INTEGER NOT NULL DEFAULT 0,
   defer_count   INTEGER NOT NULL DEFAULT 0,
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS project (
   sandbox_spec              TEXT NOT NULL DEFAULT '',
   auto_ticket_enabled       INTEGER NOT NULL DEFAULT 0,
   auto_ticket_budget        INTEGER NOT NULL DEFAULT 0,
+  auto_ticket_mode          TEXT NOT NULL DEFAULT '',
   dedupe_rule               TEXT NOT NULL DEFAULT '',
   auto_deploy_requires_ceo  INTEGER NOT NULL DEFAULT 0,
   confirm_rulings           TEXT NOT NULL DEFAULT ''

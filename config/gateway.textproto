@@ -40,6 +40,8 @@ project {
   # T34 §7.4：真回滚或 exit 1——MERGE_HEAD 在＝半合并 abort；HEAD 是合并提交
   # （集成已成未部署）＝reset 回合并前父；皆无＝无可回状态 exit 1（禁告警退 0）。
   rollback_cmd: "if git -C /opt/meta rev-parse -q --verify MERGE_HEAD >/dev/null; then git -C /opt/meta merge --abort && echo \"rollback: 半合并态已弃净\"; elif git -C /opt/meta rev-parse -q --verify \"HEAD^2\" >/dev/null; then git -C /opt/meta reset --hard \"HEAD^\" && echo \"rollback: 已退合并提交回原 HEAD\"; else echo \"rollback: 无可回状态（无 MERGE_HEAD、HEAD 非合并提交）\" >&2; exit 1; fi"
+  # T36 §3.3-D：meta 项目自动票径切 live（径已熟，影子期只罩新接外部面）。
+  auto_ticket_mode: "live"
   sandbox {
     run_as: "metaseat"
     step_run_as { key: "integrate" value: "metaseat" }

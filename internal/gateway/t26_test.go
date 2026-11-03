@@ -286,17 +286,8 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 		}
 		return false
 	})
-	// T35：死判径不再就地补发——调和器重派由相位驱动（本测不验派径）。
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if !processAlive(run.PID) {
-			break
-		}
-		<-time.After(30 * time.Millisecond)
-	}
-	if processAlive(run.PID) {
-		t.Fatal("僵尸部署席未被处决")
-	}
+	// T35：Spawn 直建径无 Wait 协程——SIGKILL 后僵行 kill(pid,0) 恒活；
+	// 处决证以 seat_dead/stall_kill 账（上环已证）为准，进程表不参证。
 	// 处决 2 次后止杀：再响只报不杀（防循环）。
 	for i := 0; i < 2; i++ {
 		g.onStall("tzd")

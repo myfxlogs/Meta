@@ -319,7 +319,10 @@ func TestAttach_SetTicketProjectRPC(t *testing.T) {
 func TestAttach_Requirement(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
 	ctx := context.Background()
-	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
+	// T36：项目配方缺省 record_only——需显式 live 才真立票。
+	pj := stubProject("P")
+	pj.AutoTicketMode = "live"
+	if err := g.DB().UpsertProject(ctx, pj); err != nil {
 		t.Fatal(err)
 	}
 	run := mkCeoRun(t, g, "terminal")
