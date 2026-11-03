@@ -10,3 +10,4 @@ run/
 shellbin/
 bin/meta.new
 bin/meta.bak-*
+bin/
