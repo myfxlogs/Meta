@@ -18,6 +18,9 @@ type Project struct {
 	ProbeCmd      string
 	RollbackCmd   string
 	SandboxSpec   string // prototext 序列化 SandboxSpec（run_as 缺省＋按步覆盖）
+	// AutoTicketMode T36 §3.3-D 影子期第 0 道闸：""|record_only（缺省）
+	// ＝过闸事件只写"本会立票"账行不建票不派席；live＝真立票。
+	AutoTicketMode string
 }
 
 // CmdFor 步名→配方命令：配方外步名不得代跑（范围外禁线落点）。
@@ -40,13 +43,14 @@ func (p *Project) CmdFor(step string) (string, bool) {
 // UpsertProject 种/改项目配方行。
 func (d *DB) UpsertProject(ctx context.Context, p Project) error {
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO project (id, repo_url, default_branch, integrate_cmd, check_cmd, deploy_cmd, probe_cmd, rollback_cmd, sandbox_spec)
-		 VALUES (?,?,?,?,?,?,?,?,?)
+		`INSERT INTO project (id, repo_url, default_branch, integrate_cmd, check_cmd, deploy_cmd, probe_cmd, rollback_cmd, sandbox_spec, auto_ticket_mode)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(id) DO UPDATE SET repo_url=excluded.repo_url, default_branch=excluded.default_branch,
 		   integrate_cmd=excluded.integrate_cmd, check_cmd=excluded.check_cmd, deploy_cmd=excluded.deploy_cmd,
-		   probe_cmd=excluded.probe_cmd, rollback_cmd=excluded.rollback_cmd, sandbox_spec=excluded.sandbox_spec`,
+		   probe_cmd=excluded.probe_cmd, rollback_cmd=excluded.rollback_cmd, sandbox_spec=excluded.sandbox_spec,
+		   auto_ticket_mode=excluded.auto_ticket_mode`,
 		cargs(p.ID, p.RepoURL, p.DefaultBranch, p.IntegrateCmd, p.CheckCmd,
-			p.DeployCmd, p.ProbeCmd, p.RollbackCmd, p.SandboxSpec)...)
+			p.DeployCmd, p.ProbeCmd, p.RollbackCmd, p.SandboxSpec, p.AutoTicketMode)...)
 	return err
 }
 
@@ -54,10 +58,10 @@ func (d *DB) UpsertProject(ctx context.Context, p Project) error {
 func (d *DB) GetProject(ctx context.Context, id string) (*Project, error) {
 	var p Project
 	err := d.db.QueryRowContext(ctx,
-		`SELECT id, repo_url, default_branch, integrate_cmd, check_cmd, deploy_cmd, probe_cmd, rollback_cmd, sandbox_spec
+		`SELECT id, repo_url, default_branch, integrate_cmd, check_cmd, deploy_cmd, probe_cmd, rollback_cmd, sandbox_spec, auto_ticket_mode
 		 FROM project WHERE id=?`, id).
 		Scan(&p.ID, &p.RepoURL, &p.DefaultBranch, &p.IntegrateCmd, &p.CheckCmd,
-			&p.DeployCmd, &p.ProbeCmd, &p.RollbackCmd, &p.SandboxSpec)
+			&p.DeployCmd, &p.ProbeCmd, &p.RollbackCmd, &p.SandboxSpec, &p.AutoTicketMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

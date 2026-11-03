@@ -3,6 +3,7 @@ syntax = "proto3";
 package meta.v1;
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "meta/internal/pb/metav1";
 
@@ -250,6 +251,20 @@ message BudgetReq {
   string ticket_id = 1;
   int64 attempt_cap = 2;
   int64 hard_cap = 3;
+}
+
+// Mandate 授权书（v2 §3.3-C）：票表不可变列——立票时由网关按
+// 立票径推导落列，之后无任何写径；范围变大＝新票。席位提示词文字
+// 改变不了它（注入面与 mandate 面物理隔离）。进 施工中/部署中 边前核
+// 仍有效（策略版本未被撤）。
+message Mandate {
+  string source_kind = 1;     // terminal | feishu | external
+  string source_identity = 2; // 来源身份（open_id/终端/run 血统）
+  string scope_project = 3;   // 授权范围：项目（空＝未限）
+  repeated string scope_paths = 4; // 授权范围：允许路径列
+  string strength = 5;        // explicit | inferred
+  string policy_version = 6;  // 签发时策略版本
+  google.protobuf.Timestamp issued_at = 7;
 }
 
 message TicketRef {
@@ -538,6 +553,8 @@ message GatewayConfig {
   reserved "subscribe", "filter_shell";
   google.protobuf.Duration reconcile_debounce = 19; // T35 改义：幂等调和器周期（缺省 60s；≤0 关周期只留事件驱动）——R2′ 钦定唯一周期例外
   repeated FailureRule failure_rule = 24;    // 失败表（v2 §3.3-B）：kind→确定性处置＋上限，到限→blocked
+  string mandate_policy_version = 25;        // T36 §3.3-C：现行 Mandate 策略版本（缺省 "v1"）
+  repeated string mandate_revoked = 26;      // 已撤策略版本列——携该版本票的 施工中/部署中 边被拒
 
   // 票0033/T8 席位容器笼出闸种子（码面未接前纯配置态——钦定径禁即刻生效）：
   string seat_image = 20;                 // 笼镜像（空＝笼关旧径活）
@@ -623,6 +640,9 @@ message ProjectSeed {
   string probe_cmd = 7;
   string rollback_cmd = 8;
   SandboxSpec sandbox = 9;
+  // T36 §3.3-D 影子期第 0 道闸：record_only（缺省）=过闸事件只写
+  // "本会立票"账行不建票不派席；live=真立票。
+  string auto_ticket_mode = 10;
 }
 
 message RoleBudget {

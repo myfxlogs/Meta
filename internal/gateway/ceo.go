@@ -457,6 +457,19 @@ func (g *Gateway) CeoSubmitRequirement(ctx context.Context, r *pbv1.Requirement)
 			return nil, status.Error(codes.FailedPrecondition,
 				"项目 "+r.Project+" 无配方登记")
 		}
+		// T36 §3.3-D 影子期第 0 道闸：项目配方非 live（缺省 record_only）
+		// →只写"本会立票"账行，不建票不派席（业主看记录对账后再切 live）。
+		if p.AutoTicketMode != "live" {
+			title0 := r.Title
+			if title0 == "" {
+				title0 = preview80(r.Goal)
+			}
+			_ = g.database.AppendEvent(ctx, "", "would_create", db.Event{
+				Actor: run.RunID, Note: "本会立票：" + title0, Provenance: prov})
+			g.emit(Event{Kind: "would_create", Note: "本会立票：" + title0,
+				Provenance: prov})
+			return &pbv1.TicketRef{}, nil
+		}
 	}
 	spec, err := proto.Marshal(&pbv1.TicketSpec{
 		Goal: r.Goal,

@@ -302,6 +302,8 @@ func serve(args []string) error {
 		gcfg.FailureRules = append(gcfg.FailureRules, gateway.FailureRule{
 			Kind: fr.Kind, Action: fr.Action, Cap: int(fr.Cap)})
 	}
+	gcfg.PolicyVersion = gc.MandatePolicyVersion
+	gcfg.RevokedVersions = gc.MandateRevoked
 
 	g, err := gateway.New(gcfg)
 	if err != nil {
@@ -1288,6 +1290,7 @@ func memoryPut(c pbv1.CeoGatewayClient, token, kind, title string, content []byt
 		Put: &pbv1.MemoryPut{Kind: kind, Title: title, Content: content}}}); err != nil {
 		return err
 	}
+	st.CloseSend() // D-91：put 侧同款——发送毕关流防挂死
 	m, err := st.Recv()
 	if err != nil {
 		return err
@@ -1307,6 +1310,7 @@ func memoryGet(c pbv1.CeoGatewayClient, token, kind string, limit int32) error {
 		Get: &pbv1.MemoryGet{Kind: kind, Limit: limit}}}); err != nil {
 		return err
 	}
+	st.CloseSend() // D-91：读侧发送毕关流——服务端答毕出 EOF，两端不再互等挂死
 	for {
 		m, err := st.Recv()
 		if err == io.EOF {

@@ -60,6 +60,11 @@ type Config struct {
 	// 失败表（v2 §3.3-B）：kind→确定性处置＋期窗计数上限，超限→blocked。
 	FailureRules []FailureRule
 
+	// Mandate 策略（v2 §3.3-C）：现行版本＋已撤版本集——进 施工中/部署中
+	// 边前核票行授权书仍有效。
+	PolicyVersion   string
+	RevokedVersions []string
+
 	// 部署闸（票0010，§10/B1/B2/D1）。
 	Projects       []*pbv1.ProjectSeed // 项目配方种子（票0046：钦定源——启动回种全列覆写，DB 行是文面投影）
 	SudoBin        string              // 代跑 sudo 路径；缺省 "sudo"
@@ -271,6 +276,7 @@ func New(cfg Config) (*Gateway, error) {
 			IntegrateCmd: ps.IntegrateCmd, CheckCmd: ps.CheckCmd,
 			DeployCmd: ps.DeployCmd, ProbeCmd: ps.ProbeCmd,
 			RollbackCmd: ps.RollbackCmd, SandboxSpec: sb,
+			AutoTicketMode: ps.AutoTicketMode,
 		})
 		if err != nil {
 			d.Close()

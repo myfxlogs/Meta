@@ -190,9 +190,23 @@ func TestBudget_ThreeGates(t *testing.T) {
 		send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "tb2"}}})
 		return false
 	})
-	send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 160}}})
-	waitEvent(t, g, "budget_frozen", "tb2", 3*time.Second)
-	stream2.CloseSend() // 双源互证第二源
+	// T35：席死断流属常态——EOF 重连重发至冻结响（账即证）。
+	cur2, tok2 := stream2, run2.RunToken
+	waitFor2(t, 15*time.Second, func() bool {
+		if tk, _ := g.DB().GetTicket(ctx, "tb2"); tk != nil && tk.BudgetFrozen {
+			return true
+		}
+		if err := cur2.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: tok2}}}); err != nil {
+			cur2, _ = c.Attach(context.Background())
+			if cur2 == nil {
+				return false
+			}
+			_ = cur2.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: tok2}}})
+		}
+		_ = cur2.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 160}}})
+		return false
+	})
+	cur2.CloseSend() // 双源互证第二源
 
 	tk, _ := g.DB().GetTicket(ctx, "tb2")
 	if tk == nil || !tk.BudgetFrozen {

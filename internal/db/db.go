@@ -61,6 +61,16 @@ func Open(path string) (*DB, error) {
 		sq.Close()
 		return nil, fmt.Errorf("migrate session_id: %w", err)
 	}
+	// 幂等补列迁移（T36 §3.3-C/D）：ticket.mandate 授权书＋
+	// project.auto_ticket_mode 影子期闸。
+	if err := ensureColumn(sq, "ticket", "mandate", "BLOB"); err != nil {
+		sq.Close()
+		return nil, fmt.Errorf("migrate mandate: %w", err)
+	}
+	if err := ensureColumn(sq, "project", "auto_ticket_mode", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		sq.Close()
+		return nil, fmt.Errorf("migrate auto_ticket_mode: %w", err)
+	}
 	for _, f := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Chmod(f, 0o600) // 库含密文与票真源，仅属主可读写
 	}

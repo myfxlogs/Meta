@@ -250,7 +250,8 @@ func TestCLI_ProjectLink(t *testing.T) {
 		}
 		<-time.After(20 * time.Millisecond)
 	}
-	if err := g.DB().UpsertProject(ctx, db.Project{ID: "meta", DefaultBranch: "master"}); err != nil {
+	// T36：项目配方缺省 record_only——require 径需 live 才真立票。
+	if err := g.DB().UpsertProject(ctx, db.Project{ID: "meta", DefaultBranch: "master", AutoTicketMode: "live"}); err != nil {
 		t.Fatal(err)
 	}
 	// ticket new --project：未登记→拒且票不立。
