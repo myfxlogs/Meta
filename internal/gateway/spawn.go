@@ -80,7 +80,11 @@ func (g *Gateway) startRun(ctx context.Context, run *db.Run, argv []string, env 
 			"--unit=meta-seat-" + run.RunID, "--"}, argv...)
 	}
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
-	cmd.Env = append([]string{}, env...)
+	// T33① 基座环境缺省补齐：systemd-run --user 连用户管理器全靠
+	// XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS——metaseat 网关 environ
+	// 零 XDG（实证）时注入件亦无，scope 包装 argv 起跑前死（0049
+	// exit=-1 三连实证）。已有键不动（显式配置优先）。
+	cmd.Env = seatBaseEnv(env)
 	cmd.Env = append(cmd.Env,
 		"META_RUN_ID="+run.RunID,
 		"META_RUN_TOKEN="+run.RunToken,
@@ -128,6 +132,45 @@ func (g *Gateway) startRun(ctx context.Context, run *db.Run, argv []string, env 
 		g.maybeDeclareDead(st)
 	}()
 	return nil
+}
+
+// seatBaseEnv 席位基座环境：PATH/HOME 缺则沿网关值（席与网关同 uid），
+// XDG_RUNTIME_DIR 缺则按 uid 拼 /run/user/<uid>——运行目录存在才补
+// （容器/无登录会话不强补坏路径）；DBUS 缺则按 XDG 标准布局 unix:path=
+// $XDG_RUNTIME_DIR/bus 拼。注入件已带键一律不动。
+func seatBaseEnv(env []string) []string {
+	return seatBaseEnvAt(env, fmt.Sprintf("/run/user/%d", os.Getuid()))
+}
+
+func seatBaseEnvAt(env []string, xdgDir string) []string {
+	has := func(k string) (string, bool) {
+		for _, kv := range env {
+			if strings.HasPrefix(kv, k+"=") {
+				return kv[len(k)+1:], true
+			}
+		}
+		return "", false
+	}
+	out := append([]string{}, env...)
+	for _, k := range []string{"PATH", "HOME"} {
+		if _, ok := has(k); !ok {
+			if v := os.Getenv(k); v != "" {
+				out = append(out, k+"="+v)
+			}
+		}
+	}
+	xdg, hasX := has("XDG_RUNTIME_DIR")
+	if !hasX {
+		if fi, err := os.Stat(xdgDir); err != nil || !fi.IsDir() {
+			return out
+		}
+		xdg = xdgDir
+		out = append(out, "XDG_RUNTIME_DIR="+xdg)
+	}
+	if _, ok := has("DBUS_SESSION_BUS_ADDRESS"); !ok {
+		out = append(out, "DBUS_SESSION_BUS_ADDRESS=unix:path="+xdg+"/bus")
+	}
+	return out
 }
 
 // processAlive kill(pid,0) 一次性核实——只在 EOF/对账等事件点上调用，非探活。

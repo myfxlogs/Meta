@@ -201,6 +201,8 @@ func (g *Gateway) ensureCEO(ctx context.Context, e Event) {
 	}
 	rows, err := g.shellsFor(ctx, "CEO")
 	if err != nil {
+		// T33② 静默早退补响：壳登记读败原径零痕迹——唤起连败照计。
+		g.ceoSpawnFailed(ctx, e, "壳登记: "+err.Error())
 		return
 	}
 	g.mu.Lock()
