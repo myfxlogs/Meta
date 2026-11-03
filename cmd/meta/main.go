@@ -148,6 +148,7 @@ func usage() {
   meta secret put --db run/meta.db --key run/vault.key [--acl 角色1,角色2] <name>   (值读 stdin)
   meta ticket new --socket <sock> --id <id> --title <t> [--spec-file <票面.md>] [--attempt-cap N] [--hard-cap N] [--project <p>]
   meta ticket set-project --socket <sock> --ticket <id> --project <p>    (存量回填/显式挂接：只加不换)
+  meta ticket resume --socket <sock> --ticket <id>                       (T39：blocked 人工放行——回 blocked 边记的原相位，调和器接管)
   meta dispatch --socket <sock> --ticket <id> --role <角色> [--prompt-file <f> 覆盖径] --workdir <d> [--prefer <壳>] [--project <p>]
   meta phase --socket <sock> --ticket <id>
   meta events --socket <sock> --ticket <id>
@@ -485,16 +486,46 @@ func admin(sock string) (pbv1.AdminGatewayClient, *grpc.ClientConn, error) {
 
 func ticketCmd(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("ticket 子命令：new|set-project")
+		return fmt.Errorf("ticket 子命令：new|set-project|resume")
 	}
 	switch args[0] {
 	case "new":
 		return ticketNewCmd(args[1:])
 	case "set-project":
 		return ticketSetProjectCmd(args[1:])
+	case "resume":
+		return ticketResumeCmd(args[1:])
 	default:
-		return fmt.Errorf("ticket 子命令只实现 new|set-project")
+		return fmt.Errorf("ticket 子命令只实现 new|set-project|resume")
 	}
+}
+
+// ticketResumeCmd T39 放行门收口：blocked→Resume RPC→回原相位（T35 RPC
+// 已在 CLI 无径——blocked 三门全闭实证；通知文案写的 meta resume 不存在）。
+func ticketResumeCmd(args []string) error {
+	fs := flag.NewFlagSet("ticket resume", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "")
+	tid := fs.String("ticket", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *tid == "" {
+		return fmt.Errorf("--ticket 必填")
+	}
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ack, err := c.Resume(context.Background(), &pbv1.TicketRef{Id: *tid})
+	if err != nil {
+		return err
+	}
+	if !ack.Ok {
+		return fmt.Errorf("ticket resume: %s", ack.Note)
+	}
+	fmt.Println("ticket", *tid, ack.Note)
+	return nil
 }
 
 func ticketNewCmd(args []string) error {

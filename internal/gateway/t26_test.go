@@ -349,7 +349,8 @@ func TestT30_CliDriveResetByRuling(t *testing.T) {
 	before, _ := g.DB().RunsForTicket(ctx, "tr30")
 	g.cliDriveSpawn(ctx, req, spec)
 	after, _ := g.DB().RunsForTicket(ctx, "tr30")
-	if len(after) != len(before)+1 {
+	// T37：放行＝尝试数净增（调和器可并发补席——恰 +1 属竞态面）。
+	if len(after) <= len(before) {
 		t.Fatalf("裁决后未放行: 尝试数 %d→%d", len(before), len(after))
 	}
 }
