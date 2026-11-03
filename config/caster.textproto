@@ -24,7 +24,7 @@ routes {
   actions { notify  { template: "【Meta】⚠️连驳三次[{{ticket_id}}]——CEO 已接手" } }
 }
 routes { kind: "blocked" note: "失败表到限→人工态（V5：同票同原因恰一条）"
-  actions { notify { template: "【Meta】⛔票 blocked[{{ticket_id}}]——{{note}}（放行:meta resume/重试/作废:meta rule void）" } } }
+  actions { notify { template: "【Meta】🛑票 blocked[{{ticket_id}}]——{{note}}（放行:meta resume/重试/作废:meta rule void）" } } }
 routes { kind: "defer_limit" note: "延期帽尽→通知" actions { notify { template: "【Meta】⚠️卡死裁决延期已尽[{{ticket_id}}]——CEO 已接手" } } }
 # ——审计派发径（决策40，设计 §15 落点）——
 # D-39：deliver 按事件 role 拆行——CTO 交设计票只通知（事后验归 CEO，决策49/53），
@@ -39,14 +39,14 @@ routes { kind: "deliver" role: "施工"
                        prompt_template: "caster/audit-review.md" } } }
 routes { kind: "audit_start" note: "审计拉起（决策34 缺口补）" actions { notify { template: "【Meta】审计:接单[{{ticket_id}}]" } } }
 routes { kind: "audit_pass" note: "判决通过→待部署＋派 CTO-B 部署席（票0010：闭环最后一只手；T26：CliDrive 钦定径）"
-  actions { notify { template: "【Meta】审计:完成转交[{{ticket_id}}]" } }
+  actions { notify { template: "【Meta】✅审计:判决通过[{{ticket_id}}]" } }
   actions { dispatch { role: "CTO" work_dir: "/opt/meta" cli_drive: true
                        prompt_template: "caster/cto-deploy.md" } } }
-routes { kind: "deploy_start" note: "部署席领票步行（部署中）" actions { notify { template: "【Meta】CTO:部署开工[{{ticket_id}}]" } } }
+routes { kind: "deploy_start" note: "部署席领票步行（部署中）" actions { notify { template: "【Meta】🚀CTO:部署开工[{{ticket_id}}]" } } }
 routes { kind: "deploy_failed" note: "部署失败已回滚→待部署＋CEO 裁（重试/作废）" actions { notify { template: "【Meta】⚠️CTO:部署失败[{{ticket_id}}]——已回滚待裁" } } }
-routes { kind: "deploy_done" note: "部署完成（闭环终态）" actions { notify { template: "【Meta】CTO:部署完成[{{ticket_id}}]" } } }
+routes { kind: "deploy_done" note: "部署完成（闭环终态）" actions { notify { template: "【Meta】✅CTO:部署完成[{{ticket_id}}]" } } }
 routes { kind: "reject" note: "驳回→通知＋自动重派施工（判决史随注入累积）"
-  actions { notify { template: "【Meta】审计:驳回转交[{{ticket_id}}]" } }
+  actions { notify { template: "【Meta】⚠️审计:判决驳回[{{ticket_id}}]" } }
   actions { dispatch { role: "施工" work_dir: "/opt/meta" prompt_template: "caster/build-seat.md" } } }
 routes { kind: "audit_dead" note: "审计席死→通知＋重起审计（不计驳回）"
   actions { notify { template: "【Meta】⚠️审计席中断[{{ticket_id}}]——自动重派中" } }
