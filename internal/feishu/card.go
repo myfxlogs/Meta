@@ -223,7 +223,7 @@ func renderCard(v *CardView) string {
 			},
 		},
 		"elements": []any{
-			mdLine("**相位**：" + v.Phase + phaseSuffix(v)), // 对抗锚 a 提名行（票0036）：删后缀→锚2/3 红
+			mdLine("**相位**：" + phaseIcon(v.Phase) + v.Phase + phaseSuffix(v)), // 对抗锚 a 提名行（票0036）：删后缀→锚2/3 红；T38 图标前缀
 			mdLine("**当前席**：" + seat),
 			mdLine("**进度**：" + note),
 			mdLine(fmt.Sprintf("**用量**：%d（累计 %d）", v.Used, v.UsedTotal)),
@@ -240,6 +240,37 @@ func renderCard(v *CardView) string {
 		return `{"elements":[{"tag":"div","text":{"tag":"plain_text","content":"卡渲染失败"}}]}`
 	}
 	return string(b)
+}
+
+// phaseIcon T38 相位图标映射（业主要求）：九相位各一标——已立📌
+// 设计中📐 已派📋 施工中🔄 待审⏳ 审计中🔍 待部署📦 部署中🚀
+// 完成✅ 作废🗑️ blocked🛑；表外回空（裸相位行降级）。
+func phaseIcon(phase string) string {
+	switch phase {
+	case "已立":
+		return "📌"
+	case "设计中":
+		return "📐"
+	case "已派":
+		return "📋"
+	case "施工中":
+		return "🔄"
+	case "待审":
+		return "⏳"
+	case "审计中":
+		return "🔍"
+	case "待部署":
+		return "📦"
+	case "部署中":
+		return "🚀"
+	case "完成":
+		return "✅"
+	case "作废":
+		return "🗑️"
+	case "blocked":
+		return "🛑"
+	}
+	return ""
 }
 
 // phaseSuffix 相位行耗时后缀（票0036）：非终态 d=RenderAt−PhaseSince→
