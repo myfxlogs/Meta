@@ -75,6 +75,8 @@ func main() {
 		err = budgetCmd(os.Args[2:])
 	case "observe":
 		err = observeCmd(os.Args[2:])
+	case "status":
+		err = statusCmd(os.Args[2:], os.Stdout)
 	case "ping":
 		err = pingCmd(os.Args[2:])
 	case "ceo":
@@ -157,6 +159,7 @@ func usage() {
   meta caster --socket <sock> --routes <f> --state-dir <d> --run-dir <r> --notify-cmd <sh> [--once] [--replay-history]
   meta retro --socket <sock> --ticket <id> --verdict pass|reject --ref <判决档>
   meta reconcile --socket <sock>                                                  (改路由表后滞留补发对账)
+  meta status --socket <sock> [--db <meta.db>] [--timeout 3s]                     (一行公司状态：版本戳/svc/在途相位计数/blocked/活席——纯读零写)
   meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
   meta upgrade --new <bin> --install <path> [--prev <p>] [--restart-cmd "<cmd>"] [--check-socket <sock>]
   meta ceo [--socket <sock>]                          （交互面：IssueCeoToken→事件侧流→行命令 REPL）
@@ -1438,7 +1441,6 @@ func importLegacy(ctx context.Context, d *db.DB, raw []byte) (int, error) {
 	return n, nil
 }
 
-
 // deployCmd T25 钦定部署径：CLI 直驱——dispatch CliDrive=true（席进程＝
 // meta seat-drive 机械四步，零 AI 税）。seat-drive 经 env 拿 run 凭证。
 func deployCmd(args []string) error {
@@ -1556,6 +1558,71 @@ func seatDriveCmd() error {
 		Deliver: &pbv1.Deliver{Ref: "cli", Note: "META_DEPLOY:done"}}})
 }
 
+// statusCmd 票0051 一行公司状态（v2 运维面门面件）：版本戳（同 meta
+// version，T38/票0048 径）＋svc（AdminGateway.Ping 拨通性——票0010 健康
+// 核验径，答则 up 不答则 down，宕机时本令恰是最需要的一瞥故降级不拒）
+// ＋在途票数按相位计数（非终态非 blocked，空板显式零）＋blocked 数
+// （§3.3-B 人工态单列）＋活席数（seat_run dead=0）。库路径由 --socket
+// 推导（*.sock→*.db 同位约定，同 0050/同 serve 双旗布局），--db 覆盖；
+// 库缺失报错不建空库。纯读零写（db.Open 既有只读用法同 catchrate）。
+func statusCmd(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "网关 socket（Ping 拨验＋库径推导源）")
+	dbPath := fs.String("db", "", "缺省由 --socket 推导（*.sock→*.db）")
+	timeout := fs.Duration("timeout", 3*time.Second, "svc 拨验上限")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	svc := "down"
+	if c, conn, err := admin(*sock); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		ack, perr := c.Ping(ctx, &pbv1.Empty{})
+		cancel()
+		conn.Close()
+		if perr == nil && ack.Ok {
+			svc = "up"
+		}
+	}
+	p := *dbPath
+	if p == "" {
+		p = strings.TrimSuffix(absOr(sock, "run/meta.sock"), ".sock") + ".db"
+	}
+	if _, err := os.Stat(p); err != nil {
+		return fmt.Errorf("status: 库不可读 %s: %w", p, err)
+	}
+	d, err := db.Open(p)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	ctx := context.Background()
+	ts, err := d.NonTerminalTickets(ctx)
+	if err != nil {
+		return err
+	}
+	counts := map[db.Phase]int{}
+	blocked := 0
+	for _, t := range ts {
+		if t.Phase == db.PhaseBlocked {
+			blocked++
+			continue
+		}
+		counts[t.Phase]++
+	}
+	runs, err := d.ActiveRuns(ctx)
+	if err != nil {
+		return err
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "meta %s svc=%s 在途=%d",
+		buildinfo.Version(buildStamp, buildinfo.Short()), svc, len(ts)-blocked)
+	for _, ph := range db.NonTerminal {
+		fmt.Fprintf(&sb, " %s=%d", ph, counts[ph])
+	}
+	fmt.Fprintf(&sb, " blocked=%d 活席=%d", blocked, len(runs))
+	fmt.Fprintln(w, sb.String())
+	return nil
+}
 
 // catchrateCmd T23 自捕率月报件：事件推导聚合——外捕两类（reject/
 // deploy_failed；T34 起 created 不计——巡检立案径切除）+「坑档：」自捕

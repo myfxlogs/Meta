@@ -316,6 +316,140 @@ func TestCLI_ProjectLink(t *testing.T) {
 	}
 }
 
+// mkPhase 建票并沿主链推到目标相位（status 满板测试驱动器——CreateTicket
+// 自带 mandate v1，施工中/部署中边核过）。
+func mkPhase(t *testing.T, h *db.DB, id string, target db.Phase) {
+	t.Helper()
+	ctx := context.Background()
+	if err := h.CreateTicket(ctx, id, id+"票", nil); err != nil {
+		t.Fatal(err)
+	}
+	chain := []struct {
+		to   db.Phase
+		kind db.EdgeKind
+	}{
+		{db.PhaseDesigning, db.EdgeDesignStart},
+		{db.PhaseAssigned, db.EdgeDispatch},
+		{db.PhaseWorking, db.EdgeClaim},
+		{db.PhaseReview, db.EdgeDeliver},
+		{db.PhaseAuditing, db.EdgeAuditStart},
+		{db.PhaseToDeploy, db.EdgeAuditPass},
+		{db.PhaseDeploying, db.EdgeDeployStart},
+		{db.PhaseDone, db.EdgeDeployDone},
+	}
+	for _, s := range chain {
+		if p, _ := h.PhaseOf(ctx, id); p == target {
+			return
+		}
+		if _, err := h.Transition(ctx, id, s.to, s.kind, "test", ""); err != nil {
+			t.Fatalf("mkPhase %s→%s: %v", id, target, err)
+		}
+	}
+}
+
+// TestStatusCLI 票0051 锚：版本戳/在途计数/blocked 计数三要素＋空板显式零
+// ——真网关 socket 上 svc=up＋推导库径同读／满板相位逐项计数与 blocked
+// 单列／终态不计在途／活席数／死 socket svc=down 降级仍出计数／恒单行。
+// 满板断言在无网关库上做——活网关调和器会迁边，计数面非确定。
+func TestStatusCLI(t *testing.T) {
+	// 面一：活网关（sock/db 同位＝生产布局）——svc=up＋--socket 推导库径。
+	dir := t.TempDir()
+	runDir := filepath.Join(dir, "run")
+	sock := filepath.Join(runDir, "meta.sock")
+	dbp := filepath.Join(runDir, "meta.db")
+	g, err := gateway.New(gateway.Config{
+		DBPath: dbp, RunDir: runDir, SocketPath: sock,
+		SeatArgv: []string{"/bin/true"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go g.Serve()
+	defer g.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket 未起")
+		}
+		<-time.After(20 * time.Millisecond)
+	}
+	run := func(args ...string) string {
+		var sb strings.Builder
+		if err := statusCmd(args, &sb); err != nil {
+			t.Fatalf("statusCmd %v: %v", args, err)
+		}
+		return sb.String()
+	}
+	oneLine := func(out string) {
+		if strings.Count(out, "\n") != 1 || !strings.HasSuffix(out, "\n") {
+			t.Fatalf("应严格单行: %q", out)
+		}
+	}
+
+	// 空板（网关库零票即断言，先于调和器迁边窗口）：三要素显式零＋
+	// svc=up＋全相位字段在＋库径推导命中（否则库缺失已报错）。
+	out := run("--socket", sock)
+	oneLine(out)
+	for _, want := range []string{"meta ", "svc=up", "在途=0", "blocked=0", "活席=0",
+		"已立=0", "设计中=0", "已派=0", "施工中=0", "待审=0", "审计中=0", "待部署=0", "部署中=0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("空板缺 %q: %q", want, out)
+		}
+	}
+
+	// 面二：无网关独立库——满板确定性断言。
+	d2 := t.TempDir()
+	dbp2 := filepath.Join(d2, "meta.db")
+	h, err := db.Open(dbp2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	ctx := context.Background()
+	for i, ph := range db.NonTerminal {
+		mkPhase(t, h, "S"+string(rune('1'+i)), ph)
+	}
+	if err := h.CreateTicket(ctx, "SB", "卡票", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Transition(ctx, "SB", db.PhaseBlocked, db.EdgeBlocked,
+		"gateway", "未知/禁动失败 kind=seat_dead——人工裁定"); err != nil {
+		t.Fatal(err)
+	}
+	mkPhase(t, h, "SD", db.PhaseDone)
+	// 活席×1＋死席×1（dead=1 不计）。
+	for _, r := range []*db.Run{
+		{RunID: "r-live", TicketID: "S4", Role: "施工", Shell: "testshell", PID: os.Getpid(), RunToken: "tk-live"},
+		{RunID: "r-dead", TicketID: "S4", Role: "施工", Shell: "testshell", PID: os.Getpid(), RunToken: "tk-dead"},
+	} {
+		if err := h.CreateRun(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.MarkDead(ctx, "r-dead"); err != nil {
+		t.Fatal(err)
+	}
+
+	// svc=down：死 socket 不拒——降级显式 down，库计数照出（--db 直读径）。
+	out = run("--socket", filepath.Join(d2, "dead.sock"), "--db", dbp2)
+	oneLine(out)
+	for _, want := range []string{"svc=down", "在途=8",
+		"已立=1", "设计中=1", "已派=1", "施工中=1", "待审=1", "审计中=1", "待部署=1", "部署中=1",
+		"blocked=1", "活席=1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("满板缺 %q: %q", want, out)
+		}
+	}
+
+	// 库缺失报错不建空库（--socket 推导径也无库）。
+	var sb strings.Builder
+	if err := statusCmd([]string{"--socket", filepath.Join(d2, "none", "meta.sock")}, &sb); err == nil {
+		t.Fatal("库缺失应报错")
+	}
+}
+
 func mustNonTerminal(t *testing.T, g *gateway.Gateway) []*db.Ticket {
 	t.Helper()
 	ts, err := g.DB().NonTerminalTickets(context.Background())
