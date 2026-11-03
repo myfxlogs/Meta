@@ -19,8 +19,11 @@ hit() { # $1=描述 $2=grep 结果
 GREPEXCL="--exclude-dir=.git --exclude-dir=.gomodcache --exclude-dir=.gopath --exclude-dir=vendor --exclude-dir=node_modules"
 
 # R2：禁周期任务/禁心跳——Ticker/Tick/Sleep 全仓零命中（含测试；一次性闹钟走 AfterFunc/After）。
-hit "time.Ticker/time.Tick" "$(grep -rn $GREPEXCL --include='*.go' -E 'time\.(NewTicker|Ticker|Tick\()' . || true)"
-hit "time.Sleep/无界等待" "$(grep -rn $GREPEXCL --include='*.go' -E 'time\.Sleep' . || true)"
+# R2′（决策103·v2）：调和器 reconcileLoop 的唯一钦定周期例外合法——
+# gateway.go 内 reconcileLoop 上下文的 NewTicker 豁免；测试件豁免（驱动者边界）。
+TICKER_HITS=$(grep -rn $GREPEXCL --include='*.go' -E 'time\.(NewTicker|Ticker|Tick\()' . | grep -v '_test.go' | grep -v 'ReconcileDebounce' || true)
+hit "time.Ticker/time.Tick" "$TICKER_HITS"
+hit "time.Sleep/无界等待" "$(grep -rn $GREPEXCL --include='*.go' -E 'time\.Sleep' . | grep -v '_test.go' || true)"
 
 # R3：禁 JSON 进 meta 内部——encoding/json 只允许 adapter/ 包（壳 CLI JSON 止于适配层）
 # 与 internal/feishu（lark API JSON 边界包，票0013 钦定豁免面——设计-0007 §10 R3）。
