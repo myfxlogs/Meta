@@ -164,12 +164,9 @@ func usage() {
   meta caster --socket <sock> --routes <f> --state-dir <d> --run-dir <r> --notify-cmd <sh> [--once] [--replay-history]
   meta retro --socket <sock> --ticket <id> --verdict pass|reject --ref <判决档>
   meta reconcile --socket <sock>                                                  (改路由表后滞留补发对账)
-<<<<<<< HEAD
   meta blocked --socket <sock> [--db <meta.db>]                                   (blocked 人工态票列表：票号/标题/末因/动作——库由 sock 推导，纯读)
   meta tickets --socket <sock> [--db <meta.db>]                                   (在途票列表：票号/相位/标题截断，票号序；空板「无在途票」——纯读)
-=======
   meta status --socket <sock> [--db <meta.db>] [--timeout 3s]                     (一行公司状态：版本戳/svc/在途相位计数/blocked/活席——纯读零写)
->>>>>>> 38f53fd
   meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
   meta upgrade --new <bin> --install <path> [--prev <p>] [--restart-cmd "<cmd>"] [--check-socket <sock>]
   meta ceo [--socket <sock>]                          （交互面：IssueCeoToken→事件侧流→行命令 REPL）
@@ -1598,7 +1595,6 @@ func seatDriveCmd() error {
 		Deliver: &pbv1.Deliver{Ref: "cli", Note: "META_DEPLOY:done"}}})
 }
 
-<<<<<<< HEAD
 // blockedCmd 票0050 v2 运维窗（§3.3-B blocked 人工态唯一读面）：列全部
 // blocked 相位票——票号/标题/末步机器原因（最近 blocked 边事件 note
 // 原文）/动作提示；空表显式「无 blocked 票」。DB 直读零写：库路径由
@@ -1611,7 +1607,6 @@ func blockedCmd(args []string, w io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-=======
 // statusCmd 票0051 一行公司状态（v2 运维面门面件）：版本戳（同 meta
 // version，T38/票0048 径）＋svc（AdminGateway.Ping 拨通性——票0010 健康
 // 核验径，答则 up 不答则 down，宕机时本令恰是最需要的一瞥故降级不拒）
@@ -1637,24 +1632,19 @@ func statusCmd(args []string, w io.Writer) error {
 			svc = "up"
 		}
 	}
->>>>>>> 38f53fd
 	p := *dbPath
 	if p == "" {
 		p = strings.TrimSuffix(absOr(sock, "run/meta.sock"), ".sock") + ".db"
 	}
 	if _, err := os.Stat(p); err != nil {
-<<<<<<< HEAD
 		return fmt.Errorf("blocked: 库不可读 %s: %w", p, err)
-=======
 		return fmt.Errorf("status: 库不可读 %s: %w", p, err)
->>>>>>> 38f53fd
 	}
 	d, err := db.Open(p)
 	if err != nil {
 		return err
 	}
 	defer d.Close()
-<<<<<<< HEAD
 	rows, err := d.BlockedRows(context.Background())
 	if err != nil {
 		return err
@@ -1722,7 +1712,6 @@ func clipTitle(s string, n int) string {
 	}
 	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
 }
-=======
 	ctx := context.Background()
 	ts, err := d.NonTerminalTickets(ctx)
 	if err != nil {
@@ -1751,7 +1740,6 @@ func clipTitle(s string, n int) string {
 	fmt.Fprintln(w, sb.String())
 	return nil
 }
->>>>>>> 38f53fd
 
 // catchrateCmd T23 自捕率月报件：事件推导聚合——外捕两类（reject/
 // deploy_failed；T34 起 created 不计——巡检立案径切除）+「坑档：」自捕
