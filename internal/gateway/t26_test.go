@@ -302,7 +302,6 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 	}
 }
 
-// T30 断路器重置径：连败三停→ruling 裁决→再 spawn 放行（阈值不动）。
 // 对抗锚提名行：base 取 ruling 后死账——删则截断成永锁。
 func TestT30_CliDriveResetByRuling(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) {
@@ -338,10 +337,48 @@ func TestT30_CliDriveResetByRuling(t *testing.T) {
 	if deadCount() != n0 {
 		t.Fatal("三停未截")
 	}
-	// ruling 裁决行落账→断路器复位→再 spawn 放行（新席建账）。
+	// ruling 裁决行落账→断路器复位→再 spawn 放行（T31 整合语义：续发径
+	// 改变死亡入账节奏——按「裁决后新尝试获放行」断言，不对死亡数对表）。
 	_ = g.DB().AppendEvent(ctx, "tr30", "ruling", db.Event{Actor: "CEO", Note: "redirect 重派"})
+	before, _ := g.DB().RunsForTicket(ctx, "tr30")
 	g.cliDriveSpawn(ctx, req, spec)
-	if deadCount() != n0+1 {
-		t.Fatalf("裁决后未放行: dead=%d", deadCount())
+	after, _ := g.DB().RunsForTicket(ctx, "tr30")
+	if len(after) != len(before)+1 {
+		t.Fatalf("裁决后未放行: 尝试数 %d→%d", len(before), len(after))
+	}
+}
+
+// 删则弹跳回潮。②死必有日志：席死日志非空（spawn 头行＋exit 落行）。
+func TestT31_CliDrivePhaseStable(t *testing.T) {
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		c.SelfPath = "/bin/false" // 秒退 cli-drive 席
+	})
+	ctx := context.Background()
+	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
+		t.Fatal(err)
+	}
+	mkToDeploy(t, g, "td31", "P")
+	if _, err := g.DB().Transition(context.Background(), "td31", db.PhaseDeploying,
+		db.EdgeDeployStart, "test", "前任已起部署中"); err != nil {
+		t.Fatal(err)
+	}
+	spec := SeatSpec{CliDrive: true}
+	req := spawnReq{ticketID: "td31", role: "CTO"}
+	g.cliDriveSpawn(ctx, req, spec)
+	// 秒退→死判径：相位应稳守 部署中不弹跳＋spawn_needed 补发。
+	waitEvent(t, g, "clidrive_dead", "td31", 5*time.Second)
+	if p, _ := g.DB().PhaseOf(ctx, "td31"); p != db.PhaseDeploying {
+		t.Fatalf("cli-drive 死相位弹跳: %s", p)
+	}
+	waitEvent(t, g, "spawn_needed", "td31", 5*time.Second)
+	// ②日志非空（头行＋exit 落行）。
+	runs, _ := g.DB().RunsForTicket(ctx, "td31")
+	if len(runs) == 0 {
+		t.Fatal("无席")
+	}
+	b, err := os.ReadFile(runs[0].LogPath)
+	if err != nil || len(b) == 0 {
+		t.Fatalf("席死日志零字节: %v len=%d", err, len(b))
 	}
 }

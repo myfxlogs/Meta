@@ -87,6 +87,9 @@ func (g *Gateway) startRun(ctx context.Context, run *db.Run, argv []string, env 
 	)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// T31② 死必有日志：spawn 头行先落——cli-drive 秒退/被杀零字节
+	// 实证（三任死全空档死因黑箱）；头行保非空＋argv 凭证现形。
+	fmt.Fprintf(logf, "seat spawn argv=%v ticket=%s role=%s\n", argv, run.TicketID, run.Role)
 
 	if err := cmd.Start(); err != nil {
 		_ = g.database.MarkDead(ctx, run.RunID)
@@ -114,6 +117,11 @@ func (g *Gateway) startRun(ctx context.Context, run *db.Run, argv []string, env 
 		st.mu.Unlock()
 		close(st.exitCh)
 		_ = g.database.MarkExited(context.Background(), run.RunID, code)
+		// T31② exit 落行：死因留档（被杀/秒退可查——日志留档不动）。
+		if f, err := os.OpenFile(run.LogPath, os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+			fmt.Fprintf(f, "seat exit code=%d\n", code)
+			f.Close()
+		}
 		g.maybeDeclareDead(st)
 	}()
 	return nil
