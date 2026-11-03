@@ -179,7 +179,21 @@ func processAlive(pid int) bool {
 		return false
 	}
 	err := syscall.Kill(pid, 0)
-	return err == nil || err == syscall.EPERM
+	if err != nil && err != syscall.EPERM {
+		return false
+	}
+	// T44：僵尸态判死——kill(pid,0) 对 zombie 恒活，调和器永判 actual 在
+	// →保守跳过零动作（0052 施工中席死 24min 零动作实证根）。Linux
+	// /proc/<pid>/stat state=='Z'＝已死待收，不属活席。
+	if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); err == nil {
+		st := string(b)
+		if i := strings.LastIndex(st, ")"); i >= 0 && i+4 <= len(st) {
+			if f := strings.Fields(st[i+2:]); len(f) > 0 && f[0] == "Z" {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func randHex(n int) string {
