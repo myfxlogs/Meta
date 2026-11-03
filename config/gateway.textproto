@@ -87,6 +87,9 @@ reconcile_debounce { seconds: 60 }         # T35 改义：幂等调和器周期�
 # kill_respawn/same_shell/rollback/freeze/blocked；"*"＝未列 kind 兜底。
 failure_rule { kind: "seat_err"        action: "next_shell"      cap: 0 }  # 秒退/起不来→换下一壳（壳尽→blocked 经 shells_exhausted）
 failure_rule { kind: "spawn_failed"    action: "next_shell"      cap: 0 }
+# T46：seat_dead 入表——缺行则落 "*"→blocked（0050/19:44 瞬回实证径）；
+# 与码内缺省同值，换壳重派期窗无帽。
+failure_rule { kind: "seat_dead"       action: "next_shell"      cap: 0 }
 failure_rule { kind: "shell_limited"   action: "retry_same"      cap: 3 }  # 429/5xx/连接错退避同壳≤3→换壳
 failure_rule { kind: "shell_dead"      action: "shell_dead_next" cap: 0 }  # 配额尽/授权失效标死换壳
 failure_rule { kind: "stall_suspect"   action: "kill_respawn"    cap: 2 }  # 进度帧超时 30min 杀+换壳重派≤2

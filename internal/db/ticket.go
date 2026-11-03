@@ -295,6 +295,20 @@ func (d *DB) BlockedRows(ctx context.Context) ([]*BlockedRow, error) {
 
 // LatestEventKind 票上最新一条 ticket_event 的 kind（req_pending 泊车标/
 // 对账抑制判据——无行回空串）。
+// LatestEdgeKind 最近一条「边」事件 kind（T46：泊车钉按边态判——
+// spawn_blocked/ruling 等非边行不得顶掉 req_pending 泊车钉，否则自产
+// 账行会解锁泊车态被调和器抢走，0052 redirect 死锁实证）。
+func (d *DB) LatestEdgeKind(ctx context.Context, ticketID string) (string, error) {
+	var k string
+	err := d.db.QueryRowContext(ctx,
+		`SELECT kind FROM ticket_event WHERE ticket_id=? AND to_phase<>''
+		 ORDER BY id DESC LIMIT 1`, ticketID).Scan(&k)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return k, err
+}
+
 func (d *DB) LatestEventKind(ctx context.Context, ticketID string) (string, error) {
 	var k string
 	err := d.db.QueryRowContext(ctx,

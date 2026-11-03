@@ -575,7 +575,7 @@ func (g *Gateway) CeoRule(ctx context.Context, r *pbv1.Ruling) (*pbv1.RuleAck, e
 		// 泊车专裁：最新事件须 req_pending（对非泊车票重定向＝拒）。
 		// T32③门角：待部署票亦受理——部署裁 redirect＝CliDrive 重派
 		// （与 T30 断路器复位链衔：ruling 落行即连败账清零）。
-		k, _ := g.database.LatestEventKind(ctx, r.TicketId)
+		k, _ := g.database.LatestEdgeKind(ctx, r.TicketId)
 		if t.Phase == db.PhaseToDeploy {
 			spec := SeatSpec{WorkDir: g.ceoWorkDir(), CliDrive: true,
 				Provenance: run.Provenance}
