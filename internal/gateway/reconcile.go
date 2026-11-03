@@ -172,7 +172,7 @@ func (g *Gateway) parkedTicket(ctx context.Context, t *db.Ticket) bool {
 	if t.Phase != db.PhaseCreated {
 		return false
 	}
-	k, err := g.database.LatestEventKind(ctx, t.ID)
+	k, err := g.database.LatestEdgeKind(ctx, t.ID)
 	return err == nil && k == string(db.EdgeReqPending)
 }
 
@@ -333,6 +333,16 @@ func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string
 		// 防路过调和拿空排除集重放同壳后判重锁死。
 		kind = "seat_dead"
 	}
+	if kind == "seat_dead" {
+		// T46：死行时序闸——seat_dead 计数/回退只认本期窗内新死（最近
+		// 死席 ExitedAt 在 epochStart 之后）。复位前死亡的事件竞态落账
+		// 随 resume/ruling 一并清零（19:44 放行三秒瞬回实证：复位前死
+		// 账竞序压栈被当新失败计）。ExitedAt 空=死账无戳，保守按新死。
+		if lr, err := g.database.LatestRunForTicket(ctx, t.ID); err == nil &&
+			lr != nil && lr.Dead && !lr.ExitedAt.IsZero() && !lr.ExitedAt.After(epochStart) {
+			kind = ""
+		}
+	}
 	rule := g.ruleFor(kind)
 	if kind != "" {
 		n := failCount(epoch, kind)
@@ -352,8 +362,14 @@ func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string
 	}
 	// 行动→spec 推导（纯函数：票面+角色+项目配方，重启零丢失）。
 	spec := g.deriveSpec(ctx, t, role, rule, epoch, epochStart)
-	// 去重/相位闸拒＝已对齐（活席在或相位已走）——静默收敛不落账。
-	_ = g.DispatchSeat(ctx, t.ID, role, spec)
+	// 去重拒＝已对齐（活席在或相位已走）——静默收敛不落账；其余拒因
+	// 落 spawn_blocked 账（D-94：静默吞错＝零新席零事件黑箱实证面）。
+	if err := g.DispatchSeat(ctx, t.ID, role, spec); err != nil &&
+		!strings.Contains(err.Error(), "已有活") {
+		_ = g.database.AppendEvent(ctx, t.ID, "spawn_blocked", db.Event{
+			Actor: "gateway", Note: "调和派发拒: " + err.Error()})
+		g.emit(Event{Kind: "spawn_blocked", TicketID: t.ID, Role: role, Note: err.Error()})
+	}
 }
 
 // deployDyingTicketClose 部署中死席收口判（0044 排干语义并入调和器）：
