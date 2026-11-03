@@ -73,7 +73,10 @@ func (g *Gateway) ruleFor(kind string) FailureRule {
 // blocked/resume 等机制边也算锚点，失败后人工放行计数清零重启）。
 func epochEvents(evs []*db.Event) []*db.Event {
 	for i := len(evs) - 1; i >= 0; i-- {
-		if edgeKindSet[evs[i].Kind] {
+		// T42：人工裁决 ruling 行同构复位（T30 cli-drive 复位径钦定同
+		// 构）——resume 已含于边锚；ruling 非边须显式列，否则裁决后旧账
+		// 仍超 cap→秒回 blocked（0050 实证）。
+		if edgeKindSet[evs[i].Kind] || evs[i].Kind == "ruling" {
 			return evs[i+1:]
 		}
 	}
