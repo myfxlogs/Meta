@@ -71,9 +71,6 @@ func (g *Gateway) SetBudget(ctx context.Context, req *pbv1.BudgetReq) (*pbv1.Ack
 	// （降低帽不解冻——frozen 是止血态不是可绕过闸）。
 	if b, err := g.database.GetBudget(ctx, req.TicketId); err == nil &&
 		(b.HardCap == 0 || b.UsedTotal < b.HardCap) {
-		g.mu.Lock()
-		delete(g.frozen, req.TicketId)
-		g.mu.Unlock()
 		_ = g.database.SetBudgetFrozen(ctx, req.TicketId, false)
 	}
 	return &pbv1.Ack{Ok: true}, nil
@@ -205,6 +202,31 @@ func (g *Gateway) Ping(_ context.Context, _ *pbv1.Empty) (*pbv1.Ack, error) {
 func (g *Gateway) Reconcile(ctx context.Context, _ *pbv1.Empty) (*pbv1.Ack, error) {
 	g.reconcile(ctx)
 	return &pbv1.Ack{Ok: true, Note: "对账完成"}, nil
+}
+
+// Resume blocked 人工放行（v2 §3.3-B）：回 blocked 边事件记的 from 相位。
+// 失败期窗随 resume 边清零重启（epochEvents 锚点＝最近边）。
+func (g *Gateway) Resume(ctx context.Context, ref *pbv1.TicketRef) (*pbv1.Ack, error) {
+	t, err := g.database.GetTicket(ctx, ref.Id)
+	if err != nil || t == nil {
+		return &pbv1.Ack{Ok: false, Note: "票不存在"}, nil
+	}
+	if t.Phase != db.PhaseBlocked {
+		return &pbv1.Ack{Ok: false, Note: "票非 blocked（" + string(t.Phase) + "）"}, nil
+	}
+	// 原相位＝blocked 边事件 FromPhase（Transition 落行自带）。
+	to := db.PhaseAssigned
+	evs, _ := g.database.Events(ctx, ref.Id)
+	for i := len(evs) - 1; i >= 0; i-- {
+		if evs[i].Kind == string(db.EdgeBlocked) && evs[i].FromPhase != "" {
+			to = evs[i].FromPhase
+			break
+		}
+	}
+	if err := g.transition(ctx, ref.Id, to, db.EdgeResume, "admin", "人工放行→"+string(to)); err != nil {
+		return &pbv1.Ack{Ok: false, Note: err.Error()}, nil
+	}
+	return &pbv1.Ack{Ok: true, Note: "resumed→" + string(to)}, nil
 }
 
 // IssueCeoToken `meta ceo` 交互面开 run（terminal 戳）：建一条 pid=0 的

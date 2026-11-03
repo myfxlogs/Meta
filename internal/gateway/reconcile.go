@@ -13,90 +13,215 @@ import (
 	pbv1 "meta/internal/pb/metav1"
 )
 
-// reconcile 启动对账（§5.3 全相位「相位×预期行动者」表，启动一次非周期）：
-// 有行动者相位——活着收养、死了回队；无行动者相位——补发 spawn 事件。
-// AdminGateway.Reconcile RPC 即调本函数（同径幂等，meta reconcile 手动径）。
+// ---------- v2 §3.3-A 幂等调和器＋§3.3-B 失败表 ----------
+//
+// reconcile() 是全仓唯一的 spawn 决策点：每 60s（或任意事件后经 kick）跑
+// 一轮。对每张非终态票：
+//   desired = f(相位,失败表) —— 该相位应有的角色，或应停（无行动者/blocked）
+//   actual  = 活 run（SIGCHLD/EOF/进程已消的不算）
+//   desired==actual → 跳过
+//   desired==NONE   → 跳过（冻/泊车/blocked 零动作）
+//   desired==STOP   → blockTicket（一条通知，此后零动作）
+//   actual 缺 && 本相位期窗内同类失败数 < 失败表上限 → DispatchSeat 起席
+// 幂等：同一世界态跑 N 次产出相同——spawn 由 DispatchSeat 活席去重闸挡，
+// blocked 由 transition 边闸挡（已在 blocked 即拒）。
+
+// FailureRule 失败表行（config 解析后的运行形态；kind="*" 兜底）。
+type FailureRule struct {
+	Kind   string
+	Action string // next_shell|retry_same|shell_dead_next|kill_respawn|same_shell|rollback|freeze|blocked
+	Cap    int
+}
+
+// failureClasses 期窗内计数的失败类事件 kind（reconcile 读事件推导）。
+// 白名单外 kind 一律按 "*" 行处置（未知错误 0 次直接 blocked）。
+var failureClasses = map[string]bool{
+	"seat_err": true, "spawn_failed": true, "shells_exhausted": true,
+	"shell_limited": true, "shell_dead": true, "stall_suspect": true,
+	"reject": true, "deploy_failed": true, "budget_frozen": true,
+	"clidrive_dead": true, "stall_kill": true,
+}
+
+// edgeKindSet 相位边 kind 集——期窗锚点（最近一条边之后才算本相位期窗）。
+var edgeKindSet = func() map[string]bool {
+	m := map[string]bool{}
+	for _, e := range db.Edges {
+		m[string(e.Kind)] = true
+	}
+	return m
+}()
+
+// ruleFor 失败表查行；未列 kind 落 "*" 行（未知→blocked）。
+func (g *Gateway) ruleFor(kind string) FailureRule {
+	var star *FailureRule
+	for i := range g.cfg.FailureRules {
+		r := &g.cfg.FailureRules[i]
+		if r.Kind == kind {
+			return *r
+		}
+		if r.Kind == "*" {
+			star = r
+		}
+	}
+	if star != nil {
+		return *star
+	}
+	return FailureRule{Kind: "*", Action: "blocked", Cap: 0}
+}
+
+// epochEvents 本相位期窗事件切片：最近一条边事件之后的全部行（倒回扫描——
+// blocked/resume 等机制边也算锚点，失败后人工放行计数清零重启）。
+func epochEvents(evs []*db.Event) []*db.Event {
+	for i := len(evs) - 1; i >= 0; i-- {
+		if edgeKindSet[evs[i].Kind] {
+			return evs[i+1:]
+		}
+	}
+	return evs
+}
+
+// failCount 期窗内某失败类计数。
+func failCount(epoch []*db.Event, kind string) int {
+	n := 0
+	for _, e := range epoch {
+		if e.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
+// lastFailure 期窗内最近一次失败类 kind（无→""）。
+func lastFailure(epoch []*db.Event) string {
+	for i := len(epoch) - 1; i >= 0; i-- {
+		if failureClasses[epoch[i].Kind] {
+			return epoch[i].Kind
+		}
+	}
+	return ""
+}
+
+// failedShells 期窗内失败壳键集（取代 g.failSet 内存表——由 seat_run 持久账
+// 推导，重启零丢失）：本相位期窗内死掉的非 adjunct run 的壳名全进排除集。
+func (g *Gateway) failedShells(ctx context.Context, t *db.Ticket, epochStart time.Time) map[string]bool {
+	out := map[string]bool{}
+	rs, err := g.database.RunsForTicket(ctx, t.ID)
+	if err != nil {
+		return out
+	}
+	for _, r := range rs {
+		if r.Adjunct || !r.Dead || r.StartedAt.Before(epochStart) || r.Shell == "" {
+			continue
+		}
+		out[shellNameOf(r.Shell)] = true
+	}
+	return out
+}
+
+// desiredFor 该票应有行动者（纯函数，相位×票面→角色）。
+// 返回 ("",false)=无行动者（该相位不持席）；(role,true)=应有一席。
+func desiredFor(t *db.Ticket) (string, bool) {
+	switch t.Phase {
+	case db.PhaseCreated:
+		return "CTO", true // CTO-A 设计支
+	case db.PhaseDesigning:
+		return "CTO", true
+	case db.PhaseAssigned:
+		return "施工", true
+	case db.PhaseWorking:
+		return "", true // 行动者角色由最近 run 定（施工/CTO 混相）——调用方补
+	case db.PhaseReview:
+		return "审计", true
+	case db.PhaseAuditing:
+		return "审计", true
+	case db.PhaseToDeploy:
+		return "CTO", true // CTO-B 部署支（cli_drive 径）
+	case db.PhaseDeploying:
+		return "CTO", true
+	}
+	return "", false
+}
+
+// parkedTicket 泊车判：相位 已立 且最新事件是 req_pending——需求待裁摆位，
+// 调和器不动（等 redirect/人工）。
+func (g *Gateway) parkedTicket(ctx context.Context, t *db.Ticket) bool {
+	if t.Phase != db.PhaseCreated {
+		return false
+	}
+	k, err := g.database.LatestEventKind(ctx, t.ID)
+	return err == nil && k == string(db.EdgeReqPending)
+}
+
+// blockTicket 置 blocked 人工态（失败表到限唯一出口）：非法边/已 blocked
+// 即幂等退——一条 emit 通知，此后系统对该票零动作直到人回话（V5：同票同
+// 原因通知恰一条由边闸天然保证——第二次 transition 直接拒）。
+func (g *Gateway) blockTicket(ctx context.Context, ticketID, reason string) {
+	if err := g.transition(ctx, ticketID, db.PhaseBlocked, db.EdgeBlocked,
+		"gateway", reason); err != nil {
+		return
+	}
+	note := "票 blocked：" + reason + "——可选动作：放行(resume)/重试/作废(void)"
+	_ = g.database.AppendEvent(ctx, ticketID, "blocked", db.Event{
+		Actor: "gateway", Note: note})
+	g.emit(Event{Kind: "blocked", TicketID: ticketID, Note: reason})
+}
+
+// reconcile 幂等调和谐：全相位扫描，desired↔actual 对齐。
 func (g *Gateway) reconcile(ctx context.Context) {
 	tickets, err := g.database.NonTerminalTickets(ctx)
 	if err != nil {
 		return
 	}
+	// 部署批量闸参数（T4/E17 语义并入调和器）：待部署≥5 或流水线清空才放
+	// CTO-B 起席——不足数且流水线忙时 desired 挂起不派（每轮重算，幂等）。
+	pendingDeploy := 0
+	pipelineBusy := false
 	for _, t := range tickets {
-		if t.BudgetFrozen { // 冻票无活性：不收养不回队不补 spawn（§5.5 D8）
-			g.mu.Lock()
-			g.frozen[t.ID] = true
-			g.mu.Unlock()
-			continue
-		}
 		switch t.Phase {
-		case db.PhaseAssigned, db.PhaseReview, db.PhaseToDeploy:
-			// 无行动者等 spawn：补发下一步 spawn 事件。
-			// 半结构约定（防漂，§14）：note「对账补发: <支线>」
-			// （施工/审计/CTO-A 设计支/CTO-B 部署支）是播报员路由表
-			// spawn_needed+note_contains 行的消费契约——改文案必须同步改表。
-			// patrol-* 值班票恒巡检（票0030 实证：phase 映射不含巡逻角色）。
-			role := roleForPhase(t.Phase)
-			line := spawnLine(t.Phase)
-			if strings.HasPrefix(t.ID, "patrol-") {
-				role, line = "巡检", "巡检"
-			}
-			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-				Actor: "gateway", Note: "对账补发: " + line,
-			})
-			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
-		case db.PhaseWorking, db.PhaseDesigning, db.PhaseAuditing, db.PhaseDeploying:
-			g.reconcileActor(ctx, t)
-		case db.PhaseCreated:
-			// 已立（§5.3 钦定行）：等 CTO-A 唤起，补发 spawn 事件。
-			// req_pending 泊车票机械抑制（§1.4）：最新事件为 req_pending 的票
-			// 是「需求待裁」摆位，补发会无头重派空转——跳过，等 CEO redirect。
-			if k, err := g.database.LatestEventKind(ctx, t.ID); err == nil &&
-				k == string(db.EdgeReqPending) {
-				continue
-			}
-			_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-				Actor: "gateway", Note: "对账补发: " + spawnLine(t.Phase),
-			})
-			// patrol-* 值班票恒巡检（D-54 同径，已立行漏覆写——票0039
-			// 锚③）：立票即唤 CTO 会把系统票喂进业务流水线。
-			role := "CTO"
-			if strings.HasPrefix(t.ID, "patrol-") {
-				role = "巡检"
-			}
-			g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
+		case db.PhaseToDeploy:
+			pendingDeploy++
+		case db.PhaseWorking, db.PhaseDesigning:
+			pipelineBusy = true
 		}
 	}
-	// D-55 孤儿收尸：行动者对账只覆盖票上相位行动者——adjunct 席与
-	// 终态票残留席 pid 死后 dead=0 永续悬挂，adjunct 去重闸还会拿
-	// 尸体永久挡新席派发（巡检 adjunct pid 死两行挂 dead=0 实证）。
-	// 非 adjunct 相位行动者已由上方票环处置（回队语义在），此处只收
-	// 票环漏网的：adjunct 席 + 终态/无票席。
-	runs, err := g.database.ActiveRuns(ctx)
-	if err == nil {
+	deployGateOpen := pendingDeploy >= 5 || !pipelineBusy
+
+	for _, t := range tickets {
+		if t.Phase == db.PhaseBlocked || t.BudgetFrozen {
+			continue // 人工态/冻票零动作
+		}
+		if g.parkedTicket(ctx, t) {
+			continue
+		}
+		role, wantSeat := desiredFor(t)
+		if !wantSeat {
+			continue
+		}
+		if t.Phase == db.PhaseToDeploy && !deployGateOpen {
+			continue // 批部署闸：不足批且流水线忙——挂起不派
+		}
+		g.reconcileTicket(ctx, t, role)
+	}
+	// D-55 孤儿收尸：adjunct 席/终态票残留席 pid 死→dead=0 悬挂，连尸收。
+	if runs, err := g.database.ActiveRuns(ctx); err == nil {
 		for _, r := range runs {
 			if r.PID <= 0 || processAlive(r.PID) {
 				continue
 			}
 			_ = g.database.MarkDead(ctx, r.RunID)
 			killRunGroup(r.PID)
-			// T18②：孤儿席（不走 onRunDead）secrets 目录连收——
-			// 凭据作用域=run 生命周期，收尸漏净属凭据残面；
-			// wipeSecretsDir 先回权限位再删。
 			g.wipeSecretsDir(r.RunID)
-			g.cleanSeatResidue(r) // T27④：插座+工作区随收尸连清
+			g.cleanSeatResidue(r)
 			kind := "seat_dead"
 			if r.Adjunct {
 				kind = "adjunct_dead"
 			}
 			_ = g.database.AppendEvent(ctx, r.TicketID, kind, db.Event{
-				Actor: "gateway", Note: "对账收尸: pid 已死 " + r.RunID,
-			})
+				Actor: "gateway", Note: "对账收尸: pid 已死 " + r.RunID})
 			g.emit(Event{Kind: kind, TicketID: r.TicketID, RunID: r.RunID, Role: r.Role})
 		}
 	}
-	// B1 设计锁启动重建（§1.8）：设计链在途票（设计中/已派/施工中）且有
-	// 活 CTO run 者照相位恢复持锁——run 已死者随回队径自然不占（锁语义
-	// ＝持锁票离开施工中/终态释放，见 transition）。
+	// B1 设计锁重建（§1.8）：设计链在途票有活 CTO run→照相位恢复持锁。
 	for _, t := range tickets {
 		switch t.Phase {
 		case db.PhaseDesigning, db.PhaseAssigned, db.PhaseWorking:
@@ -112,161 +237,150 @@ func (g *Gateway) reconcile(ctx context.Context) {
 	}
 }
 
-// spawnLine 无行动者相位→spawn_needed note 支线标（§14 半结构契约消费端＝
-// 路由表 note_contains）：已立→CTO-A 设计支，待部署→CTO-B 部署支，
-// 余相位＝角色本名（施工/审计）。
-func spawnLine(p db.Phase) string {
-	switch p {
-	case db.PhaseCreated:
-		return "CTO-A"
-	case db.PhaseToDeploy:
-		return "CTO-B"
-	}
-	return roleForPhase(p)
-}
-
-// roleForPhase 无行动者相位→下一步该起的角色。
-func roleForPhase(p db.Phase) string {
-	switch p {
-	case db.PhaseAssigned:
-		return "施工"
-	case db.PhaseReview:
-		return "审计"
-	case db.PhaseToDeploy:
-		return "CTO" // 部署归 CTO-B
-	}
-	return ""
-}
-
-// reconcileActor 有行动者相位：收养或回队。
-func (g *Gateway) reconcileActor(ctx context.Context, t *db.Ticket) {
+// reconcileTicket 单票对齐：actual 活着收养/跳过；缺则按失败表起或停。
+func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string) {
 	run, _ := g.database.ActiveRunForTicket(ctx, t.ID)
-	if run != nil && g.tryAdopt(ctx, run) {
-		_ = g.database.MarkAdopted(ctx, run.RunID)
-		st := newRunState(run)
-		st.adopted = true
+	if run != nil {
 		g.mu.Lock()
-		g.runs[run.RunID] = st
+		inFlight := g.runs[run.RunID] != nil
 		g.mu.Unlock()
-		g.rearmAlarm(ctx, t.ID) // 闹钟自 ticket_event 重算（A4）
-		_ = g.database.AppendEvent(ctx, t.ID, "adopted", db.Event{
-			Actor: "gateway", Note: "对账收养 " + run.RunID,
-		})
-		g.emit(Event{Kind: "adopted", TicketID: t.ID, RunID: run.RunID, Role: run.Role})
+		// actual 存在＝进程活着（SIGCHLD/EOF 前的在管态）——desired==actual 对齐；
+		// 未接管的重启遗留 run 收养一次（对账自产 adopted 事件只此一处，幂等）。
+		if inFlight || (run.PID > 0 && processAlive(run.PID)) {
+			if !inFlight && g.tryAdopt(ctx, run) {
+				_ = g.database.MarkAdopted(ctx, run.RunID)
+				st := newRunState(run)
+				st.adopted = true
+				g.mu.Lock()
+				g.runs[run.RunID] = st
+				g.mu.Unlock()
+				_ = g.database.AppendEvent(ctx, t.ID, "adopted", db.Event{
+					Actor: "gateway", Note: "对账收养 " + run.RunID})
+				g.emit(Event{Kind: "adopted", TicketID: t.ID, RunID: run.RunID, Role: run.Role})
+			}
+			// 收养口不通但进程在＝保守跳过（不杀不派——避免误杀活席）。
+			// 收养席的进度帧超时（闹钟随重启失）由期窗 stall 账顶：
+			// LastActivityAt+ProgressTimeout 过期→stall_suspect→失败表判。
+			if la, err := g.database.LastActivityAt(ctx, t.ID); err == nil &&
+				!la.IsZero() && time.Since(la) > g.cfg.ProgressTimeout {
+				g.onStall(t.ID)
+			}
+			return
+		}
+		// 进程已消＝actual 缺——标死放新席。
+		_ = g.database.MarkDead(ctx, run.RunID)
+	}
+	// actual 缺。Working 相位行动者角色由最近 run 血统定（非 adjunct）。
+	if t.Phase == db.PhaseWorking {
+		if er, err := g.database.LatestRunForTicket(ctx, t.ID); err == nil && er != nil && er.Role != "" {
+			role = er.Role
+		} else {
+			role = "施工"
+		}
+	}
+	// 部署中席死先排干哨兵：done/账齐/态判→deploy_done 完成边（非失败）。
+	if t.Phase == db.PhaseDeploying && g.deployDyingTicketClose(ctx, t, run) {
 		return
 	}
-	if run != nil {
-		_ = g.database.MarkDead(ctx, run.RunID)
-		// D-55：标死连坐杀进程组——只改库行时错配席进程照跑烧 token
-		// （req-f88 错派施工席标死后仍在跑的实证）。
-		killRunGroup(run.PID)
+	// 失败表：期窗内同类失败计数 vs 行上限。
+	evs, _ := g.database.Events(ctx, t.ID)
+	epoch := epochEvents(evs)
+	epochStart := time.Time{}
+	if len(evs) > len(epoch) {
+		epochStart = evs[len(evs)-len(epoch)-1].CreatedAt
 	}
-	var to db.Phase
-	var kind db.EdgeKind
-	switch t.Phase {
-	case db.PhaseWorking:
-		to, kind = db.PhaseAssigned, db.EdgeRequeue
-		// D-51/54：施工中相位混三类行动者——CTO 设计席（req*/设计票）、
-		// 施工席、巡检席（patrol-*）。行动者角色真源＝活 run 或最近
-		// 非 adjunct run（相位推角色一律回已派补施工＝req-f88/巡检票
-		// 双实证错配；取最近不取最早——票合法换角色后最早行是过期
-		// 血统）。CTO→回 已立 补 CTO-A；巡检→回已派补巡检
-		// （补发角色由 patrol- 前缀行给出）；余→施工。
-		actorRole := ""
-		if run != nil {
-			actorRole = run.Role
-		} else if er, err := g.database.LatestRunForTicket(ctx, t.ID); err == nil && er != nil {
-			actorRole = er.Role
+	kind := lastFailure(epoch)
+	rule := g.ruleFor(kind)
+	if kind != "" {
+		n := failCount(epoch, kind)
+		switch {
+		case rule.Action == "blocked":
+			g.blockTicket(ctx, t.ID, "未知/禁动失败 kind="+kind+"——人工裁定")
+			return
+		case rule.Cap > 0 && n > rule.Cap && rule.Action != "retry_same" &&
+			rule.Action != "next_shell" && rule.Action != "shell_dead_next":
+			// 有帽动作（same_shell/kill_respawn/rollback/freeze）到限→blocked
+			g.blockTicket(ctx, t.ID, fmt.Sprintf("失败表到限 kind=%s 计数=%d>cap=%d：%s",
+				kind, n, rule.Cap, rule.Action))
+			return
+		case rule.Action == "retry_same" && n > rule.Cap:
+			rule.Action = "next_shell" // 同壳退避用尽→换壳
 		}
-		switch actorRole {
-		case "CTO":
-			to, kind = db.PhaseCreated, db.EdgeDesignDead
-		case "巡检":
-			// to=已派 保持；补发角色由 patrol- 前缀行覆写为 巡检。
-		}
-	case db.PhaseDesigning:
-		to, kind = db.PhaseCreated, db.EdgeDesignDead
-	case db.PhaseAuditing:
-		to, kind = db.PhaseReview, db.EdgeAuditDead
-	case db.PhaseDeploying:
-		to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
 	}
-	// 0034-p3 态判＋0044 排干：deploy restart 灭席是必然——收口不看席
-	// 死活看态：死席 sentinel.log 末条 META_DEPLOY 先定边（done→完成；
-	// failed→哨兵在盘翻负），无终哨兵再查 deployStateOK——双路俱无据
-	// 才照旧 deploy_failed（回滚态未核，D-2 不退）。排干先于态判——
-	// boot 序 socket/Probe 结构性红不挡盘上哨兵。
+	// 行动→spec 推导（纯函数：票面+角色+项目配方，重启零丢失）。
+	spec := g.deriveSpec(ctx, t, role, rule, epoch, epochStart)
+	// 去重/相位闸拒＝已对齐（活席在或相位已走）——静默收敛不落账。
+	_ = g.DispatchSeat(ctx, t.ID, role, spec)
+}
+
+// deployDyingTicketClose 部署中死席收口判（0044 排干语义并入调和器）：
+// 哨兵 done／四步账齐／态判绿→deploy_done；failed 哨兵在盘→失败表 deploy
+// 路径照走。返回 true＝票已收口不再走派径。
+func (g *Gateway) deployDyingTicketClose(ctx context.Context, t *db.Ticket, run *db.Run) bool {
 	sentinel := ""
-	if t.Phase == db.PhaseDeploying && run != nil {
+	if run != nil {
 		sentinel = g.drainDeploySentinel(run.RunID)
 	}
-	if t.Phase == db.PhaseDeploying {
-		switch {
-		case sentinel == "done":
-			if g.deployDone(ctx, t.ID,
-				"对账排干：META_DEPLOY:done 在盘（席死）") {
-				return
-			}
-		case sentinel == "" && g.deployStepsDone(ctx, t.ID):
-			// T26 病4：哨兵蒸发/席死径绕开判定——四步 cmd_run 账齐即落。
-			if g.deployDone(ctx, t.ID,
-				"对账账判：四步 cmd_run 齐绿（哨兵缺席不挡收口）") {
-				return
-			}
-		case sentinel == "" && g.deployStateOK(ctx, t.ID):
-			if g.deployDone(ctx, t.ID,
-				"对账态判：已装+socket健康→deploy_ok") {
-				return
-			}
-		}
+	switch {
+	case sentinel == "done":
+		return g.deployDone(ctx, t.ID, "调和排干：META_DEPLOY:done 在盘（席死）")
+	case sentinel == "" && g.deployStepsDone(ctx, t.ID):
+		return g.deployDone(ctx, t.ID, "调和账判：四步 cmd_run 齐绿（哨兵缺席不挡收口）")
+	case sentinel == "" && g.deployStateOK(ctx, t.ID):
+		return g.deployDone(ctx, t.ID, "调和态判：已装+socket健康→deploy_ok")
+	case sentinel == "failed":
+		// 终哨兵负＝回滚已在四步径执行→deploy_failed 账＋blocked。
+		note := "调和排干：哨兵在盘 META_DEPLOY:failed——回滚已执行"
+		_ = g.database.AppendEvent(ctx, t.ID, "deploy_failed", db.Event{
+			Actor: "gateway", Note: note})
+		g.emit(Event{Kind: "deploy_failed", TicketID: t.ID})
+		g.blockTicket(ctx, t.ID, note)
+		return true
+	case sentinel == "":
+		// 席死无据→deploy_failed 账留给期窗计数（rollback≤1 由表判）。
+		_ = g.database.AppendEvent(ctx, t.ID, "deploy_failed", db.Event{
+			Actor: "gateway", Note: "席死无终哨兵无据——先核回滚态"})
 	}
-	note := "对账：行动者无响应"
-	if t.Phase == db.PhaseDeploying {
-		// D-2：部署中对账死＝部署失败（回滚态未核）——note 留取证线索。
-		logPath := ""
-		if run != nil {
-			logPath = " log=" + run.LogPath
-		}
-		note = fmt.Sprintf("对账：行动者无响应——先核回滚态 run=%s%s",
-			runIDOf(run), logPath)
-		if sentinel == "failed" {
-			note = fmt.Sprintf("对账排干：哨兵在盘 META_DEPLOY:failed——先核回滚态 run=%s%s",
-				runIDOf(run), logPath)
-		}
-	}
-	if err := g.transition(ctx, t.ID, to, kind, "gateway", note); err != nil {
-		return
-	}
-	runID := ""
-	if run != nil {
-		runID = run.RunID
-	}
-	g.emit(Event{Kind: "requeue", TicketID: t.ID, RunID: runID, Note: "对账回队→" + string(to)})
-	// 回队后新相位落入无行动者集，补 spawn 事件。deploy_failed 本票
-	// 不补——回 待部署 归 CEO 裁（锁已由 transition 释放侧放掉）。
-	if kind == db.EdgeDeployFailed {
-		return
-	}
-	// 补发角色由回退后相位定（D-51 修后：设计席死回 已立→CTO，与主环
-	// PhaseCreated 支同契约）；note 用 spawnLine 支线标——§14 半结构
-	// 契约消费端＝路由表 note_contains（已立行须「CTO-A」非角色本名）。
-	// patrol-* 值班票恒巡检（票0030 实证：phase 映射不含巡逻角色）。
-	role := roleForPhase(to)
-	if to == db.PhaseCreated {
-		role = "CTO"
-	}
-	line := spawnLine(to)
-	if strings.HasPrefix(t.ID, "patrol-") {
-		role, line = "巡检", "巡检"
-	}
-	if role != "" {
-		_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "对账补发: " + line,
-		})
-		g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: role})
-	}
+	return false
 }
 
+// deriveSpec 派发参数纯推导（v2 §3.3-A）：(票面,角色,项目配方,失败表行)→
+// SeatSpec——无内存表依赖，重启零丢失。WorkDir＝项目 repo_url 或 /opt/meta；
+// CliDrive＝部署支钦定径；PromptFile 空→走注入机组装。
+func (g *Gateway) deriveSpec(ctx context.Context, t *db.Ticket, role string,
+	rule FailureRule, epoch []*db.Event, epochStart time.Time) SeatSpec {
+	spec := SeatSpec{Provenance: "reconcile"}
+	spec.WorkDir = "/opt/meta"
+	if t.Project != "" {
+		if p, err := g.database.GetProject(ctx, t.Project); err == nil && p != nil && p.RepoURL != "" {
+			spec.WorkDir = p.RepoURL
+		}
+	}
+	if role == "CTO" && t.Phase == db.PhaseToDeploy {
+		spec.CliDrive = true // T26：部署支钦定机械四步径
+	}
+	switch rule.Action {
+	case "same_shell", "retry_same":
+		// 同壳重做/退避同壳：prefer＝本票最近非 adjunct run 壳名。
+		if rs, err := g.database.RunsForTicket(ctx, t.ID); err == nil {
+			for i := len(rs) - 1; i >= 0; i-- {
+				if !rs[i].Adjunct && rs[i].Shell != "" {
+					spec.PreferShell = shellNameOf(rs[i].Shell)
+					break
+				}
+			}
+		}
+	case "next_shell", "kill_respawn", "shell_dead_next":
+		// 换壳：本相位期窗死壳名入排除集（failSet 退役——DB 推导）。
+		spec.Env = nil
+		if failed := g.failedShells(ctx, t, epochStart); len(failed) > 0 {
+			spec.exclude = failed
+		}
+	}
+	return spec
+}
+
+// runIDOf 防御小件。
 func runIDOf(r *db.Run) string {
 	if r == nil {
 		return ""
@@ -274,18 +388,10 @@ func runIDOf(r *db.Run) string {
 	return r.RunID
 }
 
-// rearmAlarm deadline 取自 ticket_event 最近活性帧（§5.3 闹钟重算）：
-// 已过期→clock.Alarm 立即响；未过期→设到原 deadline。防崩溃循环饿死卡死检测。
-func (g *Gateway) rearmAlarm(ctx context.Context, ticketID string) {
-	last, err := g.database.LastActivityAt(ctx, ticketID)
-	if err != nil {
-		last = time.Now()
-	}
-	g.armAlarm(ticketID, last.Add(g.cfg.ProgressTimeout))
-}
-
 // tryAdopt 收养互证（§5.1 D2）：连 per-seat UDS，首帧出示 run_token——
 // 它发的它知道。单次有界尝试：连不上/拒收＝行动者判死，不重试不轮询。
+// T35：收养续命 armAlarm 径已删——收养席的进度超时由调和器周期查
+// LastActivityAt 顶账（stall_suspect 失败表行接管）。
 func (g *Gateway) tryAdopt(ctx context.Context, run *db.Run) bool {
 	conn, err := grpc.NewClient("unix:"+run.SocketPath,
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -301,4 +407,26 @@ func (g *Gateway) tryAdopt(ctx context.Context, run *db.Run) bool {
 		return false
 	}
 	return true
+}
+
+var _ = strings.TrimSpace // 占位防未用（strings 供后续判读需要）
+var _ = runIDOf
+
+// budgetWarned 本尝试已发过 budget_warn 判——锚点＝票上最近一条 run 的
+// StartedAt（幂等 claim 不重发边，claim 锚不可依赖）；事件账即边沿触发源。
+func (g *Gateway) budgetWarned(ctx context.Context, ticketID string) bool {
+	base := time.Time{}
+	if r, err := g.database.LatestRunForTicket(ctx, ticketID); err == nil && r != nil {
+		base = r.StartedAt
+	}
+	evs, err := g.database.Events(ctx, ticketID)
+	if err != nil {
+		return false
+	}
+	for _, e := range evs {
+		if e.Kind == "budget_warn" && e.CreatedAt.After(base) {
+			return true
+		}
+	}
+	return false
 }

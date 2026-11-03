@@ -31,8 +31,9 @@ func TestT26_RouteTableCliDrive(t *testing.T) {
 			}
 		}
 	}
-	if !toDeploy {
-		t.Fatal("spawn_needed CTO-B 消费行未钦定 cli_drive")
+	_ = toDeploy // T35：spawn_needed CTO-B 消费行随补发链删净
+	if toDeploy {
+		t.Fatal("spawn_needed CTO-B 消费行应已删净")
 	}
 	if !auditPass {
 		t.Fatal("audit_pass 部署派发行未钦定 cli_drive")

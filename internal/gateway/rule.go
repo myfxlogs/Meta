@@ -41,22 +41,8 @@ func (g *Gateway) handleRule(ctx context.Context, st *runState, r *pbv1.Rule) er
 func (g *Gateway) ruleKillRequeue(ctx context.Context, tid string, st *runState, note string) {
 	run, _ := g.database.ActiveRunForTicket(ctx, tid)
 	if run == nil {
-		if phase, _ := g.database.PhaseOf(ctx, tid); phase == db.PhaseWorking {
-			_ = g.transition(ctx, tid, db.PhaseAssigned, db.EdgeRequeue,
-				"gateway", "裁决：无活席补回队")
-			g.cancelAlarm(tid)
-			g.emit(Event{Kind: "requeue", TicketID: tid})
-		}
+		// 无活席＝幂等——相位卡留原位，调和器补位（不再就地回队）。
 	} else {
-		// 对抗性锚提名行：施工壳键进 failSet——删则同壳重派不换壳。
-		key := g.failKeyForRun(run)
-		g.mu.Lock()
-		if g.failSet[tid] == nil {
-			g.failSet[tid] = map[string]bool{}
-		}
-		g.failSet[tid][key] = true
-		g.mu.Unlock()
-
 		st2 := g.bindRun(run)
 		st2.killByGW = true // 网关令杀＝非壳之错，不罚健康（§5.2 换壳不判死）
 		g.killRun(st2)
@@ -82,6 +68,8 @@ func (g *Gateway) ruleDefer(ctx context.Context, tid string, st *runState, note 
 		Actor: "gateway", Note: "延期帽 K 已尽，等你发落",
 	})
 	g.emit(Event{Kind: "defer_limit", TicketID: tid})
+	// T35 失败表：延期帽尽→blocked 人工态。
+	g.blockTicket(ctx, tid, "延期帽尽（defer_limit）")
 }
 
 // ruleLanded ruling 落账：裁决已执+动作+理由（§1.4——入表可配通知，

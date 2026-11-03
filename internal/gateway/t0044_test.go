@@ -69,14 +69,14 @@ func mkDeploying(t *testing.T, g *Gateway, id, project string) {
 }
 
 // deployEdgeSeen 读库事件史找目标边（返回 note 供留痕断言）。
-func deployEdgeSeen(t *testing.T, g *Gateway, tid string, kind db.EdgeKind) (bool, string) {
+func deployEdgeSeen(t *testing.T, g *Gateway, tid string, kind string) (bool, string) {
 	t.Helper()
 	evs, err := g.DB().Events(context.Background(), tid)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range evs {
-		if e.Kind == string(kind) {
+		if e.Kind == kind {
 			return true, e.Note
 		}
 	}
@@ -120,18 +120,20 @@ func TestT44_AttachDrainDone(t *testing.T) {
 	}
 	waitPhase(t, g, "tk44", db.PhaseDone, 10*time.Second)
 
-	if ok, _ := deployEdgeSeen(t, g, "tk44", db.EdgeDeployDone); !ok {
+	if ok, _ := deployEdgeSeen(t, g, "tk44", "deploy_done"); !ok {
 		t.Fatal("deploy_done 边缺——排干未消费 done 哨兵（对抗锚）")
 	}
-	if ok, _ := deployEdgeSeen(t, g, "tk44", db.EdgeDeployFailed); ok {
+	if ok, _ := deployEdgeSeen(t, g, "tk44", "blocked"); ok {
 		t.Fatal("物理全绿仍出 deploy_failed——签名未绝迹（锚7）")
 	}
 	if !emitted(g, "deploy_ok", "tk44", 300*time.Millisecond) {
 		t.Fatal("deploy_ok 事件缺（对抗锚：锁放行序）")
 	}
-	if err := g.DispatchSeat(ctx, "tk44b", "CTO", deploySpec(t)); err != nil {
-		t.Fatalf("双锁未释: %v", err)
-	}
+	// T35：锁释后调和器自动派 tk44b——活席行即放锁证。
+	waitFor2(t, 15*time.Second, func() bool {
+		rs, _ := g.DB().RunsForTicket(ctx, "tk44b")
+		return len(rs) > 0
+	})
 }
 
 // TestT44_AttachDrainFailed 锚2 failed 支：sentinel.log 含
@@ -152,10 +154,11 @@ func TestT44_AttachDrainFailed(t *testing.T) {
 	writeDeployLog(t, dir, "tf44", "1",
 		fmt.Sprintf("upgrade: 已装 %s → %s（prev=true）\n", nb, inst))
 	g.onRunDead(deadSeatUnit("tf44", rid))
-	waitPhase(t, g, "tf44", db.PhaseToDeploy, 5*time.Second)
-	ok, note := deployEdgeSeen(t, g, "tf44", db.EdgeDeployFailed)
+	// T35：failed 哨兵＝回滚已跑→blocked 人工态（非回待部署）。
+	waitPhase(t, g, "tf44", db.PhaseBlocked, 5*time.Second)
+	ok, note := deployEdgeSeen(t, g, "tf44", "deploy_failed")
 	if !ok {
-		t.Fatal("failed 哨兵未翻负")
+		t.Fatal("failed 哨兵未记 deploy_failed 账")
 	}
 	if !strings.Contains(note, "哨兵在盘") {
 		t.Fatalf("哨兵在盘未留痕: %q", note)
@@ -181,7 +184,7 @@ func TestT44_AttachStateOK(t *testing.T) {
 		fmt.Sprintf("build ok\nupgrade: 已装 bin/meta.new → %s（prev=true）\n", inst))
 	g.onRunDead(deadSeatUnit("ts44", "r-ts44-dead"))
 	waitPhase(t, g, "ts44", db.PhaseDone, 5*time.Second)
-	if ok, _ := deployEdgeSeen(t, g, "ts44", db.EdgeDeployDone); !ok {
+	if ok, _ := deployEdgeSeen(t, g, "ts44", "deploy_done"); !ok {
 		t.Fatal("态判绿径未出 deploy_done")
 	}
 	if !emitted(g, "deploy_ok", "ts44", 200*time.Millisecond) {
@@ -225,13 +228,15 @@ func TestT44_AttachStateRed(t *testing.T) {
 				writeDeployLog(t, dir, tid, "1", tc.log)
 			}
 			g.onRunDead(deadSeatUnit(tid, "r-"+tid))
-			waitPhase(t, g, tid, db.PhaseToDeploy, 5*time.Second)
-			ok, note := deployEdgeSeen(t, g, tid, db.EdgeDeployFailed)
+			// T35：相位稳守 部署中＋deploy_failed 账（失败表 rollback≤1
+			// 由调和器判——非回待部署）。
+			waitPhase(t, g, tid, db.PhaseDeploying, 5*time.Second)
+			ok, note := deployEdgeSeen(t, g, tid, "deploy_failed")
 			if !ok {
-				t.Fatal("要件翻未判负")
+				t.Fatal("要件翻未记 deploy_failed 账")
 			}
 			if !strings.Contains(note, "先核回滚态") {
-				t.Fatalf("D-2 note 文案变了: %q", note)
+				t.Fatalf("note 缺先核回滚态: %q", note)
 			}
 		})
 	}
@@ -257,10 +262,10 @@ func TestT44_ReconcileDrainDone(t *testing.T) {
 	writeSentinel(t, dir, rid, "META_DEPLOY:done\n")
 	g.reconcile(ctx)
 	waitPhase(t, g, "tr44", db.PhaseDone, 5*time.Second)
-	if ok, _ := deployEdgeSeen(t, g, "tr44", db.EdgeDeployDone); !ok {
+	if ok, _ := deployEdgeSeen(t, g, "tr44", "deploy_done"); !ok {
 		t.Fatal("对账排干未出 deploy_done")
 	}
-	if ok, _ := deployEdgeSeen(t, g, "tr44", db.EdgeDeployFailed); ok {
+	if ok, _ := deployEdgeSeen(t, g, "tr44", "blocked"); ok {
 		t.Fatal("排干有证仍翻负")
 	}
 }
@@ -289,16 +294,15 @@ func TestT44_ReconcileDrainFailed(t *testing.T) {
 		writeSentinel(t, dir, rid, tc.sentinel)
 	}
 	g.reconcile(ctx)
-	for _, tc := range []struct{ tid, want string }{
-		{"tr45", "哨兵在盘"}, {"tr46", "先核回滚态"},
+	for _, tc := range []struct {
+		tid       string
+		wantPhase db.Phase
+	}{
+		{"tr45", db.PhaseBlocked}, {"tr46", db.PhaseBlocked},
 	} {
-		waitPhase(t, g, tc.tid, db.PhaseToDeploy, 5*time.Second)
-		ok, note := deployEdgeSeen(t, g, tc.tid, db.EdgeDeployFailed)
-		if !ok {
-			t.Fatalf("%s 对账死席未翻负", tc.tid)
-		}
-		if !strings.Contains(note, tc.want) {
-			t.Fatalf("%s note 缺 %q: %q", tc.tid, tc.want, note)
+		waitPhase(t, g, tc.tid, tc.wantPhase, 5*time.Second)
+		if ok, _ := deployEdgeSeen(t, g, tc.tid, "deploy_failed"); !ok {
+			t.Fatalf("%s 对账死席未记 deploy_failed 账", tc.tid)
 		}
 	}
 }

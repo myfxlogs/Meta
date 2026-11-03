@@ -36,7 +36,7 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 	var verdicts []string
 	if evs, err := g.database.Events(ctx, ticketID); err == nil {
 		for _, e := range evs {
-			if e.Kind == string(db.EdgeReject) || e.Kind == string(db.EdgeYield) {
+			if e.Kind == string(db.EdgeReject) || e.Kind == "yield" || e.Kind == string(db.EdgeReqPending) {
 				verdicts = append(verdicts,
 					fmt.Sprintf("- %s: %s（%s）", e.Kind, e.Note, e.CreatedAt.Format("01-02 15:04")))
 			}

@@ -14,6 +14,7 @@ const (
 	PhaseAuditing  Phase = "审计中"
 	PhaseToDeploy  Phase = "待部署"
 	PhaseDeploying Phase = "部署中"
+	PhaseBlocked   Phase = "blocked" // v2 §3.3-B 人工态：一条通知后零动作待人回话
 	PhaseDone      Phase = "完成"
 	PhaseVoid      Phase = "作废"
 )
@@ -39,13 +40,10 @@ const (
 	EdgeAuditPass    EdgeKind = "audit_pass"    // 审计中→待部署：判决通过
 	EdgeDeployStart  EdgeKind = "deploy_start"  // 待部署→部署中：起部署实例
 	EdgeDeployDone   EdgeKind = "deploy_done"   // 部署中→完成：三锚全绿
-	EdgeRequeue      EdgeKind = "requeue"       // 施工中→已派：席死/卡死/换壳回队
 	EdgeReject       EdgeKind = "reject"        // 审计中→已派：驳回（同壳重做）
-	EdgeDesignDead   EdgeKind = "design_dead"   // 补边：设计中→已立（CTO 席死）
-	EdgeDeployFailed EdgeKind = "deploy_failed" // 补边：部署中→待部署（失败+已回滚）
-	EdgeAuditDead    EdgeKind = "audit_dead"    // 补边：审计中→待审（审计席死，不计驳回）
-	EdgeYield        EdgeKind = "yield"         // 补边：施工中→已派（Yield，理由入判决史）
 	EdgeReqPending   EdgeKind = "req_pending"   // 补边：施工中→已立（CTO-A 需求待裁泊车，阶段3 唯一新增边）
+	EdgeBlocked      EdgeKind = "blocked"       // v2：任一非终态→blocked（失败表到限人工态）
+	EdgeResume       EdgeKind = "resume"        // v2：blocked→原相位（人工放行）
 	EdgeVoid         EdgeKind = "void"          // 任一非终态→作废（CEO 令）
 )
 
@@ -56,7 +54,9 @@ type Edge struct {
 	Kind EdgeKind
 }
 
-// Edges §6.2 边表钦定全边：主链 8 边＋回队/驳回＋补边 4 条＋非终态×作废 8 条。
+// Edges v2 §4 钦定边表（T35 收缩）：主链 8 边＋reject＋req_pending＋
+// blocked/resume/void 机制边——回队自动重派与设计中/审计中/部署中席死回边
+// 全删（一切由调和器判；Yield＝blocked）。blocked 非终态不计行动者。
 var Edges = []Edge{
 	{PhaseCreated, PhaseDesigning, EdgeDesignStart},
 	{PhaseDesigning, PhaseAssigned, EdgeDispatch},
@@ -66,13 +66,26 @@ var Edges = []Edge{
 	{PhaseAuditing, PhaseToDeploy, EdgeAuditPass},
 	{PhaseToDeploy, PhaseDeploying, EdgeDeployStart},
 	{PhaseDeploying, PhaseDone, EdgeDeployDone},
-	{PhaseWorking, PhaseAssigned, EdgeRequeue},
 	{PhaseAuditing, PhaseAssigned, EdgeReject},
-	{PhaseDesigning, PhaseCreated, EdgeDesignDead},
-	{PhaseDeploying, PhaseToDeploy, EdgeDeployFailed},
-	{PhaseAuditing, PhaseReview, EdgeAuditDead},
-	{PhaseWorking, PhaseAssigned, EdgeYield},
 	{PhaseWorking, PhaseCreated, EdgeReqPending},
+
+	{PhaseCreated, PhaseBlocked, EdgeBlocked},
+	{PhaseDesigning, PhaseBlocked, EdgeBlocked},
+	{PhaseAssigned, PhaseBlocked, EdgeBlocked},
+	{PhaseWorking, PhaseBlocked, EdgeBlocked},
+	{PhaseReview, PhaseBlocked, EdgeBlocked},
+	{PhaseAuditing, PhaseBlocked, EdgeBlocked},
+	{PhaseToDeploy, PhaseBlocked, EdgeBlocked},
+	{PhaseDeploying, PhaseBlocked, EdgeBlocked},
+
+	{PhaseBlocked, PhaseCreated, EdgeResume},
+	{PhaseBlocked, PhaseDesigning, EdgeResume},
+	{PhaseBlocked, PhaseAssigned, EdgeResume},
+	{PhaseBlocked, PhaseWorking, EdgeResume},
+	{PhaseBlocked, PhaseReview, EdgeResume},
+	{PhaseBlocked, PhaseAuditing, EdgeResume},
+	{PhaseBlocked, PhaseToDeploy, EdgeResume},
+	{PhaseBlocked, PhaseDeploying, EdgeResume},
 
 	{PhaseCreated, PhaseVoid, EdgeVoid},
 	{PhaseDesigning, PhaseVoid, EdgeVoid},
@@ -82,6 +95,7 @@ var Edges = []Edge{
 	{PhaseAuditing, PhaseVoid, EdgeVoid},
 	{PhaseToDeploy, PhaseVoid, EdgeVoid},
 	{PhaseDeploying, PhaseVoid, EdgeVoid},
+	{PhaseBlocked, PhaseVoid, EdgeVoid},
 }
 
 // Can 机械判：边表内有 (from,to,kind) 即合法，否则拒。

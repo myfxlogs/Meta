@@ -185,6 +185,10 @@ func (g *Gateway) handleClaim(ctx context.Context, st *runState, c *pbv1.Claim) 
 	if st.run.Role == "CTO" && phase == db.PhaseToDeploy {
 		to, kind, idem = db.PhaseDeploying, db.EdgeDeployStart, db.PhaseDeploying
 	}
+	// T35 调和器重派径：部署中/设计中席重领＝幂等（相位稳守）。
+	if st.run.Role == "CTO" && (phase == db.PhaseDeploying || phase == db.PhaseDesigning) {
+		idem = phase
+	}
 	if phase == idem {
 		return nil // 收养后重领：幂等
 	}
@@ -237,17 +241,15 @@ func (g *Gateway) handleUsage(ctx context.Context, st *runState, u *pbv1.Usage) 
 	case b.Cap > 0 && b.Used >= b.Cap: // 对抗性锚提名行：尝试内 100% 比较
 		g.budgetStop(ctx, st)
 	case b.Cap > 0 && b.Used*5 >= b.Cap*4: // 80% 警（整数比较避浮点）
-		g.mu.Lock()
-		if !g.warned[tid] {
-			g.warned[tid] = true
-			g.mu.Unlock()
-			g.emit(Event{Kind: "budget_warn", TicketID: tid, RunID: st.run.RunID,
-				Note: fmt.Sprintf("尝试内用量 %d/%d", b.Used, b.Cap)})
-			_ = g.database.AppendEvent(ctx, tid, "budget_warn", db.Event{
-				Actor: "gateway", Note: fmt.Sprintf("used=%d cap=%d", b.Used, b.Cap)})
-		} else {
-			g.mu.Unlock()
+		// T35：warned 内存表退役——本尝试期窗（最近 claim 边后）无
+		// budget_warn 行才发，事件账即边沿判据，重启零丢失。
+		if g.budgetWarned(ctx, tid) {
+			break
 		}
+		g.emit(Event{Kind: "budget_warn", TicketID: tid, RunID: st.run.RunID,
+			Note: fmt.Sprintf("尝试内用量 %d/%d", b.Used, b.Cap)})
+		_ = g.database.AppendEvent(ctx, tid, "budget_warn", db.Event{
+			Actor: "gateway", Note: fmt.Sprintf("used=%d cap=%d", b.Used, b.Cap)})
 	}
 	return nil
 }
@@ -262,6 +264,8 @@ func (g *Gateway) budgetStop(ctx context.Context, st *runState) {
 		Actor: "gateway", Note: "尝试内用量达 100% 硬顶"})
 	g.emit(Event{Kind: "budget_stop", TicketID: st.run.TicketID, RunID: st.run.RunID})
 	g.killRun(st)
+	// T35：尝试内硬顶＝安全停人工态（P3：不是冻是 blocked——待人放行/作废）。
+	g.blockTicket(ctx, st.run.TicketID, "尝试内用量达 100% 硬顶")
 }
 
 // freezeTicket 票级硬顶：先杀后冻（§5.5 D8 钦定序）——席位仍活先按 100%
@@ -282,14 +286,13 @@ func (g *Gateway) freezeTicket(ctx context.Context, ticketID string, st *runStat
 	if err := g.database.SetBudgetFrozen(ctx, ticketID, true); err != nil {
 		return
 	}
-	g.mu.Lock()
-	g.frozen[ticketID] = true
-	g.mu.Unlock()
-	g.cancelAlarm(ticketID) // 取消未决闹钟；排队 spawn 事件由 dispatcher/emit 判弃
+	g.cancelAlarm(ticketID)
 	// D-34：先落行后 emit。
 	_ = g.database.AppendEvent(ctx, ticketID, "budget_frozen", db.Event{
 		Actor: "gateway", Note: "票级累计硬顶到达：先杀后冻"})
 	g.emit(Event{Kind: "budget_frozen", TicketID: ticketID})
+	// T35 失败表：预算到顶→冻→blocked 人工态。
+	g.blockTicket(ctx, ticketID, "票级预算硬顶——放行/重试/作废待人裁")
 }
 
 // handleDeliver 交付/判决（§15.5 码位表）：
@@ -337,11 +340,8 @@ func (g *Gateway) handleDeliver(ctx context.Context, st *runState, stream pbv1.S
 			return status.Error(codes.Internal, err.Error())
 		}
 		g.cancelAlarm(st.run.TicketID)
-		if d.Verdict == "reject" {
-			// 驳回重派施工径①（§15.2）：spec 仍在（键含 role）原 prefer 保；
-			// 径②路由表 reject→dispatch 施工在对账/重启失 spec 后补位。
-			g.enqueueSpawn(st.run.TicketID, "施工")
-		}
+		// T35：reject 后不就地重派——票回 已派，调和器下轮按失败表
+		// same_shell（≤3→blocked）起席。
 		return ack("verdict " + d.Verdict)
 	}
 	// CTO-B 部署支交付（票0010）：note 哨兵驱动边选择——对抗性锚 a 提名区：
@@ -359,7 +359,8 @@ func (g *Gateway) handleDeliver(ctx context.Context, st *runState, stream pbv1.S
 			case strings.Contains(d.Note, "META_DEPLOY:done"):
 				to, kind = db.PhaseDone, db.EdgeDeployDone
 			case strings.Contains(d.Note, "META_DEPLOY:failed"):
-				to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
+				// T35：部署哨兵负＝四步回滚已跑→blocked 人工态（非回待部署）
+				to, kind = db.PhaseBlocked, db.EdgeBlocked
 			default:
 				return status.Error(codes.InvalidArgument,
 					"部署席 Deliver 缺 META_DEPLOY:done|failed 哨兵")
@@ -401,8 +402,8 @@ func (g *Gateway) handleYield(ctx context.Context, st *runState, y *pbv1.Yield) 
 		return nil
 	}
 	// CTO-A Yield＝需求待裁（§1.4）：泊车边 施工中→已立（req_pending 行＝泊车标，
-	// 对账抑制补派）；其余角色照旧 施工中→已派。
-	to, kind := db.PhaseAssigned, db.EdgeYield
+	// 调和器抑制补派）；其余角色 v2 钦定 Yield＝blocked 人工态。
+	to, kind := db.PhaseBlocked, db.EdgeBlocked
 	if st.run.Role == "CTO" {
 		to, kind = db.PhaseCreated, db.EdgeReqPending
 	}
@@ -539,6 +540,8 @@ func (g *Gateway) onRunDead(st *runState) {
 			Role: st.run.Role})
 		return
 	}
+	_ = g.database.AppendEvent(ctx, st.run.TicketID, "seat_dead", db.Event{
+		Actor: "gateway", Note: "席死 " + st.run.RunID + " role=" + st.run.Role})
 	g.emit(Event{Kind: "seat_dead", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
 
 	if st.run.Role == "CEO" {
@@ -548,49 +551,40 @@ func (g *Gateway) onRunDead(st *runState) {
 	}
 
 	if st.attempt.Shell != "" && !st.killByGW {
-		// 中途死：壳级/机器级进本票 failSet 换下一壳（①不标健康）；
-		// 席位级死因 reportShell 内早退——只落 seat_err 不记壳账（D-40）。
+		// 中途死：壳级/机器级分级记 seat_err 账（席位级死因 reportShell
+		// 内早退——只落 seat_err 不记壳账）。
 		g.reportShell(ctx, st.run.TicketID, st.run.Role, st.attempt,
 			seat.ClassOfExit(st.exitCode), st)
 	}
-
-	phase, err := g.database.PhaseOf(ctx, st.run.TicketID)
-	if err != nil {
-		return
+	// T35：席死不就地转相位/重派/补发——相位保持（行动者缺），调和器
+	// 下轮读 seat_run 死账＋失败表决定起席还是 blocked。唯一例外：
+	// 待部署 CTO 席死未 claim——部署双锁在派发点取走，此处放还防永占。
+	if st.run.Role == "CTO" && !st.run.Adjunct {
+		if tk, err := g.database.GetTicket(ctx, st.run.TicketID); err == nil && tk != nil &&
+			tk.Phase == db.PhaseToDeploy {
+			g.releaseProjectLocks(ctx, tk.Project, st.run.TicketID, true,
+				lockIntegrate, lockDeploy)
+		}
 	}
-	var to db.Phase
-	var kind db.EdgeKind
-	note := "席位死亡：SIGCHLD+EOF 双源互证"
-	switch phase {
-	case db.PhaseWorking:
-		to, kind = db.PhaseAssigned, db.EdgeRequeue
-	case db.PhaseDesigning:
-		// 设计席死（钦定边 design_dead 活态补线）：回 已立＋补发 CTO-A 设计支。
-		to, kind = db.PhaseCreated, db.EdgeDesignDead
-	case db.PhaseAuditing:
-		to, kind = db.PhaseReview, db.EdgeAuditDead
-	case db.PhaseDeploying:
-		// D-2：部署中席死＝部署失败（回滚态未核）——deploy_failed 边回
-		// 待部署＋note 带「先核回滚态」与前任 run/日志线索，归 CEO 裁。
-		// 0044 两级判前置：先排干死席 sentinel.log 末条 META_DEPLOY 哨兵
-		// （done→deploy_done 完成边；failed→哨兵在盘翻负）；无终哨兵再查
-		// deployStateOK——绿→deploy_done＋双锁释；双路俱无据才照旧翻负
-		// （真败径 D-2 语义不退）。
-		to, kind = db.PhaseToDeploy, db.EdgeDeployFailed
-		note = fmt.Sprintf("部署中席死：先核回滚态（前任 run=%s log=%s）",
-			st.run.RunID, st.run.LogPath)
+	// 部署中席死先排干哨兵（done→deploy_done 收口；failed→失败表径，
+	// cli-drive 相位稳守——调和器按 clidrive_dead 账重派继任）。
+	if tk, err := g.database.GetTicket(ctx, st.run.TicketID); err == nil && tk != nil &&
+		tk.Phase == db.PhaseDeploying {
 		switch g.drainDeploySentinel(st.run.RunID) {
 		case "done":
-			if g.deployDone(ctx, st.run.TicketID,
-				"席死排干：META_DEPLOY:done 在盘") {
+			if g.deployDone(ctx, st.run.TicketID, "席死排干：META_DEPLOY:done 在盘") {
 				return
 			}
 		case "failed":
-			note = fmt.Sprintf("部署中席死：哨兵在盘 META_DEPLOY:failed——先核回滚态（前任 run=%s log=%s）",
-				st.run.RunID, st.run.LogPath)
+			// 终哨兵负＝四步径回滚已执行→记 deploy_failed 账＋blocked 人工态。
+			note := fmt.Sprintf("部署中席死：哨兵在盘 META_DEPLOY:failed——回滚已在四步径执行 run=%s",
+				st.run.RunID)
+			_ = g.database.AppendEvent(ctx, st.run.TicketID, "deploy_failed", db.Event{
+				Actor: "gateway", Note: note})
+			g.emit(Event{Kind: "deploy_failed", TicketID: st.run.TicketID})
+			g.blockTicket(ctx, st.run.TicketID, note)
+			return
 		default:
-			// T26 病4：哨兵蒸发时先查四步 cmd_run 账（持久跨 restart），
-			// 再落 deployStateOK 三要件——账齐即收口不依赖席位载体。
 			if g.deployStepsDone(ctx, st.run.TicketID) && g.deployDone(ctx,
 				st.run.TicketID, "席死径账判：四步 cmd_run 齐绿→deploy_ok") {
 				return
@@ -599,62 +593,20 @@ func (g *Gateway) onRunDead(st *runState) {
 				st.run.TicketID, "席死径态判：已装+socket健康→deploy_ok") {
 				return
 			}
-			// T31① cli-drive 相位稳定化：机械部署席死不等部署失败——
-			// 相位保持 部署中＋补发生成继任续步（旧径弹回待部署→继任
-			// exec 闸拒非部署中→秒退→再死不收敛，0048 三循环实证）。
-			// T26 闸语义不动（翻负只剥 cli-drive 支，AI 席 D-2 语义照走）。
 			if st.run.Shell == "cli-drive" {
-				note := "cli-drive 席死相位稳守部署中——补发继任续步 exit=" +
+				note := "cli-drive 席死相位稳守部署中——继任由调和器派 exit=" +
 					fmt.Sprint(st.exitCode)
 				_ = g.database.AppendEvent(ctx, st.run.TicketID, "clidrive_dead", db.Event{
 					Actor: "gateway", Note: note})
 				g.emit(Event{Kind: "clidrive_dead", TicketID: st.run.TicketID,
 					Role: "CTO", Note: note})
-				g.emit(Event{Kind: "spawn_needed", TicketID: st.run.TicketID,
-					Role: "CTO", Note: "cli-drive 死续 CTO-B"})
-				return
+			} else {
+				// 非机械部署席死无收口据→deploy_failed 账（失败表 rollback
+				// ≤1：调和器重派一轮，再败→blocked）。
+				_ = g.database.AppendEvent(ctx, st.run.TicketID, "deploy_failed", db.Event{
+					Actor: "gateway", Note: fmt.Sprintf("部署中席死无据——先核回滚态 run=%s", st.run.RunID)})
+				g.emit(Event{Kind: "deploy_failed", TicketID: st.run.TicketID})
 			}
 		}
-	case db.PhaseToDeploy:
-		// 部署席死在 claim 前（相位还没步行）：非部署失败＝机器失效——
-		// 放锁＋给本票补 spawn（重试径；failSet 已分级换壳，壳尽自然停）。
-		if st.run.Role == "CTO" {
-			if tk, err := g.database.GetTicket(ctx, st.run.TicketID); err == nil && tk != nil {
-				g.releaseProjectLocks(ctx, tk.Project, st.run.TicketID, true,
-					lockIntegrate, lockDeploy)
-				_ = g.database.AppendEvent(ctx, st.run.TicketID, "spawn_needed", db.Event{
-					Actor: "gateway", Note: "锁释补发: CTO-B"})
-				g.emit(Event{Kind: "spawn_needed", TicketID: st.run.TicketID, Role: "CTO"})
-			}
-		}
-		return
-	default:
-		return
-	}
-	if err := g.transition(ctx, st.run.TicketID, to, kind,
-		"gateway", note); err != nil {
-		return
-	}
-	g.cancelAlarm(st.run.TicketID)
-	if kind == db.EdgeDeployFailed {
-		return // 部署失败不自动重派：回 待部署＋事件，归 CEO 裁
-	}
-	g.emit(Event{Kind: "requeue", TicketID: st.run.TicketID, RunID: st.run.RunID,
-		Role: st.run.Role})
-	// 设计席死：票已回 已立——不走内部 spawn 队（claim 边须由 Dispatch 走边
-	// 拉起），补发 spawn_needed 经路由表 CTO-A 行消费（与 audit_dead 同构）。
-	if kind == db.EdgeDesignDead {
-		_ = g.database.AppendEvent(ctx, st.run.TicketID, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "对账补发: CTO-A"})
-		g.emit(Event{Kind: "spawn_needed", TicketID: st.run.TicketID, Role: "CTO"})
-		return
-	}
-	// 回队即重派（换壳 redo；审计席死→重起审计——spec 在则秒接，失则
-	// 路由表 audit_dead→dispatch 审计补位）；预算硬停摆位与冻票不重派。
-	g.mu.Lock()
-	frozen := g.frozen[st.run.TicketID]
-	g.mu.Unlock()
-	if !st.noRespawn && !frozen {
-		g.enqueueSpawn(st.run.TicketID, st.run.Role)
 	}
 }

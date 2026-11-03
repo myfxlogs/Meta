@@ -315,7 +315,8 @@ func TestDeploy_RedRollback(t *testing.T) {
 		t.Fatalf("rollback 应跑: %+v", r)
 	}
 	d.deliver(t, "META_DEPLOY:failed")
-	waitPhase(t, g, "tf", db.PhaseToDeploy, 5*time.Second)
+	// T35：部署哨兵负＝回滚已跑→blocked 人工态。
+	waitPhase(t, g, "tf", db.PhaseBlocked, 5*time.Second)
 
 	runs, _ := g.DB().CmdRuns(ctx, "tf")
 	var sawRollback, sawDeploy bool
@@ -332,10 +333,10 @@ func TestDeploy_RedRollback(t *testing.T) {
 	evs, _ := g.DB().Events(ctx, "tf")
 	var sawFailed bool
 	for _, e := range evs {
-		sawFailed = sawFailed || e.Kind == string(db.EdgeDeployFailed)
+		sawFailed = sawFailed || e.Kind == "blocked" // T35：部署红→blocked 人工态
 	}
 	if !sawFailed {
-		t.Fatal("deploy_failed 事件行缺")
+		t.Fatal("blocked 事件行缺")
 	}
 	if p2, _ := g.DB().PhaseOf(ctx, "tf"); p2 == db.PhaseDone {
 		t.Fatal("失败票落完成（对抗锚 a）")
@@ -377,7 +378,8 @@ func TestDeploy_ProjectLocks(t *testing.T) {
 	waitPhase(t, g, "ta", db.PhaseDeploying, 5*time.Second)
 	d.deliver(t, "META_DEPLOY:done")
 	waitPhase(t, g, "ta", db.PhaseDone, 5*time.Second)
-	waitEvent(t, g, "spawn_needed", "tb2", 5*time.Second)
+	// T35：锁释不就地补发——phase:deploy_done 踢调和器，tb2 由调和器派。
+	waitRun(t, g, "tb2", "CTO")
 	_ = d.stream.CloseSend()
 }
 
@@ -484,31 +486,24 @@ func TestDeploy_SeatDeadD2(t *testing.T) {
 	}
 	mkToDeploy(t, g, "tk", "P")
 	mkToDeploy(t, g, "tk2", "P")
-	wspec := deploySpec(t)
-	wspec.Env = []string{"GO_HELPER_SEAT=1", "SEAT_MODE=worker", "META_ADOPT_GRACE=30",
-		"PATH=" + os.Getenv("PATH")}
-	if err := g.DispatchSeat(ctx, "tk", "CTO", wspec); err != nil {
-		t.Fatal(err)
-	}
+	// T35：tk 待部署由调和器自动派 CTO-B——直等 run（手工派发幂等相会去重）。
 	run := waitRun(t, g, "tk", "CTO")
 	waitPhase(t, g, "tk", db.PhaseDeploying, 10*time.Second)
 	if err := syscall.Kill(-run.PID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	waitPhase(t, g, "tk", db.PhaseToDeploy, 10*time.Second)
+	// T35：部署中席死相位稳守 部署中——调和器标死后按失败表重派继任；
+	// 项目锁未终态不释，同项目他票仍锁拒（串行闸语义不动）。
 	evs, _ := g.DB().Events(ctx, "tk")
-	var note string
+	var dead bool
 	for _, e := range evs {
-		if e.Kind == string(db.EdgeDeployFailed) {
-			note = e.Note
-		}
+		dead = dead || e.Kind == "seat_dead" || e.Kind == "clidrive_dead"
 	}
-	if !strings.Contains(note, "先核回滚态") || !strings.Contains(note, run.RunID) {
-		t.Fatalf("D-2 note 缺线索: %q", note)
+	if !dead {
+		t.Fatal("席死事件行缺")
 	}
-	// 锁已释：同项目他票可再派（spawn_needed 补发行应有）。
-	if err := g.DispatchSeat(ctx, "tk2", "CTO", deploySpec(t)); err != nil {
-		t.Fatalf("锁未释: %v", err)
+	if err := g.DispatchSeat(ctx, "tk2", "CTO", deploySpec(t)); err == nil {
+		t.Fatal("同项目二部署应仍锁拒（席死相位稳守不释锁）")
 	}
 }
 

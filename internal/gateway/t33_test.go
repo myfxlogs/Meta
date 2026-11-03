@@ -82,12 +82,10 @@ func TestT33_DeployFailedWakesCEO(t *testing.T) {
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "t33", db.PhaseDeploying)
-	if err := g.transition(ctx, "t33", db.PhaseToDeploy, db.EdgeDeployFailed,
-		"gateway", "t33 部署败"); err != nil {
-		t.Fatal(err)
-	}
-	// phase 门铃照旧发（巡检订阅径不破）＋语义门铃新补。
-	waitEvent(t, g, "phase:deploy_failed", "t33", 3*time.Second)
+	// T35：deploy_failed 语义门铃径改成死席排干 failed 哨兵（失败表
+	// blocked 前的失败账事件——化身唤醒锚保持不变）。
+	writeSentinel(t, filepath.Dir(g.cfg.DBPath), "r33", "META_DEPLOY:failed\n")
+	g.onRunDead(deadSeatUnit("t33", "r33"))
 	waitEvent(t, g, "deploy_failed", "t33", 3*time.Second)
 	waitFor2(t, 15*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForRole(ctx, "CEO")

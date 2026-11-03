@@ -155,20 +155,10 @@ func TestT26_DegradedCliDriveFallback(t *testing.T) {
 	mkToDeploy(t, g, "td5", "P")
 	sp := deploySpec(t)
 	sp.CliDrive = false // 模拟 AI 席派发走到候壳尽的规格
-	g.mu.Lock()
-	g.specs[specKey{"td5", "CTO"}] = sp
-	g.failSet["td5"] = map[string]bool{"devin/swe-2-max": true, "claude": true}
-	g.mu.Unlock()
-	g.shellsExhausted(ctx, spawnReq{ticketID: "td5", role: "CTO"})
+	sp.exclude = map[string]bool{"devin": true, "claude": true} // T35：期窗失败壳集
+	g.shellsExhausted(ctx, spawnReq{ticketID: "td5", role: "CTO", spec: sp})
 	waitEvent(t, g, "clidrive_fallback", "td5", 3*time.Second)
-	g.mu.Lock()
-	got := g.specs[specKey{"td5", "CTO"}].CliDrive
-	fs := len(g.failSet["td5"])
-	g.mu.Unlock()
-	if !got || fs != 0 {
-		t.Fatalf("应转 CliDrive 且清 failSet: cli=%v fs=%d", got, fs)
-	}
-	// 入队的 CliDrive 派发跑通到 spawn 尝试（/bin/false 即退→连败账进 failSet）。
+	// 入队的 CliDrive 派发跑通到 spawn 尝试（/bin/false 即退→连败账进死账）。
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		runs, _ := g.DB().RunsForTicket(ctx, "td5")
@@ -258,14 +248,11 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitEvent(t, g, "stall_suspect", "tz", 8*time.Second)
-	// c) 非 CTO 席只报不杀——stall_kill 不得落。
-	for _, e := range collectEvents(g, 400*time.Millisecond) {
-		if e.Kind == "stall_kill" && e.TicketID == "tz" {
-			t.Fatal("非 CTO 席被处决——§5.2 只报不杀语义破")
-		}
-	}
+	// T35 失败表：进度帧超时杀＝角色无关行动者席皆处决（kill_respawn≤2
+	// 由调和器判——idle 席 PID 死则处决落账）。
+	waitEvent(t, g, "stall_kill", "tz", 8*time.Second)
 
-	// b) CTO 待部署票僵尸席：处决→stall_kill→死判径补 spawn_needed。
+	// b) CTO 待部署票僵尸席：处决→stall_kill→死席账→调和器重派。
 	mkToDeploy(t, g, "tzd", "P2") // P2 未登记：锁径与本测无关——直接 Spawn 建席
 	run, err := g.Spawn(ctx, "tzd", "CTO", "testshell",
 		[]string{os.Args[0], "-test.run=TestHelperProcess", "-test.v=false"},
@@ -275,7 +262,7 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 	}
 	g.onStall("tzd")
 	waitEvent(t, g, "stall_kill", "tzd", 5*time.Second)
-	waitEvent(t, g, "spawn_needed", "tzd", 8*time.Second)
+	// T35：死判径不再就地补发——调和器重派由相位驱动（本测不验派径）。
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if !processAlive(run.PID) {
@@ -366,12 +353,11 @@ func TestT31_CliDrivePhaseStable(t *testing.T) {
 	spec := SeatSpec{CliDrive: true}
 	req := spawnReq{ticketID: "td31", role: "CTO"}
 	g.cliDriveSpawn(ctx, req, spec)
-	// 秒退→死判径：相位应稳守 部署中不弹跳＋spawn_needed 补发。
+	// 秒退→死判径：相位应稳守 部署中不弹跳＋clidrive_dead 账（调和器接派）。
 	waitEvent(t, g, "clidrive_dead", "td31", 5*time.Second)
 	if p, _ := g.DB().PhaseOf(ctx, "td31"); p != db.PhaseDeploying {
 		t.Fatalf("cli-drive 死相位弹跳: %s", p)
 	}
-	waitEvent(t, g, "spawn_needed", "td31", 5*time.Second)
 	// ②日志非空（头行＋exit 落行）。
 	runs, _ := g.DB().RunsForTicket(ctx, "td31")
 	if len(runs) == 0 {

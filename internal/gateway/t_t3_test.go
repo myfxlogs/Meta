@@ -27,32 +27,14 @@ func TestT3_逐壳判荒(t *testing.T) {
 	// 单壳 a 尽（health=dead）＋failSet 已试——余 b 健康：degraded 不 exhausted。
 	_ = g.DB().SetShellHealth(ctx, db.Shell{Name: "a", Model: "m1", Role: "施工"},
 		route.HealthDead)
-	g.mu.Lock()
-	g.failSet["tq"] = map[string]bool{db.Shell{Name: "a", Model: "m1", Role: "施工"}.ShellKey(): true}
-	g.mu.Unlock()
-	// T26 病5：首尽＝degraded_retry（清 failSet 回落重试，非误报全荒）；
-	// 再尽才 shells_degraded——无 spec 重试消费端撞「无派发参数」闸不真起席。
-	g.shellsExhausted(ctx, spawnReq{ticketID: "tq", role: "施工"})
-	waitEvent(t, g, "degraded_retry", "tq", 3*time.Second)
-	g.mu.Lock()
-	if len(g.failSet["tq"]) != 0 {
-		g.mu.Unlock()
-		t.Fatal("degraded_retry 应清 failSet 回落重试")
-	}
-	g.mu.Unlock()
-	g.shellsExhausted(ctx, spawnReq{ticketID: "tq", role: "施工"})
-	waitEvent(t, g, "shells_degraded", "tq", 3*time.Second)
-	evs, _ := g.DB().Events(ctx, "tq")
-	for _, e := range evs {
-		if e.Kind == "shells_exhausted" {
-			t.Fatal("单壳尽误报全荒——D-75 复现")
-		}
-	}
-	// 全壳尽→exhausted。
-	_ = g.DB().SetShellHealth(ctx, db.Shell{Name: "b", Model: "m2", Role: "施工"},
-		route.HealthDead)
+	// T35 失败表：本票候壳尽＝壳列表用尽→shells_exhausted＋blocked 人工态
+	// （降级回落/逐壳判荒分层全删——无补发径，票待人裁）。
 	g.shellsExhausted(ctx, spawnReq{ticketID: "tq", role: "施工"})
 	waitEvent(t, g, "shells_exhausted", "tq", 3*time.Second)
+	waitPhase(t, g, "tq", db.PhaseBlocked, 3*time.Second)
+	// 幂等：blocked 票再撞 exhausted 不再迁（边闸拒——二次转 blocked 非法）。
+	g.shellsExhausted(ctx, spawnReq{ticketID: "tq", role: "施工"})
+	waitPhase(t, g, "tq", db.PhaseBlocked, 1*time.Second)
 }
 
 // TestT3_去run术语 锚：ruling/stall/零写 note 无 run= 术语（决策23/48）。

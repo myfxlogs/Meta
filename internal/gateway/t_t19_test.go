@@ -15,11 +15,12 @@ func TestT19_终态清理(t *testing.T) {
 	mkTicketAt(t, g, "t19", db.PhaseWorking)
 
 	g.mu.Lock()
-	g.specs[specKey{"t19", "施工"}] = SeatSpec{}
-	g.failSet["t19"] = map[string]bool{"devin": true}
-	g.warned["t19"] = true
-	g.frozen["t19"] = true
+	g.runWorkDir["rt19"] = "/tmp/x"
 	g.mu.Unlock()
+	run := &db.Run{RunID: "rt19", TicketID: "t19", Role: "施工"}
+	if err := g.DB().CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := g.transition(ctx, "t19", db.PhaseVoid, db.EdgeVoid,
 		"t", "作废终态清理锚"); err != nil {
@@ -27,8 +28,7 @@ func TestT19_终态清理(t *testing.T) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if len(g.specs) != 0 || len(g.failSet) != 0 || len(g.warned) != 0 || len(g.frozen) != 0 {
-		t.Fatalf("终态票内存键未清: specs=%d failSet=%d warned=%d frozen=%d",
-			len(g.specs), len(g.failSet), len(g.warned), len(g.frozen))
+	if _, ok := g.runWorkDir["rt19"]; ok {
+		t.Fatal("终态票 runWorkDir 索引未清")
 	}
 }

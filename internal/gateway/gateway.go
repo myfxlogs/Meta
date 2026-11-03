@@ -52,9 +52,13 @@ type Config struct {
 	InjectRoot    string   // 注入源根：roles/ 与 docs/经验库|技能库 所在
 	InjectRecipes []string // 项目配方/纪律文档（相对 InjectRoot，序即拼）
 
-	// 立票点火去抖窗（票0039/T11）：票事件落账→重置对账闹钟，缺省 30s，
-	// ≤0＝关。去抖非周期——静默期闹钟自灭，不违 R2。
+	// 幂等调和器周期（v2 §3.3-A，R2′ 钦定唯一周期例外）：每 60s 跑一轮
+	// reconcile()；任意事件后另经 kick 道立即跑。≤0＝关周期只留事件驱动。
+	// 复用 reconcile_debounce 配置位（字段名留，语义已改）。
 	ReconcileDebounce time.Duration
+
+	// 失败表（v2 §3.3-B）：kind→确定性处置＋期窗计数上限，超限→blocked。
+	FailureRules []FailureRule
 
 	// 部署闸（票0010，§10/B1/B2/D1）。
 	Projects       []*pbv1.ProjectSeed // 项目配方种子（票0046：钦定源——启动回种全列覆写，DB 行是文面投影）
@@ -120,7 +124,10 @@ func (c *Config) withDefaults() {
 		}
 	}
 	if c.ReconcileDebounce <= 0 {
-		c.ReconcileDebounce = 30 * time.Second
+		c.ReconcileDebounce = 60 * time.Second
+	}
+	if len(c.FailureRules) == 0 {
+		c.FailureRules = defaultFailureRules()
 	}
 }
 
@@ -173,12 +180,9 @@ type Gateway struct {
 	alarms       map[string]*clock.Alarm
 	events       chan Event
 	observers    map[chan Event]struct{}    // Observe 面订户（管理面导出）
-	specs        map[specKey]SeatSpec       // (tid,role) → 派发参数（内存；重启缺→spawn_blocked）
-	failSet      map[string]map[string]bool // tid → 本票已失败壳行键（换壳＝排除）
 	spreadCnt    map[string]int             // T20：角色→轮转计数（健康壳均摊位）
-	warned       map[string]bool            // tid → 本尝试 80% 警已发（边沿触发）
-	frozen       map[string]bool            // budget_frozen 票集（冻票无活性）
 	active       map[string]int             // 壳名 → 活跃 run 数（provider 并发闸）
+	runWorkDir   map[string]string          // runid → 席位工作区（收尸清洁索引，重启缺＝跳过安全）
 	attemptCaps  map[string]int64           // ShellKey → 该行尝试帽覆盖（§7）
 	projectLocks map[string]map[string]bool // 项目部署锁：project → {integrate|deploy}（B1；设计锁＝designLocks）
 	spawnQ       chan spawnReq
@@ -187,8 +191,6 @@ type Gateway struct {
 
 	// T26 派发/部署径收口件：
 	dispatchMu      sync.Mutex             // DispatchSeat 闸段互斥——去重判/相位读/锁取占同临界区（病1）
-	degradedRetried map[string]bool        // tid → failSet 已回落重试过（病5 降级出路有界）
-	stallFalls      map[string]int         // tid → 僵尸席处决计数（病7：≥3 止杀只报）
 	cloneLocks      map[string]*sync.Mutex // tid → 部署克隆互斥（病3 同票级）
 
 	// CEO 面（票0011）：锁＝连接登记非 DB 旗（禁区#10/B8）。
@@ -200,14 +202,9 @@ type Gateway struct {
 	designLocks   map[string]string                                             // project → 持设计锁的票（B1 三锁之一，§1.8）
 	budgetOf      func(ctx context.Context, ticketID string) (db.Budget, error) // D-36 变异注入缝
 
-	// 票0039/T11：立票点火去抖闹钟——票事件落账（db eventHook）重置，
-	// 醒→goroutine 跑既有 reconcile。reconBusy＝对账在飞期抑制自锁环
-	// （对账自产事件不再续命闹钟——否则滞留票 spawn_needed 每窗重放成
-	// 变相周期轮询，违 R2）；reconDirty＝busy 期非静默事件脏标（判决
-	// 返修：不丢不续命——对账收尾查脏再醒一轮，竞态窗闭合）。
-	reconTimer   *time.Timer
-	reconBusy    bool
-	reconDirty   bool
+	// T35 幂等调和器驱动：事件钩→非阻塞 kick；60s ticker＋kick 双源
+	// 串行跑 reconcile（同一 goroutine 天然去抖——缓冲 1 多踢自并）。
+	reconKick    chan struct{}
 	reconcileNow func(ctx context.Context) // 测试注入缝；缺省 g.reconcile
 }
 
@@ -226,19 +223,15 @@ func New(cfg Config) (*Gateway, error) {
 		alarms:       map[string]*clock.Alarm{},
 		events:       make(chan Event, 256),
 		observers:    map[chan Event]struct{}{},
-		specs:        map[specKey]SeatSpec{},
-		failSet:      map[string]map[string]bool{},
 		spreadCnt:    map[string]int{},
-		warned:       map[string]bool{},
-		frozen:       map[string]bool{},
 		active:       map[string]int{},
+		runWorkDir:   map[string]string{},
 		projectLocks: map[string]map[string]bool{},
 		spawnQ:       make(chan spawnReq, 64),
 		done:         make(chan struct{}),
 
-		degradedRetried: map[string]bool{},
-		stallFalls:      map[string]int{},
 		cloneLocks:      map[string]*sync.Mutex{},
+		reconKick:       make(chan struct{}, 1),
 
 		ceoDispatched: map[string]int{},
 		designLocks:   map[string]string{},
@@ -329,13 +322,14 @@ func New(cfg Config) (*Gateway, error) {
 		}
 	}
 
-	g.reconcile(context.Background())           // §5.3 全相位对账，启动一次非周期
+	g.reconcile(context.Background())           // 启动一轮对齐（V4：kill -9 后 60s 内收敛）
 	g.rebuildProjectLocks(context.Background()) // 项目锁按票相位重建（B1）
 	go g.dispatcher()                           // spawn 调度器：事件驱动，非周期
 	go g.ceoPump(g.subscribe())                 // CEO 事件泵：先订阅后起泵，不丢首事件
-	// 票0039/T11：点火去抖——DB 事件钩接 armRecon；reconcileNow 注入缝。
+	// T35：幂等调和器——事件钩 kick＋周期 ticker 双源驱动。
 	g.reconcileNow = g.reconcile
-	d.SetEventHook(g.armRecon)
+	d.SetEventHook(g.kickRecon)
+	go g.reconcileLoop()
 	return g, nil
 }
 
@@ -353,11 +347,6 @@ func (g *Gateway) Close() {
 	alarms := make([]*clock.Alarm, 0, len(g.alarms))
 	for _, a := range g.alarms {
 		alarms = append(alarms, a)
-	}
-	g.mu.Unlock()
-	g.mu.Lock()
-	if g.reconTimer != nil {
-		g.reconTimer.Stop()
 	}
 	g.mu.Unlock()
 	g.srv.Stop()
@@ -383,16 +372,11 @@ func (g *Gateway) emit(e Event) {
 		clean(e.Kind), clean(e.TicketID), clean(e.RunID), clean(e.Role),
 		clean(e.Note), clean(e.Provenance)
 	g.mu.Lock()
-	frozen := g.frozen[e.TicketID]
 	obs := make([]chan Event, 0, len(g.observers))
 	for ch := range g.observers {
 		obs = append(obs, ch)
 	}
 	g.mu.Unlock()
-	// 冻票无活性：冻结即取消排队 spawn 事件（§5.5 D8），其余事件照发。
-	if frozen && e.Kind == "spawn_needed" {
-		return
-	}
 	select {
 	case g.events <- e:
 	default: // 观察口满不阻塞写径；持久日志在 ticket_event
@@ -405,98 +389,46 @@ func (g *Gateway) emit(e Event) {
 	}
 }
 
-// reconSilentKinds 机器记账类事件（票0039）：对账/派发/巡检泵自身产出——
-// 不武装闹钟。缺它们则滞留票走「醒→spawn_needed→dispatcher 异步落
-// shells_exhausted→再武装→再醒」＝变相周期轮询，违 R2 零心跳。
-// created/phase/msg/外部 inject 等真事件照常武装（点火本意）。
+// reconSilentKinds 机器记账类事件：调和器/派发自身产出——不踢调和
+// （自踢自转＝变相周期轮询放大）。created/phase/msg/外部 inject 等真
+// 事件照踢（「任意事件后立即跑一轮」钦定语义）。
 var reconSilentKinds = map[string]bool{
-	"spawn_needed": true, "spawn_blocked": true, "shells_exhausted": true,
+	"spawn_blocked": true, "shells_exhausted": true,
 	"inject_failed": true, "dispatch_failed": true, "patrol_tick": true,
 	"patrol_drop": true, "patrol_skip": true, "filter_degraded": true,
 	"seat_err": true, "adjunct_dead": true, "progress": true,
-	"adopted": true, // T17③：对账重收养不续命对账闹钟（D-82 自锁环）
-	"usage":   true, "msg_delivered": true, "stall_suspect": true,
+	"adopted": true, "adopt_failed": true,
+	"usage": true, "msg_delivered": true, "stall_suspect": true,
+	"blocked": true, "reconcile": true, "budget_frozen": true,
+	"inject_truncated": true,
 }
 
-// armRecon 立票点火去抖闹钟（票0039/T11，R2「随事件重置的一次性闹钟」
-// 钦定形态）：票事件落账（db eventHook，机器记账 kind 滤除）重置——
-// 醒→goroutine 跑既有 reconcile（判别逻辑不动只加触发）。对账在飞期
-// 到达的事件置 reconDirty（不续命＝不变相轮询，不丢＝竞态窗闭合）；
-// 收尾查脏再醒一轮。窗＝cfg.ReconcileDebounce，≤0 关。
-func (g *Gateway) armRecon(kind string) {
+// kickRecon 事件驱动调和钩（db eventHook）：非静默 kind → 非阻塞 kick。
+func (g *Gateway) kickRecon(kind string) {
 	if reconSilentKinds[kind] {
 		return
 	}
-	span := g.cfg.ReconcileDebounce
-	if span <= 0 {
-		return
+	select {
+	case g.reconKick <- struct{}{}:
+	default: // 已有 kick 排队＝下一轮必跑，多踢自并
 	}
-	g.mu.Lock()
-	if g.closed {
-		g.mu.Unlock()
-		return
-	}
-	if g.reconBusy {
-		// 判决返修：busy 期事件置脏标不丢不续命——对账收尾查脏再醒
-		// 一轮（抗「先扫后落」竞态窗：重启风暴期立票掉缝=偶现点火洞）。
-		g.reconDirty = true
-		g.mu.Unlock()
-		return
-	}
-	if g.reconTimer != nil {
-		g.reconTimer.Reset(span)
-		g.mu.Unlock()
-		return
-	}
-	g.reconTimer = time.AfterFunc(span, func() {
-		g.mu.Lock()
-		g.reconBusy = true
-		g.reconTimer = nil
-		g.reconDirty = false
-		g.mu.Unlock()
-		g.reconcileNow(context.Background())
-		g.mu.Lock()
-		g.reconBusy = false
-		dirty := g.reconDirty
-		g.reconDirty = false
-		g.mu.Unlock()
-		if dirty {
-			g.armRecon("created") // 收尾查脏：busy 期真事件→再醒一轮
-		}
-	})
-	g.mu.Unlock()
 }
 
-// batchDeployCheck 批量部署计数闸（T4/E17）：待部署≥5 或流水线清空
-// （非终态票中无 施工中/设计中）→ 逐张补 spawn_needed 到 CTO 部署支
-// ——事件驱动一次性，非周期扫描。
-func (g *Gateway) batchDeployCheck() {
-	ctx := context.Background()
-	ts, err := g.database.NonTerminalTickets(ctx)
-	if err != nil {
-		return
-	}
-	var pending []*db.Ticket
-	pipelineBusy := false
-	for _, t := range ts {
-		switch t.Phase {
-		case db.PhaseToDeploy:
-			pending = append(pending, t)
-		case db.PhaseWorking, db.PhaseDesigning:
-			pipelineBusy = true
+// reconcileLoop 调和器驱动环（v2 §3.3-A，R2′ 钦定唯一周期例外）：
+// 60s ticker＋事件 kick 双源，同一 goroutine 串行跑 reconcile——
+// 幂等纯查表零外发，跑 N 次与 1 次结果相同。
+func (g *Gateway) reconcileLoop() {
+	t := time.NewTicker(g.cfg.ReconcileDebounce)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			g.reconcileNow(context.Background())
+		case <-g.reconKick:
+			g.reconcileNow(context.Background())
+		case <-g.done:
+			return
 		}
-	}
-	if len(pending) < 5 && (pipelineBusy || len(pending) == 0) {
-		return
-	}
-	_ = g.database.AppendEvent(ctx, "", "batch_deploy", db.Event{
-		Actor: "gateway",
-		Note:  fmt.Sprintf("批量部署触发：待部署=%d 流水线忙=%v", len(pending), pipelineBusy)})
-	g.emit(Event{Kind: "batch_deploy", Note: fmt.Sprintf("待部署 %d 张批量触发", len(pending))})
-	for _, t := range pending {
-		_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "对账补发: CTO-B 部署支（批部署）"})
-		g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
 	}
 }
 
@@ -548,64 +480,39 @@ func (g *Gateway) cancelAlarm(ticketID string) {
 	}
 }
 
-// onStall 进度闹钟响：发「疑似卡死」事件归 CTO 裁（§5.2）。
-// note 带 run=<最新活 non-adjunct runid>：路由表把行喂给裁决席提示模板（§5 时序1）。
-// T26 病7+病6：部署票（CTO 部署支）僵尸席＝CliDrive 钦定兜底径——处决
-// 挂席（四步已齐先落 deploy_done），死判径（onRunDead）放锁＋spawn_needed
-// 自动转 CliDrive 重派；同票处决 2 次后止杀只报（防处决循环烧票）。
-// 对抗锚提名行：CTO 部署票处决分支——删则僵尸席只报不死、部署停摆。
+// onStall 进度闹钟响（失败表 kill_respawn 行）：发 stall_suspect 账＋
+// 杀挂席——相位不动，调和器按期窗 stall 计数 ≤2 换壳重派、超限 blocked。
+// 部署中先查收口（四步已齐落 deploy_done，不冤杀已成部署）。
 func (g *Gateway) onStall(ticketID string) {
 	ctx := context.Background()
 	note := "进度帧超时未至"
 	var run *db.Run
 	if r, _ := g.database.ActiveRunForTicket(ctx, ticketID); r != nil {
 		run = r
-		note += " 席=" + run.RunID // T3 去 run= 术语（裁决席同径读行）
+		note += " 席=" + run.RunID
 	}
 	_ = g.database.AppendEvent(ctx, ticketID, "stall_suspect", db.Event{
-		Actor: "gateway", Note: note,
-	})
+		Actor: "gateway", Note: note})
 	runID := ""
 	if run != nil {
 		runID = run.RunID
 	}
 	g.emit(Event{Kind: "stall_suspect", TicketID: ticketID, RunID: runID})
-
-	if run == nil || run.Role != "CTO" || run.Adjunct {
-		return // 非部署席照旧只报不杀，归 CTO 裁
+	if run == nil || run.Adjunct {
+		return // 无行动者/协从席只报——调和器补位
 	}
-	phase, err := g.database.PhaseOf(ctx, ticketID)
-	if err != nil || (phase != db.PhaseToDeploy && phase != db.PhaseDeploying) {
-		return
-	}
-	g.mu.Lock()
-	g.stallFalls[ticketID]++
-	falls := g.stallFalls[ticketID]
-	g.mu.Unlock()
-	if falls > 2 {
-		return // 处决 2 次仍僵＝系统性故障——只报归裁，不再循环杀
-	}
-	// 四步已齐＝部署实成在前、席僵在后——直接落 deploy_done（病4 事件驱动
-	// 收口同径），不冤杀已成功部署。
-	if phase == db.PhaseDeploying && g.deployStepsDone(ctx, ticketID) {
+	if phase, err := g.database.PhaseOf(ctx, ticketID); err == nil &&
+		phase == db.PhaseDeploying && g.deployStepsDone(ctx, ticketID) {
 		if g.deployDone(ctx, ticketID, "停滞钟响：四步已齐——席僵不挡收口") {
 			return
 		}
 	}
-	if phase == db.PhaseDeploying {
-		// 先落 deploy_failed 回 待部署（锁随 transition 释），再杀——
-		// 死判径相位已回 待部署 即走「claim 前死」支补 spawn_needed。
-		if err := g.transition(ctx, ticketID, db.PhaseToDeploy, db.EdgeDeployFailed,
-			"gateway", "停滞处决：部署席挂起→CliDrive 钦定兜底（先核回滚态 run="+run.RunID+")"); err != nil {
-			return
-		}
-	}
-	note2 := "停滞处决：僵尸部署席→CliDrive 钦定兜底"
+	note2 := "停滞处决：进度帧超时杀席 run=" + run.RunID
 	_ = g.database.AppendEvent(ctx, ticketID, "stall_kill", db.Event{
-		Actor: "gateway", Note: note2 + " run=" + run.RunID})
+		Actor: "gateway", Note: note2})
 	g.emit(Event{Kind: "stall_kill", TicketID: ticketID, RunID: run.RunID, Note: note2})
 	st := g.bindRun(run)
-	st.noRespawn = false // 处决非禁重派——onRunDead 补发径负责拉起 CliDrive
+	st.killByGW = true // 网关令杀＝非壳之错，不罚健康
 	g.killRun(st)
 }
 
@@ -624,28 +531,11 @@ func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, 
 		return err
 	}
 	g.emit(Event{Kind: "phase:" + string(kind), TicketID: ticketID})
-	// T33② 化身唤醒第三断点：部署失败唯一信号是 phase: 前缀门铃，
-	// ceo_spawn_kinds 配的语义名 "deploy_failed" 查空→泵静默丢
-	// （0049 三连死零 CEO 零 last_resort 实证）。照 EdgeReject→
-	// reject_limit 例补语义门铃——ticket_event 行 Transition 已落
-	// 同 kind，此处只 emit 不再落账。
-	if kind == db.EdgeDeployFailed {
-		g.emit(Event{Kind: "deploy_failed", TicketID: ticketID})
-	}
-	// T4 批量部署开关（E17）：入 待部署 后计数——≥5 张或流水线清空
-	// （无 施工中/设计中）→ 逐张补发 spawn_needed 触发部署派发
-	// （B1 串行锁照走闸——计数从 ticket 表读零轮询）。
-	if to == db.PhaseToDeploy {
-		go g.batchDeployCheck()
-	}
 	// 项目部署锁随相位占用释放（B1）：出离 部署中 释 integrate+deploy。
-	// deploy_failed 的本票不补 spawn——回 待部署 归 CEO 裁。
-	if from == db.PhaseDeploying {
-		skip := ""
-		if kind == db.EdgeDeployFailed {
-			skip = ticketID
-		}
-		g.releaseProjectLocks(ctx, project, skip, true, lockIntegrate, lockDeploy)
+	// T35：不再就地补发——锁释后滞留票由调和器拾。
+	if from == db.PhaseDeploying ||
+		(from == db.PhaseToDeploy && to == db.PhaseBlocked) {
+		g.releaseProjectLocks(ctx, project, "", true, lockIntegrate, lockDeploy)
 	}
 	// B1 设计锁（designLocks）释放点＝持锁票离开施工中（交付/泊车/回队）
 	// 或入终态——releaseDesignLock 内 holder 核对使非持锁票过此为无操作。
@@ -664,4 +554,22 @@ func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, 
 		}
 	}
 	return nil
+}
+
+// defaultFailureRules 失败表缺省（v2 §3.3-B——config/gateway.textproto
+// 的 failure_rule 段是全量覆盖径；缺省与钦定行同值，改表走票）。
+func defaultFailureRules() []FailureRule {
+	return []FailureRule{
+		{Kind: "seat_err", Action: "next_shell", Cap: 0},
+		{Kind: "spawn_failed", Action: "next_shell", Cap: 0},
+		{Kind: "shell_limited", Action: "retry_same", Cap: 3},
+		{Kind: "shell_dead", Action: "shell_dead_next", Cap: 0},
+		{Kind: "stall_suspect", Action: "kill_respawn", Cap: 2},
+		{Kind: "stall_kill", Action: "kill_respawn", Cap: 2},
+		{Kind: "clidrive_dead", Action: "next_shell", Cap: 0},
+		{Kind: "reject", Action: "same_shell", Cap: 3},
+		{Kind: "deploy_failed", Action: "rollback", Cap: 1},
+		{Kind: "budget_frozen", Action: "freeze", Cap: 0},
+		{Kind: "*", Action: "blocked", Cap: 0},
+	}
 }

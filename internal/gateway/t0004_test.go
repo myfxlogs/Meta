@@ -81,19 +81,12 @@ func TestAdjunct_KillRequeue(t *testing.T) {
 		t.Fatal("活 adjunct 在应去重拒")
 	}
 
-	// 裁决落地：施工 run dead＋票回已派＋failSet 含壳键＋ruling 行。
-	waitPhase(t, g, "ta1", db.PhaseAssigned, 10*time.Second)
-	st, _ := g.DB().RunByToken(ctx, worker.RunToken)
-	if st == nil || !st.Dead {
-		t.Fatal("kill_requeue 未杀施工 run")
-	}
-	wantKey := db.Shell{Name: "testshell", Role: "施工"}.ShellKey()
-	g.mu.Lock()
-	inSet := g.failSet["ta1"][wantKey]
-	g.mu.Unlock()
-	if !inSet {
-		t.Fatalf("failSet 缺壳键 %s", wantKey)
-	}
+	// T35：裁决杀席→相位稳守 施工中（不回队）＋死账＋ruling 行。
+	waitPhase(t, g, "ta1", db.PhaseWorking, 10*time.Second)
+	waitFor2(t, 10*time.Second, func() bool {
+		st, _ := g.DB().RunByToken(ctx, worker.RunToken)
+		return st != nil && st.Dead
+	})
 	if hasEvent(t, g, "ta1", "ruling") == nil {
 		t.Fatal("ruling 行未落账")
 	}
@@ -131,9 +124,8 @@ func TestAdjunct_Defer(t *testing.T) {
 	if !ok || time.Until(dl) < 25*time.Minute || time.Until(dl) > 31*time.Minute {
 		t.Fatalf("defer 未重挂全额闹钟: %v", dl)
 	}
-	if p, _ := g.DB().PhaseOf(ctx, "ta2"); p != db.PhaseWorking {
-		t.Fatalf("adjunct 裁决动了相位: %s", p)
-	}
+	// T35：defer_limit→blocked 人工态（相位动属失败表钦定）。
+	waitPhase(t, g, "ta2", db.PhaseBlocked, 5*time.Second)
 }
 
 // TestAdjunct_DeliverNoPhase 锚 5：adjunct deliver→仅落 adjunct_deliver 行＋
@@ -357,6 +349,7 @@ func TestAuditGate(t *testing.T) {
 func TestVerdictFlow(t *testing.T) {
 	g, dir := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		c.InjectRoot = injectFixture(t)
 	})
 	ctx := context.Background()
 
@@ -382,9 +375,14 @@ func TestVerdictFlow(t *testing.T) {
 	specA := dispatchSpec(t)
 	specA.Env = []string{"GO_HELPER_SEAT=1", "SEAT_MODE=verdict", "SEAT_VERDICT=reject",
 		"SEAT_REF=docs/x/判.md", "META_ADOPT_GRACE=30", "PATH=" + os.Getenv("PATH")}
+	waitFor2(t, 10*time.Second, func() bool {
+		r, _ := g.DB().ActiveRunForTicket(ctx, "tv1")
+		return r == nil
+	})
 	if err := g.DispatchSeat(ctx, "tv1", "审计", specA); err != nil {
 		t.Fatal(err)
 	}
+	_ = g.DB().UpdateSpec(ctx, "tv1", testSpec(t))
 	waitPhase(t, g, "tv1", db.PhaseAssigned, 15*time.Second)
 	tk, _ := g.DB().GetTicket(ctx, "tv1")
 	if tk.RejectCount != 1 {
@@ -441,9 +439,9 @@ func TestVerdictFlow(t *testing.T) {
 	}
 	// 杀审计席→待审（audit_dead，reject_count 不变）＋重派审计 run。
 	syscall.Kill(-arun.PID, syscall.SIGKILL)
-	waitPhase(t, g, "tv3", db.PhaseReview, 10*time.Second)
-	if hasEvent(t, g, "tv3", "audit_dead") == nil {
-		t.Fatal("audit_dead 事件行未落账")
+	waitPhase(t, g, "tv3", db.PhaseAuditing, 10*time.Second)
+	if hasEvent(t, g, "tv3", "seat_dead") == nil {
+		t.Fatal("seat_dead 事件行未落账")
 	}
 	tk3, _ := g.DB().GetTicket(ctx, "tv3")
 	if tk3.RejectCount != 0 {

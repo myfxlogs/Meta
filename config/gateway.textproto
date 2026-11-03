@@ -78,7 +78,22 @@ ceo_prompt: "config/caster/ceo-headless.md"
 # token 种子=业主动作：meta secret put secret.board.token（值读 stdin）。
 board_listen: "127.0.0.1:9712"
 
-reconcile_debounce { seconds: 30 }         # 票0039/T11 立票点火去抖窗
+reconcile_debounce { seconds: 60 }         # T35 改义：幂等调和器周期（R2′ 钦定唯一周期例外）
+
+# 失败表（v2 §3.3-B，改表走票）：kind→确定性处置＋期窗上限，超限→blocked
+# （人工态一条通知）。action：next_shell/retry_same/shell_dead_next/
+# kill_respawn/same_shell/rollback/freeze/blocked；"*"＝未列 kind 兜底。
+failure_rule { kind: "seat_err"        action: "next_shell"      cap: 0 }  # 秒退/起不来→换下一壳（壳尽→blocked 经 shells_exhausted）
+failure_rule { kind: "spawn_failed"    action: "next_shell"      cap: 0 }
+failure_rule { kind: "shell_limited"   action: "retry_same"      cap: 3 }  # 429/5xx/连接错退避同壳≤3→换壳
+failure_rule { kind: "shell_dead"      action: "shell_dead_next" cap: 0 }  # 配额尽/授权失效标死换壳
+failure_rule { kind: "stall_suspect"   action: "kill_respawn"    cap: 2 }  # 进度帧超时 30min 杀+换壳重派≤2
+failure_rule { kind: "stall_kill"      action: "kill_respawn"    cap: 2 }
+failure_rule { kind: "clidrive_dead"   action: "next_shell"      cap: 0 }  # 连败 3 由 cliDriveSpawn 计数截断→blocked
+failure_rule { kind: "reject"          action: "same_shell"      cap: 3 }  # 审计驳回同壳重做≤3
+failure_rule { kind: "deploy_failed"   action: "rollback"        cap: 1 }  # 部署检查红/探针红回滚 1 次
+failure_rule { kind: "budget_frozen"   action: "freeze"          cap: 0 }  # 预算到顶→冻
+failure_rule { kind: "*"               action: "blocked"         cap: 0 }  # 未知错误 0 次直接 blocked
 
 # T34：巡检席全径切除（v2 §3.1）——subscribe/filter_shell 段与巡检壳
 # 登记行一并删除；DB 里既有 subscription/巡检壳行随席位退役不再被读。

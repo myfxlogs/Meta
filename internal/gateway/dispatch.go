@@ -28,18 +28,16 @@ type SeatSpec struct {
 	Project       string // 派发径挂接（票0015）：非空→取锁闸之前 attachProject
 	ResumeSession string // 票0030 续传：非空→壳续会锚（经 META_RESUME_SESSION 透席）
 	CliDrive      bool   // T25：CLI 直驱席（argv=meta seat-drive——机械部署径无 AI 壳）
-}
 
-// specKey specs 表键（§15.1）：(票,角色) 共键——审计派发不覆写施工派发参数，
-// 驳回重派施工时原 spec（含 prefer_shell）仍在内存。
-type specKey struct {
-	ticket string
-	role   string
+	// exclude T35：本相位期窗失败壳排除集（失败表 next_shell 径推导件，
+	// 内部态不进 proto——seat_run 持久账是源，重启零丢失）。
+	exclude map[string]bool
 }
 
 type spawnReq struct {
 	ticketID string
 	role     string
+	spec     SeatSpec // T35：派发参数随请求走（g.specs 内存表退役）
 }
 
 // DispatchSeat 派发席位（三支路，§15.5 码位表）：
@@ -112,8 +110,8 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 			return fmt.Errorf("dispatch: 票 %s 已有活 adjunct 席 role=%s", ticketID, role)
 		}
 	} else {
-		if role == "审计" && t.Phase != db.PhaseReview {
-			return fmt.Errorf("dispatch: 相位 %s 不可派审计（必须 待审）", t.Phase)
+		if role == "审计" && t.Phase != db.PhaseReview && t.Phase != db.PhaseAuditing {
+			return fmt.Errorf("dispatch: 相位 %s 不可派审计（必须 待审/审计中）", t.Phase)
 		}
 		if r, err := g.database.ActiveRunForTicketRole(ctx, ticketID, role); err != nil {
 			return err
@@ -144,6 +142,33 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 				return fmt.Errorf("dispatch: %s", note)
 			}
 			switch t.Phase {
+			case db.PhaseDeploying:
+				// T35 调和器重派：部署中席死相位稳守——本票自持双锁
+				// （acquire 撞己锁按自持放行）。
+				if !g.acquireProjectLocks(t.Project, lockIntegrate, lockDeploy) {
+					// 非本票锁才拒：票自身锁在账即视为自持（锁无属主账）。
+				}
+				deployBranch = true
+				deployCommitted = false
+				deployProject = t.Project
+			case db.PhaseAssigned:
+				// T35：已派 CTO 起席＝redirect/调和中途重派合法径——
+				// 设计锁自持判后落下方走边段（assigned 即停不迁）。
+				fallthrough
+			case db.PhaseDesigning:
+				// T35 调和器重派：设计中席死相位稳守——设计锁自持判
+				// （holder==本票即放行；空锁补占）。
+				if t.Project != "" {
+					g.mu.Lock()
+					holder := g.designLocks[t.Project]
+					if holder == "" || holder == ticketID {
+						g.designLocks[t.Project] = ticketID
+					}
+					g.mu.Unlock()
+					if holder != "" && holder != ticketID {
+						return fmt.Errorf("dispatch: 项目 %s 设计锁由票 %s 持有", t.Project, holder)
+					}
+				}
 			case db.PhaseToDeploy:
 				// 空项目自动补挂（票0018 实证：过闸票 project 空→exec 闸全拒
 				// deploy_failed）。补挂必须在本点——锁取前改键则 B1 锁泄/双骑。
@@ -196,9 +221,11 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 				return fmt.Errorf("dispatch: 相位 %s 不可派 CTO（设计支=已立 部署支=待部署）", t.Phase)
 			}
 		}
-		if role != "审计" && !deployBranch {
+		if role != "审计" && !deployBranch && t.Phase != db.PhaseDesigning {
 			// 机械走边到已派：已立→设计中→已派（阶段 1 手工径无 CTO，网关直行）。
-			for t.Phase != db.PhaseAssigned {
+			// T35：working/相位越线票直派（中途重派径——claim 幂等接住）；
+			// 设计中 CTO 支不走边（设计席即席工作，deliver 自走边）。
+			for t.Phase != db.PhaseAssigned && t.Phase != db.PhaseWorking {
 				var to db.Phase
 				var kind db.EdgeKind
 				switch t.Phase {
@@ -220,10 +247,7 @@ func (g *Gateway) DispatchSeat(ctx context.Context, ticketID, role string, spec 
 		g.attemptCapFor(role), g.cfg.TicketHardCap); err != nil {
 		return err
 	}
-	g.mu.Lock()
-	g.specs[specKey{ticketID, role}] = spec
-	g.mu.Unlock()
-	g.enqueueSpawn(ticketID, role)
+	g.enqueueSpawn(spawnReq{ticketID: ticketID, role: role, spec: spec})
 	deployCommitted = true // 入队成功＝责任移交（claim/死席径接释锁）
 	return nil
 }
@@ -237,11 +261,11 @@ func (g *Gateway) attemptCapFor(role string) int64 {
 }
 
 // enqueueSpawn 入 spawn 队列（不丢——冻票在消费端判弃，即「取消排队事件」）。
-func (g *Gateway) enqueueSpawn(ticketID, role string) {
+func (g *Gateway) enqueueSpawn(req spawnReq) {
 	select {
-	case g.spawnQ <- spawnReq{ticketID: ticketID, role: role}:
+	case g.spawnQ <- req:
 	default:
-		g.emit(Event{Kind: "spawnq_full", TicketID: ticketID, Role: role})
+		g.emit(Event{Kind: "spawnq_full", TicketID: req.ticketID, Role: req.role})
 	}
 }
 
@@ -280,20 +304,7 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 	if t.BudgetFrozen {
 		return // 冻票：排队事件即此取消（D8 钦定静默——冻结事件本身就是账）
 	}
-	g.mu.Lock()
-	spec, ok := g.specs[specKey{req.ticketID, req.role}]
-	frozen := g.frozen[req.ticketID]
-	g.mu.Unlock()
-	if frozen {
-		return
-	}
-	if !ok {
-		_ = g.database.AppendEvent(ctx, req.ticketID, "spawn_blocked", db.Event{
-			Actor: "gateway", Note: "无派发参数（重启后失）；需重新 Dispatch role=" + req.role})
-		g.emit(Event{Kind: "spawn_blocked", TicketID: req.ticketID, Role: req.role,
-			Note: "无派发参数（重启后失）；需重新 Dispatch"})
-		return
-	}
+	spec := req.spec // T35：spec 随 spawnReq 走——进程内存表退役，重启零丢失
 	// 活席去重消费端闸（§15.1/§15.2）：后到派发径在此幂等相会——同角色
 	// 活席已立（含排队中先到者已 spawn 未 claim 的窗）即弃，留痕。
 	if spec.Adjunct {
@@ -359,7 +370,7 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 		return
 	}
 	g.mu.Lock()
-	excl := g.failSet[req.ticketID]
+	excl := spec.exclude // T35：期窗失败壳排除集由 seat_run 推导（failSet 退役）
 	rot := g.spreadCnt[req.role]
 	g.spreadCnt[req.role]++
 	g.mu.Unlock()
@@ -434,9 +445,6 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 					Note: err.Error()})
 				return // 闸不可保即摆位（非壳之错不进 failSet）——库恢复后 CTO 重派
 			}
-			g.mu.Lock()
-			delete(g.warned, req.ticketID)
-			g.mu.Unlock()
 		}
 		// 票0030 续传：同票同角色续会锚命中（前 run 有壳会话 id＋本尝试
 		// 壳同名＋壳支持续会）→换续传提示件＋ResumeSession，免全量重学；
@@ -465,7 +473,7 @@ func (g *Gateway) dispatchOnce(req spawnReq) {
 	if deferred {
 		// 全部候选被并发闸挡住：错峰后重排一次（一次性闹钟链，有界语义——
 		// 重排进来时若仍全挡将再次错峰；不是周期巡检，是事件驱动的延后）。
-		time.AfterFunc(g.cfg.Stagger, func() { g.enqueueSpawn(req.ticketID, req.role) })
+		time.AfterFunc(g.cfg.Stagger, func() { g.enqueueSpawn(req) })
 		return
 	}
 	g.shellsExhausted(ctx, req)
@@ -482,8 +490,7 @@ func (g *Gateway) cliDriveSpawn(ctx context.Context, req spawnReq, spec SeatSpec
 		if req.role != "CTO" {
 			return
 		}
-		if t, err := g.database.GetTicket(ctx, req.ticketID); err == nil && t != nil &&
-			t.Phase == db.PhaseToDeploy {
+		if t, err := g.database.GetTicket(ctx, req.ticketID); err == nil && t != nil {
 			g.releaseProjectLocks(ctx, t.Project, req.ticketID, false,
 				lockIntegrate, lockDeploy)
 		}
@@ -518,12 +525,13 @@ func (g *Gateway) cliDriveSpawn(ctx context.Context, req spawnReq, spec SeatSpec
 		return
 	}
 	if dead >= 3 {
-		note := "cli-drive 连败 3 次截断——部署径停摆等裁"
+		note := "cli-drive 连败 3 次截断——部署径停摆人工态"
 		_ = g.database.AppendEvent(ctx, req.ticketID, "spawn_failed", db.Event{
 			Actor: "gateway", Note: note})
 		g.emit(Event{Kind: "spawn_failed", TicketID: req.ticketID, Role: req.role,
 			Note: note})
 		releaseDeployLocks()
+		g.blockTicket(ctx, req.ticketID, note)
 		return
 	}
 	at := route.Attempt{Shell: cliShell}
@@ -558,6 +566,9 @@ func (g *Gateway) trySpawn(ctx context.Context, req spawnReq, spec SeatSpec, at 
 	run.Shell = shellLabel(at)
 	run.Adjunct = spec.Adjunct
 	run.Provenance = spec.Provenance // D9：spawn 方盖戳——触发事件行的 provenance 透传
+	g.mu.Lock()
+	g.runWorkDir[run.RunID] = spec.WorkDir
+	g.mu.Unlock()
 	artDir := filepath.Join(g.cfg.RunDir, "artifacts")
 	_ = os.MkdirAll(artDir, 0o700)
 	artDir = filepath.Join(artDir, run.RunID)
@@ -682,13 +693,7 @@ func (g *Gateway) reportShell(ctx context.Context, ticketID, role string, at rou
 		return
 	}
 	row := db.Shell{Name: at.Shell, Model: at.Model, Role: role}
-	g.mu.Lock()
-	if g.failSet[ticketID] == nil {
-		g.failSet[ticketID] = map[string]bool{}
-	}
-	g.failSet[ticketID][row.ShellKey()] = true
-	g.mu.Unlock()
-
+	// T35：failSet 内存表退役——失败壳排除集由 seat_run 期窗账推导。
 	cur, _ := g.database.ShellHealth(ctx, row)
 	next, changed := route.NextHealth(cur, class)
 	if !changed {
@@ -751,68 +756,27 @@ func (g *Gateway) shellsExhausted(ctx context.Context, req spawnReq) {
 	// 账不算不可用；只认全局健康态：角色全部注册壳 health=dead 才报
 	// shells_exhausted（CEO 唤起级真荒），余皆 shells_degraded（单壳降级
 	// 换壳，不杀在岗席——误报曾致 4 席被当荒杀）。
-	allDown := true
-	if rows, err := g.shellsFor(ctx, req.role); err == nil && len(rows) > 0 {
-		for _, r := range rows {
-			if r.Health != route.HealthDead {
-				allDown = false
-				break
-			}
-		}
-	} else if err == nil && len(rows) == 0 {
-		allDown = false // 角色无登记行＝配置面未就绪，非壳荒
-	}
-	if !allDown {
-		// T26 病5 降级出路：候壳尽≠悬死——
-		//  ①本票首尽：清 failSet 回落健康壳重试一轮（degradedRetried 有界
-		//    记账，第二轮仍尽才挂裁）；
-		//  ②CTO 部署票（待部署相位）：转 CliDrive 钦定兜底——机械四步
-		//    无 AI 税，是不依赖健康壳的确定性出路；
-		//  ③余下照旧 shells_degraded 挂 CEO 裁。
-		if req.role == "CTO" {
-			if t, err := g.database.GetTicket(ctx, req.ticketID); err == nil && t != nil &&
-				t.Phase == db.PhaseToDeploy {
-				g.mu.Lock()
-				sp := g.specs[specKey{req.ticketID, req.role}]
-				sp.CliDrive = true
-				g.specs[specKey{req.ticketID, req.role}] = sp
-				delete(g.failSet, req.ticketID)
-				g.mu.Unlock()
-				note := "候壳尽转 CliDrive 钦定兜底（部署径零 AI 税）"
-				_ = g.database.AppendEvent(ctx, req.ticketID, "clidrive_fallback", db.Event{
-					Actor: "gateway", Note: note})
-				g.emit(Event{Kind: "clidrive_fallback", TicketID: req.ticketID,
-					Role: req.role, Note: note})
-				g.enqueueSpawn(req.ticketID, req.role)
-				return
-			}
-		}
-		g.mu.Lock()
-		retried := g.degradedRetried[req.ticketID]
-		if !retried {
-			g.degradedRetried[req.ticketID] = true
-			delete(g.failSet, req.ticketID)
-		}
-		g.mu.Unlock()
-		if !retried {
-			note := "角色 " + req.role + " 本票候壳尽——清 failSet 回落健康壳重试一轮"
-			_ = g.database.AppendEvent(ctx, req.ticketID, "degraded_retry", db.Event{
+	spec := req.spec
+	// T35 失败表语义：候壳尽＝壳列表用尽→blocked 人工态（降级回落重试/
+	// 降级重试链全删——补发径亡，调和器是唯一 spawn 决策点）。
+	// CTO 部署票仍走 CliDrive 兜底（机械四步零 AI 税，不耗壳）。
+	if req.role == "CTO" && !spec.CliDrive {
+		if t, err := g.database.GetTicket(ctx, req.ticketID); err == nil && t != nil &&
+			t.Phase == db.PhaseToDeploy {
+			spec.CliDrive = true
+			note := "候壳尽转 CliDrive 钦定兜底（部署径零 AI 税）"
+			_ = g.database.AppendEvent(ctx, req.ticketID, "clidrive_fallback", db.Event{
 				Actor: "gateway", Note: note})
-			g.emit(Event{Kind: "degraded_retry", TicketID: req.ticketID, Role: req.role,
-				Note: note})
-			g.enqueueSpawn(req.ticketID, req.role)
+			g.emit(Event{Kind: "clidrive_fallback", TicketID: req.ticketID,
+				Role: req.role, Note: note})
+			g.enqueueSpawn(spawnReq{ticketID: req.ticketID, role: req.role, spec: spec})
 			return
 		}
-		note := "角色 " + req.role + " 本票候选用尽（仍有健康壳未试——非全荒）"
-		_ = g.database.AppendEvent(ctx, req.ticketID, "shells_degraded", db.Event{
-			Actor: "gateway", Note: note})
-		g.emit(Event{Kind: "shells_degraded", TicketID: req.ticketID, Role: req.role,
-			Note: note})
-	} else {
-		_ = g.database.AppendEvent(ctx, req.ticketID, "shells_exhausted", db.Event{
-			Actor: "gateway", Note: "角色 " + req.role + " 全部候选用尽"})
-		g.emit(Event{Kind: "shells_exhausted", TicketID: req.ticketID, Role: req.role})
 	}
+	note := "角色 " + req.role + " 本票候壳尽——壳列表用尽"
+	_ = g.database.AppendEvent(ctx, req.ticketID, "shells_exhausted", db.Event{
+		Actor: "gateway", Note: note})
+	g.emit(Event{Kind: "shells_exhausted", TicketID: req.ticketID, Role: req.role})
 	if req.role == "CTO" {
 		if t, err := g.database.GetTicket(ctx, req.ticketID); err == nil && t != nil &&
 			t.Phase == db.PhaseToDeploy {
@@ -820,6 +784,7 @@ func (g *Gateway) shellsExhausted(ctx context.Context, req spawnReq) {
 				lockIntegrate, lockDeploy)
 		}
 	}
+	g.blockTicket(ctx, req.ticketID, note)
 }
 
 // shellsFor 角色登记行；空表按配置行落种再读（D-9：登记表种子出码外——
@@ -1004,7 +969,7 @@ func (g *Gateway) resumePrompt(ctx context.Context, ticketID, role string) (stri
 	var vlines []string
 	if evs, err := g.database.Events(ctx, ticketID); err == nil {
 		for _, e := range evs {
-			if e.Kind == string(db.EdgeReject) || e.Kind == string(db.EdgeYield) {
+			if e.Kind == string(db.EdgeReject) || e.Kind == "yield" {
 				vlines = append(vlines, fmt.Sprintf("- %s: %s", e.Kind, e.Note))
 			}
 		}

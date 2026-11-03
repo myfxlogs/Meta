@@ -45,12 +45,18 @@ func dispatchSpec(t *testing.T) SeatSpec {
 // TestDispatch_SeatLifecycle 调度一镜到底：DispatchSeat 走相位→路由 spawn→
 // attach+claim→施工中；杀席→failSet 换壳→下一壳顶上（①级换壳的机器径）。
 func TestDispatch_SeatLifecycle(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "worker")
 	g, _ := newTestGateway(t, func(c *Config) {
 		dir := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(dir)
+		c.InjectRoot = injectFixture(t)
 	})
 	ctx := context.Background()
 	if err := g.DB().CreateTicket(ctx, "td", "dispatch 票", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.DB().UpdateSpec(ctx, "td", testSpec(t)); err != nil {
 		t.Fatal(err)
 	}
 	if err := g.DispatchSeat(ctx, "td", "施工", dispatchSpec(t)); err != nil {
@@ -68,7 +74,8 @@ func TestDispatch_SeatLifecycle(t *testing.T) {
 	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	waitEvent(t, g, "requeue", "td", 8*time.Second)
+	// T35：相位稳守 施工中＋seat_dead→调和器重派（不回队）。
+	waitEvent(t, g, "seat_dead", "td", 8*time.Second)
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		runs, _ = g.DB().RunsForTicket(ctx, "td")
@@ -98,18 +105,14 @@ func TestDispatch_FrozenRefuses(t *testing.T) {
 	if err := g.DB().SetBudgetFrozen(ctx, "tf", true); err != nil {
 		t.Fatal(err)
 	}
-	g.mu.Lock()
-	g.frozen["tf"] = true
-	g.mu.Unlock()
 	if err := g.DispatchSeat(ctx, "tf", "施工", dispatchSpec(t)); err == nil {
 		t.Fatal("冻票派发应被拒")
 	}
-	// 排队 spawn 事件在消费端判弃：手动入队，观察口不许出 spawn_needed。
-	g.enqueueSpawn("tf", "施工")
-	for _, e := range collectEvents(g, 300*time.Millisecond) {
-		if e.Kind == "spawn_needed" && e.TicketID == "tf" {
-			t.Fatal("冻票漏出 spawn_needed")
-		}
+	// T35：冻票排队 spawn 在消费端判弃——手动入队断言零新 run。
+	g.enqueueSpawn(spawnReq{ticketID: "tf", role: "施工", spec: dispatchSpec(t)})
+	time.Sleep(300 * time.Millisecond)
+	if r, _ := g.DB().ActiveRunForTicket(ctx, "tf"); r != nil {
+		t.Fatal("冻票漏出席位")
 	}
 }
 
@@ -156,14 +159,15 @@ func TestBudget_ThreeGates(t *testing.T) {
 	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 20}}})
 	waitEvent(t, g, "budget_stop", "tb1", 3*time.Second)
 	stream.CloseSend() // 代驾流 EOF：双源互证第二源
-	waitPhase(t, g, "tb1", db.PhaseAssigned, 5*time.Second)
-	if p, _ := g.DB().PhaseOf(ctx, "tb1"); p != db.PhaseAssigned {
+	// T35：尝试内硬顶→blocked 人工态（非回队）。
+	waitPhase(t, g, "tb1", db.PhaseBlocked, 5*time.Second)
+	if p, _ := g.DB().PhaseOf(ctx, "tb1"); p != db.PhaseBlocked {
 		t.Fatalf("硬停后相位=%s", p)
 	}
-	st, _ := g.DB().RunByToken(ctx, run.RunToken)
-	if !st.Dead {
-		t.Fatal("硬停未杀席")
-	}
+	waitFor2(t, 5*time.Second, func() bool {
+		st, _ := g.DB().RunByToken(ctx, run.RunToken)
+		return st != nil && st.Dead
+	})
 
 	// 票级硬顶：tb2 硬帽 150；两次用量过顶→先杀后冻。
 	mkTicketAt(t, g, "tb2", db.PhaseAssigned)
@@ -182,7 +186,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 	}
 	send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: run2.RunToken}}})
 	send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "tb2"}}})
-	waitEvent(t, g, "phase:claim", "tb2", 5*time.Second)
+	waitEvent(t, g, "phase:claim", "tb2", 15*time.Second)
 	send2(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Usage{Usage: &pbv1.Usage{TokensUsed: 160}}})
 	waitEvent(t, g, "budget_frozen", "tb2", 3*time.Second)
 	stream2.CloseSend() // 双源互证第二源
@@ -214,12 +218,18 @@ func TestBudget_ThreeGates(t *testing.T) {
 // 票级 used_total 跨尝试单调不清零。（驳回1 R1 回归锚——删 ResetAttemptUsage
 // 接线或删 warned 复位，本表必红。）
 func TestBudget_AttemptReset(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "worker")
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
+		c.InjectRoot = injectFixture(t)
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tr", db.PhaseAssigned)
+	if err := g.DB().UpdateSpec(ctx, "tr", testSpec(t)); err != nil {
+		t.Fatal(err)
+	}
 	if err := g.DB().SetBudgetCaps(ctx, "tr", 100, 1000); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +267,7 @@ func TestBudget_AttemptReset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// ①级中途死→回队→failSet 排除 devin→claude 顶上（新尝试）。
+	// T35：中途死→相位守＋调和器重派——devin 死账推导排除→claude 顶上。
 	waitEvent(t, g, "seat_up", "tr", 15*time.Second)
 	runs, _ = g.DB().RunsForTicket(ctx, "tr")
 	if len(runs) != 2 || runs[1].Shell != "claude" {

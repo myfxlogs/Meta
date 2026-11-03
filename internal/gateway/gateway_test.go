@@ -41,7 +41,8 @@ func TestAnchorA_ConnectThenClaim(t *testing.T) {
 	}
 }
 
-// TestAnchorC_MidDeath 中途死（验收锚 c）：杀席位进程→SIGCHLD＋EOF 双源→施工中→已派。
+// TestAnchorC_MidDeath 中途死（验收锚 c）：杀席位进程→SIGCHLD＋EOF 双源；
+// T35：相位稳守 施工中（席死不回队）＋seat_dead 账，调和器按失败表重派。
 func TestAnchorC_MidDeath(t *testing.T) {
 	g, _ := newTestGateway(t, nil)
 	mkTicketAt(t, g, "tc", db.PhaseAssigned)
@@ -53,24 +54,24 @@ func TestAnchorC_MidDeath(t *testing.T) {
 	if err := syscall.Kill(run.PID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	waitEvent(t, g, "requeue", "tc", 5*time.Second)
-	waitPhase(t, g, "tc", db.PhaseAssigned, 2*time.Second)
+	waitEvent(t, g, "seat_dead", "tc", 5*time.Second)
+	waitPhase(t, g, "tc", db.PhaseWorking, 2*time.Second)
 
 	// 双源互证必须都有记录：SIGCHLD(exited_at)＋EOF(stream_closed)。
 	st, _ := g.DB().RunByToken(context.Background(), run.RunToken)
 	if !st.Dead || st.ExitedAt.IsZero() || !st.StreamClosed {
 		t.Fatalf("双源不全: dead=%v exited_at=%v stream_closed=%v", st.Dead, st.ExitedAt, st.StreamClosed)
 	}
-	// 判决史/事件留痕
+	// 判决史/事件留痕：seat_dead 落账；相位稳守不回队。
 	evs, _ := g.DB().Events(context.Background(), "tc")
 	found := false
 	for _, e := range evs {
-		if e.Kind == string(db.EdgeRequeue) {
+		if e.Kind == "seat_dead" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("回队未记 ticket_event")
+		t.Fatal("席死未记 ticket_event")
 	}
 }
 
@@ -85,31 +86,27 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 		seatMode  string // hold|worker|""（无席位）
 		wantPhase db.Phase
 		wantEvent string
-		wantRole  string // spawn_needed 时的角色
+		wantRole  string // 调和器重派的角色（dead/none 支）
 	}{
 		{"设计中·活行动者·收养", db.PhaseDesigning, "live", "hold", db.PhaseDesigning, "adopted", ""},
-		{"设计中·死行动者·回已立", db.PhaseDesigning, "dead", "", db.PhaseCreated, "requeue", ""},
+		{"设计中·死行动者·相位守+重派", db.PhaseDesigning, "dead", "", db.PhaseDesigning, "attach", "CTO"},
 		{"施工中·活行动者·收养", db.PhaseWorking, "live", "worker", db.PhaseWorking, "adopted", ""},
-		{"施工中·死行动者·回已派", db.PhaseWorking, "dead", "", db.PhaseAssigned, "requeue", ""},
+		{"施工中·死行动者·相位守+重派", db.PhaseWorking, "dead", "", db.PhaseWorking, "attach", "施工"},
 		{"审计中·活行动者·收养", db.PhaseAuditing, "live", "hold", db.PhaseAuditing, "adopted", ""},
-		{"审计中·死行动者·回待审", db.PhaseAuditing, "dead", "", db.PhaseReview, "requeue", ""},
+		{"审计中·死行动者·相位守+重派", db.PhaseAuditing, "dead", "", db.PhaseAuditing, "attach", "审计"},
 		{"部署中·活行动者·收养", db.PhaseDeploying, "live", "hold", db.PhaseDeploying, "adopted", ""},
-		{"部署中·死行动者·回待部署", db.PhaseDeploying, "dead", "", db.PhaseToDeploy, "requeue", ""},
-		{"待审·无行动者·补spawn", db.PhaseReview, "none", "", db.PhaseReview, "spawn_needed", "审计"},
-		{"已派·无行动者·补spawn", db.PhaseAssigned, "none", "", db.PhaseAssigned, "spawn_needed", "施工"},
-		{"待部署·无行动者·补spawn", db.PhaseToDeploy, "none", "", db.PhaseToDeploy, "spawn_needed", "CTO"},
+		{"部署中·死行动者·相位守+重派", db.PhaseDeploying, "dead", "", db.PhaseDeploying, "attach", "CTO"},
+		{"待审·无行动者·起审计", db.PhaseReview, "none", "", db.PhaseReview, "attach", "审计"},
+		{"已派·无行动者·起施工", db.PhaseAssigned, "none", "", db.PhaseAssigned, "attach", "施工"},
+		{"待部署·无行动者·起CTO", db.PhaseToDeploy, "none", "", db.PhaseToDeploy, "attach", "CTO"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GO_HELPER_SEAT", "1")
+			t.Setenv("SEAT_MODE", "worker")
 			dir := t.TempDir()
-			cfg := Config{
-				DBPath:           filepath.Join(dir, "meta.db"),
-				RunDir:           filepath.Join(dir, "run"),
-				SocketPath:       filepath.Join(dir, "run", "meta.sock"),
-				ProgressTimeout:  30 * time.Minute,
-				AuthTimeout:      2 * time.Second,
-				AdoptDialTimeout: 2 * time.Second,
-			}
+			cfg := dispatchCfg(dir)
+			cfg.InjectRoot = injectFixture(t)
 
 			// ---- 网关1：布置相位与行动者，然后「杀网关」 ----
 			g1, err := New(cfg)
@@ -123,6 +120,8 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 				claimPhase = db.PhaseAssigned // 先派后领
 			}
 			mkTicketAt(t, g1, tid, claimPhase)
+			_ = g1.DB().UpdateSpec(context.Background(), tid, testSpec(t))
+			_ = g1.DB().UpsertProject(context.Background(), stubProject("P"))
 
 			var run *db.Run
 			switch tc.actor {
@@ -164,9 +163,24 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 			go g2.Serve()
 			defer g2.Close()
 
-			ev := waitEvent(t, g2, tc.wantEvent, tid, 8*time.Second)
-			if tc.wantRole != "" && ev.Role != tc.wantRole {
-				t.Fatalf("spawn_needed 角色=%s 预期 %s", ev.Role, tc.wantRole)
+			if tc.wantRole != "" {
+				// T35：调和器重派以 run 行为账（attach 门铃可能先于观察口注册）。
+				var got string
+				waitFor2(t, 15*time.Second, func() bool {
+					rs, _ := g2.DB().RunsForTicket(context.Background(), tid)
+					for _, r := range rs {
+						if !r.Dead && r.RunID != "dead-run" && r.Role == tc.wantRole {
+							got = r.RunID
+							return true
+						}
+					}
+					return false
+				})
+				if got == "" {
+					t.Fatalf("调和器未重派 %s 席", tc.wantRole)
+				}
+			} else {
+				waitEvent(t, g2, tc.wantEvent, tid, 10*time.Second)
 			}
 			waitPhase(t, g2, tid, tc.wantPhase, 2*time.Second)
 
@@ -253,14 +267,13 @@ func TestAnchorE_AlarmRecompute(t *testing.T) {
 		go g2.Serve()
 		defer g2.Close()
 		waitEvent(t, g2, "adopted", "te2", 8*time.Second)
-
-		deadline, ok := g2.AlarmDeadline("te2")
-		if !ok {
-			t.Fatal("收养后闹钟未重挂")
-		}
-		want := last.Add(30 * time.Minute)
-		if deadline.Sub(want).Abs() > 2*time.Second {
-			t.Fatalf("deadline=%v 预期≈%v（应取自 ticket_event）", deadline, want)
+		// T35：收养续命 armAlarm 径删——停滞检测并入调和器期窗
+		// （LastActivityAt+ProgressTimeout 未过期→近期零 stall_suspect）。
+		_ = last
+		for _, e := range collectEvents(g2, 500*time.Millisecond) {
+			if e.Kind == "stall_suspect" && e.TicketID == "te2" {
+				t.Fatal("未过期竟发 stall——续命径语义破")
+			}
 		}
 		// 窗口内不得有 stall 事件。
 		for _, e := range collectEvents(g2, 300*time.Millisecond) {

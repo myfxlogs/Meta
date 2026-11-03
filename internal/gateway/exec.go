@@ -106,14 +106,9 @@ func (g *Gateway) releaseProjectLocks(ctx context.Context, project, skipTicket s
 	if err != nil {
 		return
 	}
-	for _, t := range tickets {
-		if t.ID == skipTicket {
-			continue
-		}
-		_ = g.database.AppendEvent(ctx, t.ID, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "锁释补发: " + spawnLine(t.Phase)})
-		g.emit(Event{Kind: "spawn_needed", TicketID: t.ID, Role: "CTO"})
-	}
+	// T35：锁释不就地补发——踢调和器照相位拾滞留票（零定时）。
+	_ = tickets
+	g.kickRecon("lock_release")
 }
 
 // handleExec 命令代跑闸（票0010 §10/D1——席位直碰部署树的唯一径，禁区#8）：

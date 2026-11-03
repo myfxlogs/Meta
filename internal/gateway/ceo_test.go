@@ -234,6 +234,8 @@ func TestCeoProvenance(t *testing.T) {
 // TestCeoRule 锚4：void 两步确认；budget_raise 解冻；redirect 重派 CTO。
 func TestCeoRule(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "hold")
+	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "worker") // redirect 重派 CTO→helper 席活起
 	t.Setenv("META_ADOPT_GRACE", "30")
 	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
@@ -267,9 +269,6 @@ func TestCeoRule(t *testing.T) {
 	if err := g.DB().SetBudgetFrozen(ctx, "tb", true); err != nil {
 		t.Fatal(err)
 	}
-	g.mu.Lock()
-	g.frozen["tb"] = true
-	g.mu.Unlock()
 	ack, _ = c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "budget_raise",
 		TicketId: "tb", HardCap: 1000})
 	if !ack.Ok {
@@ -300,6 +299,8 @@ func TestCeoRule(t *testing.T) {
 // 内联提示（防误用 CEO 无头化身模板：角色指反＝席行为错轨）；全栏票走
 // 注入机径（PromptFile 空＝由注入机组装全套前缀）。
 func TestCeoRule_RedirectPrompt(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "hold")
 	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
 	ctx := context.Background()
 	c := ceoClient(t, dir)
@@ -323,18 +324,18 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 		TicketId: "trp1", Note: "改走轻量轨"}); ack == nil || !ack.Ok {
 		t.Fatalf("redirect 缺栏票未成: %+v", ack)
 	}
-	g.mu.Lock()
-	pf1 := g.specs[specKey{"trp1", "CTO"}].PromptFile
-	g.mu.Unlock()
-	if pf1 == "" {
+	// T35：g.specs 内存表退役（spec 随 spawnReq 走）——改验注入目录
+	// 落盘件：缺栏票 redirect 落 CTO-A 内联提示文件。
+	mfs, _ := filepath.Glob(filepath.Join(g.cfg.RunDir, "inject", "redirect-*.md"))
+	if len(mfs) == 0 {
 		t.Fatal("缺栏票 redirect 未落覆盖提示（注入机缺一不派会空转）")
 	}
-	body, err := os.ReadFile(pf1)
+	body, err := os.ReadFile(mfs[len(mfs)-1])
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(body), "CTO-A") || strings.Contains(string(body), "无头化身") {
-		t.Fatalf("redirect 提示角色指错（应 CTO-A 非 CEO 化身）: %s", pf1)
+		t.Fatalf("redirect 提示角色指错（应 CTO-A 非 CEO 化身）: %s", mfs)
 	}
 
 	// 全栏（CTO-A 已 fill_spec 后泊车）→注入机径。
@@ -347,11 +348,10 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 		TicketId: "trp2", Note: "续作"}); ack == nil || !ack.Ok {
 		t.Fatalf("redirect 全栏票未成: %+v", ack)
 	}
-	g.mu.Lock()
-	pf2 := g.specs[specKey{"trp2", "CTO"}].PromptFile
-	g.mu.Unlock()
-	if pf2 != "" {
-		t.Fatalf("全栏票 redirect 应走注入机径（PromptFile 空）: %q", pf2)
+	// 全栏票走注入机组装径——缺内联提示件增（redirect-* 计数不变）。
+	mfs2, _ := filepath.Glob(filepath.Join(g.cfg.RunDir, "inject", "redirect-*.md"))
+	if len(mfs2) != len(mfs) {
+		t.Fatalf("全栏票 redirect 不该落内联提示（%d→%d）", len(mfs), len(mfs2))
 	}
 }
 
@@ -418,24 +418,16 @@ func TestDesignLock(t *testing.T) {
 		t.Fatal("A 施工中 B 派发未被锁拒（锁提前释放）")
 	}
 	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{Ref: "r1"}}})
-	// 放锁→解排队补发（扫 DB 行＝持久真源，不依赖观察口消费侧）。
-	waitFor2(t, 5*time.Second, func() bool {
-		evs, _ := g.DB().Events(ctx, "tb")
-		for _, e := range evs {
-			if e.Kind == "spawn_needed" && strings.Contains(e.Note, "设计锁释放") {
-				return true
-			}
-		}
-		return false
+	// T35：放锁踢调和器——B 票（已立）由调和器派 CTO 起席。
+	waitFor2(t, 15*time.Second, func() bool {
+		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tb", "CTO")
+		return r != nil
 	})
-	waitFor2(t, 5*time.Second, func() bool {
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		return g.designLocks["p1"] == ""
+	// T35：锁释踢调和器自动派 B——手工派发属幂等相会（去重/相位径）。
+	waitFor2(t, 15*time.Second, func() bool {
+		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tb", "CTO")
+		return r != nil
 	})
-	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec(t)); err != nil {
-		t.Fatalf("A 交付后 B 派发仍拒: %v", err)
-	}
 	st.CloseSend()
 }
 
@@ -517,6 +509,8 @@ func TestCeoMemory(t *testing.T) {
 // TestReqPending 锚7：CTO 席 Yield→已立+req_pending 行；对账不补 spawn；
 // redirect 后重派 CTO（重定向最新事件非 req_pending，抑制自然解）。
 func TestReqPending(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "hold")
 	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
 	ctx := context.Background()
 	mkTicketAt(t, g, "tp", db.PhaseAssigned)
@@ -533,17 +527,23 @@ func TestReqPending(t *testing.T) {
 	}
 	st.CloseSend()
 
-	// 对账抑制闸（对抗锚③）：最新事件 req_pending→不补 spawn_needed。
+	// T35：泊车抑制闸——对账不派 CTO（无新 run）。
 	g.reconcile(ctx)
-	for _, e := range collectEvents(g, 300*time.Millisecond) {
-		if e.Kind == "spawn_needed" && e.TicketID == "tp" {
+	<-time.After(300 * time.Millisecond)
+	rs, _ := g.DB().RunsForTicket(ctx, "tp")
+	for _, r := range rs {
+		if !r.Dead && r.RunID != run.RunID && r.Role == "CTO" {
 			t.Fatal("泊车票被对账重派")
 		}
 	}
-	// 普通 已立 票对照：照补。
+	// 普通 已立 票对照：调和器起 CTO-A。
 	mkTicketAt(t, g, "tp2", db.PhaseCreated)
+	_ = g.DB().UpdateSpec(ctx, "tp2", testSpec(t))
 	g.reconcile(ctx)
-	waitEvent(t, g, "spawn_needed", "tp2", 3*time.Second)
+	waitFor2(t, 15*time.Second, func() bool {
+		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tp2", "CTO")
+		return r != nil
+	})
 }
 
 // TestImportLegacy 锚8：fixture md→行（幂等二跑零增）。
@@ -733,29 +733,31 @@ func TestD36_BudgetErrReturn(t *testing.T) {
 	}
 }
 
-// TestD15_TerminalCleanup 终态即删 specs/failSet/warned/frozen＋cancelAlarm。
+// TestD15_TerminalCleanup 终态即清派生互斥件＋cancelAlarm＋runWorkDir 索引。
+// T35：specs/failSet/warned/frozen 四表已退役（派发参数纯推导）。
 func TestD15_TerminalCleanup(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
 	ctx := context.Background()
 	mkTicketAt(t, g, "tdone", db.PhaseAuditing)
 	g.mu.Lock()
-	g.specs[specKey{"tdone", "施工"}] = SeatSpec{}
-	g.failSet["tdone"] = map[string]bool{"x": true}
-	g.warned["tdone"] = true
-	g.frozen["tdone"] = true
+	g.runWorkDir["rtdone"] = "/tmp/x"
 	g.mu.Unlock()
 	g.armAlarm("tdone", time.Now().Add(time.Hour))
+	run := &db.Run{RunID: "rtdone", TicketID: "tdone", Role: "审计"}
+	if err := g.DB().CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := g.transition(ctx, "tdone", db.PhaseVoid, db.EdgeVoid, "test", "终"); err != nil {
 		t.Fatal(err)
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if len(g.specs) != 0 || g.failSet["tdone"] != nil || g.warned["tdone"] || g.frozen["tdone"] {
-		t.Fatal("终态内存键未清")
-	}
 	if _, ok := g.alarms["tdone"]; ok {
 		t.Fatal("终态闹钟未消")
+	}
+	if _, ok := g.runWorkDir["rtdone"]; ok {
+		t.Fatal("终态 runWorkDir 索引未清")
 	}
 }
 
@@ -782,10 +784,11 @@ func TestAudit_RedispatchReject(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) { *c = dispatchCfg(filepath.Dir(c.DBPath)) })
 	ctx := context.Background()
 	mkTicketAt(t, g, "ta", db.PhaseAuditing)
-	if err := g.DispatchSeat(ctx, "ta", "审计", dispatchSpec(t)); err == nil {
-		t.Fatal("审计中再派审计未拒")
+	// T35：审计中重派审计＝调和器合法径（无活席即放行——相位稳守语义）。
+	if err := g.DispatchSeat(ctx, "ta", "审计", dispatchSpec(t)); err != nil {
+		t.Fatalf("审计中重派审计应放: %v", err)
 	}
 	if err := g.DispatchSeat(ctx, "ta", "施工", dispatchSpec(t)); err == nil {
-		t.Fatal("审计中再派施工未拒")
+		t.Fatal("审计中派施工应拒")
 	}
 }

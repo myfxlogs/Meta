@@ -33,12 +33,7 @@ func exitcodeSpec(t *testing.T, code int) SeatSpec {
 func assertNoShellBlame(t *testing.T, g *Gateway, tid string) {
 	t.Helper()
 	ctx := context.Background()
-	g.mu.Lock()
-	fs := g.failSet[tid]
-	g.mu.Unlock()
-	if len(fs) != 0 {
-		t.Fatalf("票 %s 不该进 failSet: %v", tid, fs)
-	}
+	_ = ctx
 	rows, _ := g.DB().ListShells(ctx, "施工")
 	for _, r := range rows {
 		if r.Health != route.HealthUnknown && r.Health != "" {
@@ -159,7 +154,7 @@ func TestDispatch_席位级死因禁标壳(t *testing.T) {
 			}
 			// 三候选全部席位级秒退→T26 降级径清 failSet 重试一轮→再尽
 			// shells_degraded 收口（两轮×三候选＝每轮各一 seat_err）。
-			waitEvent(t, g, "shells_degraded", "tx", 15*time.Second)
+			waitEvent(t, g, "shells_exhausted", "tx", 15*time.Second)
 			nErr := 0
 			evs, _ := g.DB().Events(ctx, "tx")
 			for _, e := range evs {
@@ -170,8 +165,8 @@ func TestDispatch_席位级死因禁标壳(t *testing.T) {
 					}
 				}
 			}
-			if nErr != 6 {
-				t.Fatalf("seat_err 行数=%d 预期 6（两轮×三候选各一）", nErr)
+			if nErr != 3 {
+				t.Fatalf("seat_err 行数=%d 预期 3（T35：降级回落删——一轮三候选）", nErr)
 			}
 			assertNoShellBlame(t, g, "tx")
 		})
@@ -189,8 +184,8 @@ func TestDispatch_壳级回归(t *testing.T) {
 		wantEvent  string // ""＝无健康事件
 		wantDrain  string // T3：尽后事件——①②a 健康壳在＝degraded；②b 全死＝exhausted
 	}{
-		{"①机器级", seat.ExitSpawnFail, "", "", "shells_degraded"},
-		{"②a限流", seat.ExitTransient, route.HealthLimited, "shell_limited", "shells_degraded"},
+		{"①机器级", seat.ExitSpawnFail, "", "", "shells_exhausted"},
+		{"②a限流", seat.ExitTransient, route.HealthLimited, "shell_limited", "shells_exhausted"},
 		{"②b死额", seat.ExitFatal, route.HealthDead, "shell_dead", "shells_exhausted"},
 	}
 	for _, tc := range cases {
@@ -204,17 +199,30 @@ func TestDispatch_壳级回归(t *testing.T) {
 			}
 			waitEvent(t, g, tc.wantDrain, "ts", 15*time.Second)
 
-			g.mu.Lock()
-			fs := g.failSet["ts"]
-			g.mu.Unlock()
+			// T35：failSet 退役——壳级死因全行进 seat_run 死账推导集。
+			rs, _ := g.DB().RunsForTicket(ctx, "ts")
+			fs := map[string]bool{}
+			for _, r := range rs {
+				if r.Dead && !r.Adjunct {
+					fs[r.Shell] = true
+				}
+			}
 			rows, _ := g.DB().ListShells(ctx, "施工")
 			if len(fs) != len(rows) || len(fs) == 0 {
-				t.Fatalf("壳级死因应全行进 failSet: %v（rows=%d）", fs, len(rows))
+				t.Fatalf("壳级死因应全行进死账: %v（rows=%d）", fs, len(rows))
+			}
+			for _, r := range rs {
+				_ = r
 			}
 			for _, r := range rows {
-				key := r.ShellKey()
-				if !fs[key] {
-					t.Fatalf("failSet 缺壳键 %s", key)
+				found := false
+				for _, rr := range rs {
+					if rr.Dead && !rr.Adjunct && shellNameOf(rr.Shell) == r.Name {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("死账缺壳 %s", r.Name)
 				}
 			}
 			nHealthEv := 0

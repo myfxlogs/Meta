@@ -18,16 +18,28 @@ var expectedEdges = []Edge{
 	{PhaseAuditing, PhaseToDeploy, EdgeAuditPass},
 	{PhaseToDeploy, PhaseDeploying, EdgeDeployStart},
 	{PhaseDeploying, PhaseDone, EdgeDeployDone},
-	{PhaseWorking, PhaseAssigned, EdgeRequeue},
 	{PhaseAuditing, PhaseAssigned, EdgeReject},
-	// 补边四条（A2）
-	{PhaseDesigning, PhaseCreated, EdgeDesignDead},
-	{PhaseDeploying, PhaseToDeploy, EdgeDeployFailed},
-	{PhaseAuditing, PhaseReview, EdgeAuditDead},
-	{PhaseWorking, PhaseAssigned, EdgeYield},
 	// 补边（阶段3·票0011）：CTO-A 需求待裁泊车
 	{PhaseWorking, PhaseCreated, EdgeReqPending},
-	// 任一非终态→作废
+	// T35：任一非终态→blocked；blocked→任一非终态 resume
+	{PhaseCreated, PhaseBlocked, EdgeBlocked},
+	{PhaseDesigning, PhaseBlocked, EdgeBlocked},
+	{PhaseAssigned, PhaseBlocked, EdgeBlocked},
+	{PhaseWorking, PhaseBlocked, EdgeBlocked},
+	{PhaseReview, PhaseBlocked, EdgeBlocked},
+	{PhaseAuditing, PhaseBlocked, EdgeBlocked},
+	{PhaseToDeploy, PhaseBlocked, EdgeBlocked},
+	{PhaseDeploying, PhaseBlocked, EdgeBlocked},
+	{PhaseBlocked, PhaseCreated, EdgeResume},
+	{PhaseBlocked, PhaseDesigning, EdgeResume},
+	{PhaseBlocked, PhaseAssigned, EdgeResume},
+	{PhaseBlocked, PhaseWorking, EdgeResume},
+	{PhaseBlocked, PhaseReview, EdgeResume},
+	{PhaseBlocked, PhaseAuditing, EdgeResume},
+	{PhaseBlocked, PhaseToDeploy, EdgeResume},
+	{PhaseBlocked, PhaseDeploying, EdgeResume},
+	// 任一非终态→作废（blocked 含）
+	{PhaseBlocked, PhaseVoid, EdgeVoid},
 	{PhaseCreated, PhaseVoid, EdgeVoid},
 	{PhaseDesigning, PhaseVoid, EdgeVoid},
 	{PhaseAssigned, PhaseVoid, EdgeVoid},
@@ -40,8 +52,8 @@ var expectedEdges = []Edge{
 
 var allKinds = []EdgeKind{
 	EdgeDesignStart, EdgeDispatch, EdgeClaim, EdgeDeliver, EdgeAuditStart,
-	EdgeAuditPass, EdgeDeployStart, EdgeDeployDone, EdgeRequeue, EdgeReject,
-	EdgeDesignDead, EdgeDeployFailed, EdgeAuditDead, EdgeYield, EdgeReqPending, EdgeVoid,
+	EdgeAuditPass, EdgeDeployStart, EdgeDeployDone, EdgeReject,
+	EdgeReqPending, EdgeBlocked, EdgeResume, EdgeVoid,
 }
 
 func allPhases() []Phase { return append(append([]Phase{}, NonTerminal...), Terminal...) }
