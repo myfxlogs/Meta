@@ -561,6 +561,14 @@ func (g *Gateway) cliDriveSpawn(ctx context.Context, req spawnReq, spec SeatSpec
 			}
 		}
 	}
+	// T32①：同秒双 deploy_start 残角——补发重放/并发入队在去重闸前
+	// 滑过的窗，spawn 前再核活席（run 行在而 pid 活即弃）。
+	if r, _ := g.database.ActiveRunForTicketRole(ctx, req.ticketID, req.role); r != nil &&
+		processAliveRun(r) {
+		g.emit(Event{Kind: "spawn_dup", TicketID: req.ticketID, Role: req.role,
+			Note: "cli-drive 活席在 " + r.RunID})
+		return
+	}
 	if dead >= 3 {
 		note := "cli-drive 连败 3 次截断——部署径停摆等裁"
 		_ = g.database.AppendEvent(ctx, req.ticketID, "spawn_failed", db.Event{
@@ -894,22 +902,18 @@ func (g *Gateway) shellsExhausted(ctx context.Context, req spawnReq) {
 // defaultRegistry 码内字面量已废，种子＝config/gateway.textproto 的 shell 行；
 // 角色行空才落，DB 行是活态，健康迁移仍走 SetShellHealth）。
 func (g *Gateway) shellsFor(ctx context.Context, role string) ([]db.Shell, error) {
-	rows, err := g.database.ListShells(ctx, role)
-	if err != nil {
-		return nil, err
-	}
-	if len(rows) == 0 {
-		for _, s := range g.cfg.ShellRows {
-			if s.Role != role {
-				continue
-			}
-			_ = g.database.UpsertShell(ctx, db.Shell{
-				Name: s.Name, Model: s.Model, Role: s.Role,
-				Priority: s.Priority, Health: route.HealthUnknown})
+	// T32③ 种子规则修正：「空才落」漏行自补——角色行已存在但缺种子行
+	// （CEO 行实证）时不再落种＝登记册死格。改逐种子行幂等 upsert
+	// （健康态不受 upsert 扰——ON CONFLICT 只更 priority）。
+	for _, s := range g.cfg.ShellRows {
+		if s.Role != role {
+			continue
 		}
-		rows, err = g.database.ListShells(ctx, role)
+		_ = g.database.UpsertShell(ctx, db.Shell{
+			Name: s.Name, Model: s.Model, Role: s.Role,
+			Priority: s.Priority, Health: route.HealthUnknown})
 	}
-	return rows, err
+	return g.database.ListShells(ctx, role)
 }
 
 // shellNameOf 从 "name/model" 标签取壳名（登记表 key 第一段）。

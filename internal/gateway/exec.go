@@ -350,6 +350,14 @@ func (g *Gateway) ensureDeployClone(ctx context.Context, tid, repoURL, branch st
 		return dir, nil
 	}
 	if err := git("clone", "-q", "-b", branch, repoURL, dir); err != nil {
+		// T32② 内部票克隆败差异径：内部席交付 ref 未推 origin 时
+		// remote 克隆败——META_DEPLOY_LOCAL 本地仓镜 fallback（0049
+		// 实证疑因；外部票走 origin 不受此径扰）。
+		if loc := os.Getenv("META_DEPLOY_LOCAL"); loc != "" {
+			if lerr := git("clone", "-q", "-b", branch, loc, dir); lerr == nil {
+				return dir, nil
+			}
+		}
 		return "", err
 	}
 	return dir, nil
