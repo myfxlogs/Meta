@@ -61,6 +61,8 @@ func main() {
 		err = catchrateCmd(os.Args[2:])
 	case "blocked":
 		err = blockedCmd(os.Args[2:], os.Stdout)
+	case "tickets":
+		err = ticketsCmd(os.Args[2:], os.Stdout)
 	case "secret":
 		err = secret(os.Args[2:])
 	case "ticket":
@@ -161,6 +163,7 @@ func usage() {
   meta retro --socket <sock> --ticket <id> --verdict pass|reject --ref <判决档>
   meta reconcile --socket <sock>                                                  (改路由表后滞留补发对账)
   meta blocked --socket <sock> [--db <meta.db>]                                   (blocked 人工态票列表：票号/标题/末因/动作——库由 sock 推导，纯读)
+  meta tickets --socket <sock> [--db <meta.db>]                                   (在途票列表：票号/相位/标题截断，票号序；空板「无在途票」——纯读)
   meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
   meta upgrade --new <bin> --install <path> [--prev <p>] [--restart-cmd "<cmd>"] [--check-socket <sock>]
   meta ceo [--socket <sock>]                          （交互面：IssueCeoToken→事件侧流→行命令 REPL）
@@ -1634,6 +1637,57 @@ func blockedCmd(args []string, w io.Writer) error {
 			head, reason, r.ID, r.ID)
 	}
 	return nil
+}
+
+// ticketsCmd 票0052 在途票列表（0051 姊妹件——v2 运维面第二件门面）：
+// 全部非终态票一行一条——票号/相位/标题截断（40 runes 上限＋「…」），
+// 按票号序；空板显式「无在途票」。blocked（§3.3-B 人工态）系非终态照列。
+// DB 直读零写：库路径由 --socket 推导（*.sock→*.db 同位约定，同 0050/0051
+// 双旗布局），--db 可显式覆盖；库文件不存在即报错而不建空库。
+func ticketsCmd(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("tickets", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "网关 socket（库路径推导源）")
+	dbPath := fs.String("db", "", "缺省由 --socket 推导（*.sock→*.db）")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	p := *dbPath
+	if p == "" {
+		p = strings.TrimSuffix(absOr(sock, "run/meta.sock"), ".sock") + ".db"
+	}
+	if _, err := os.Stat(p); err != nil {
+		return fmt.Errorf("tickets: 库不可读 %s: %w", p, err)
+	}
+	d, err := db.Open(p)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	ts, err := d.NonTerminalTickets(context.Background())
+	if err != nil {
+		return err
+	}
+	if len(ts) == 0 {
+		fmt.Fprintln(w, "无在途票")
+		return nil
+	}
+	// 票号序（票面钦定）——NonTerminalTickets 钦定序是 created_at，
+	// 板面口径按 id 重排（既有读径零新 SQL）。
+	sort.Slice(ts, func(i, j int) bool { return ts[i].ID < ts[j].ID })
+	for _, t := range ts {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", t.ID, t.Phase, clipTitle(t.Title, 40))
+	}
+	return nil
+}
+
+// clipTitle 标题截断：rune 上限 n，超出收「…」（按 rune 不切多字节）；
+// 换行/制表→空格——标题是自由文本，一行一票格式自保（决策67 同族净化）。
+func clipTitle(s string, n int) string {
+	rs := []rune(s)
+	if len(rs) > n {
+		s = string(rs[:n]) + "…"
+	}
+	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
 }
 
 // catchrateCmd T23 自捕率月报件：事件推导聚合——外捕两类（reject/
