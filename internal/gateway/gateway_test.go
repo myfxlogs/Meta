@@ -186,7 +186,9 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 					return st != nil && !st.Dead
 				})
 			}
-			waitPhase(t, g2, tid, tc.wantPhase, 2*time.Second)
+			// T40：调和器事件路径负载下 2s 窗饿死（0050 笼内实证）——
+			// 相位收敛是条件等不是时限押，放宽到调和周期足轮。
+			waitPhase(t, g2, tid, tc.wantPhase, 15*time.Second)
 
 			if tc.actor == "live" && run != nil {
 				// 收养落痕
@@ -236,7 +238,8 @@ func TestAnchorE_AlarmRecompute(t *testing.T) {
 		g1.DB().SetClock(func() time.Time { return past })
 		mkTicketAt(t, g1, "te1", db.PhaseAssigned)
 		spawnSeat(t, g1, "te1", "施工", "worker", "META_ADOPT_GRACE=30")
-		waitEvent(t, g1, "phase:claim", "te1", 5*time.Second)
+		// T40：门铃竞读改相位条件等（worker 自领→边账即证）。
+		waitPhase(t, g1, "te1", db.PhaseWorking, 15*time.Second)
 		_ = g1.DB().AppendEvent(context.Background(), "te1", "progress", db.Event{Actor: "seat", Note: "写码"})
 		g1.DB().SetClock(time.Now)
 		g1.Close()
@@ -261,7 +264,7 @@ func TestAnchorE_AlarmRecompute(t *testing.T) {
 		go g1.Serve()
 		mkTicketAt(t, g1, "te2", db.PhaseAssigned)
 		spawnSeat(t, g1, "te2", "施工", "worker", "META_ADOPT_GRACE=30")
-		waitEvent(t, g1, "phase:claim", "te2", 5*time.Second)
+		waitPhase(t, g1, "te2", db.PhaseWorking, 15*time.Second)
 		last, _ := g1.DB().LastActivityAt(context.Background(), "te2")
 		g1.Close()
 
