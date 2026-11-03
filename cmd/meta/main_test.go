@@ -316,21 +316,12 @@ func TestCLI_ProjectLink(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 // pushPhase 建票并沿主链推到目标相位（CreateTicket 自带 mandate v1，
 // 施工中/部署中边核过）。target=已立 时建完即返。
 func pushPhase(t *testing.T, h *db.DB, id, title string, target db.Phase) {
 	t.Helper()
 	ctx := context.Background()
 	if err := h.CreateTicket(ctx, id, title, nil); err != nil {
-=======
-// mkPhase 建票并沿主链推到目标相位（status 满板测试驱动器——CreateTicket
-// 自带 mandate v1，施工中/部署中边核过）。
-func mkPhase(t *testing.T, h *db.DB, id string, target db.Phase) {
-	t.Helper()
-	ctx := context.Background()
-	if err := h.CreateTicket(ctx, id, id+"票", nil); err != nil {
->>>>>>> 38f53fd
 		t.Fatal(err)
 	}
 	chain := []struct {
@@ -351,37 +342,22 @@ func mkPhase(t *testing.T, h *db.DB, id string, target db.Phase) {
 			return
 		}
 		if _, err := h.Transition(ctx, id, s.to, s.kind, "test", ""); err != nil {
-<<<<<<< HEAD
 			t.Fatalf("pushPhase %s→%s: %v", id, s.to, err)
-=======
-			t.Fatalf("mkPhase %s→%s: %v", id, target, err)
->>>>>>> 38f53fd
 		}
 	}
 }
 
-<<<<<<< HEAD
 // TestTicketsCLI 票0052 锚：非终态全列按票号序／终态零出现／空板
 // 「无在途票」／标题截断——直读库四态（无网关依赖，纯读命令面无
 // RPC 面）；另验 --socket 推导库径与库缺失报错不建空库。
 func TestTicketsCLI(t *testing.T) {
+	// T47：socket RPC 一致径——起真网关，经其 DB 柄造票。
 	d := t.TempDir()
-	dbp := filepath.Join(d, "meta.db")
-	h, err := db.Open(dbp)
-=======
-// TestStatusCLI 票0051 锚：版本戳/在途计数/blocked 计数三要素＋空板显式零
-// ——真网关 socket 上 svc=up＋推导库径同读／满板相位逐项计数与 blocked
-// 单列／终态不计在途／活席数／死 socket svc=down 降级仍出计数／恒单行。
-// 满板断言在无网关库上做——活网关调和器会迁边，计数面非确定。
-func TestStatusCLI(t *testing.T) {
-	// 面一：活网关（sock/db 同位＝生产布局）——svc=up＋--socket 推导库径。
-	dir := t.TempDir()
-	runDir := filepath.Join(dir, "run")
-	sock := filepath.Join(runDir, "meta.sock")
-	dbp := filepath.Join(runDir, "meta.db")
+	sock := filepath.Join(d, "run", "meta.sock")
 	g, err := gateway.New(gateway.Config{
-		DBPath: dbp, RunDir: runDir, SocketPath: sock,
-		SeatArgv: []string{"/bin/true"}})
+		DBPath: filepath.Join(d, "meta.db"), RunDir: filepath.Join(d, "run"),
+		SocketPath: sock, SeatArgv: []string{"/bin/true"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,50 +373,17 @@ func TestStatusCLI(t *testing.T) {
 		}
 		<-time.After(20 * time.Millisecond)
 	}
-	run := func(args ...string) string {
-		var sb strings.Builder
-		if err := statusCmd(args, &sb); err != nil {
-			t.Fatalf("statusCmd %v: %v", args, err)
-		}
-		return sb.String()
-	}
-	oneLine := func(out string) {
-		if strings.Count(out, "\n") != 1 || !strings.HasSuffix(out, "\n") {
-			t.Fatalf("应严格单行: %q", out)
-		}
-	}
-
-	// 空板（网关库零票即断言，先于调和器迁边窗口）：三要素显式零＋
-	// svc=up＋全相位字段在＋库径推导命中（否则库缺失已报错）。
-	out := run("--socket", sock)
-	oneLine(out)
-	for _, want := range []string{"meta ", "svc=up", "在途=0", "blocked=0", "活席=0",
-		"已立=0", "设计中=0", "已派=0", "施工中=0", "待审=0", "审计中=0", "待部署=0", "部署中=0"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("空板缺 %q: %q", want, out)
-		}
-	}
-
-	// 面二：无网关独立库——满板确定性断言。
-	d2 := t.TempDir()
-	dbp2 := filepath.Join(d2, "meta.db")
-	h, err := db.Open(dbp2)
->>>>>>> 38f53fd
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer h.Close()
+	h := g.DB()
 	ctx := context.Background()
-<<<<<<< HEAD
 
 	run := func(args ...string) (string, error) {
 		var sb strings.Builder
-		err := ticketsCmd(args, &sb)
+		err := ticketsCmd(append(args, "--socket", sock), &sb)
 		return sb.String(), err
 	}
 
 	// 空板显式「无在途票」（严格单行）。
-	out, err := run("--db", dbp)
+	out, err := run()
 	if err != nil || out != "无在途票\n" {
 		t.Fatalf("空板应单行无在途票: %q err=%v", out, err)
 	}
@@ -463,7 +406,7 @@ func TestStatusCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err = run("--db", dbp)
+	out, err = run()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,80 +434,6 @@ func TestStatusCLI(t *testing.T) {
 		if strings.Contains(out, gone) {
 			t.Fatalf("终态票 %s 不应出现: %q", gone, out)
 		}
-	}
-
-	// 标题带 \n/\t 不裂行——一行一票格式自保（自由文本消毒面）。
-	if err := h.CreateTicket(ctx, "T02", "换行\n制表\t题", nil); err != nil {
-		t.Fatal(err)
-	}
-	out3, err := run("--db", dbp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l3 := strings.Split(strings.TrimSuffix(out3, "\n"), "\n")
-	if len(l3) != 5 || !strings.HasPrefix(l3[0], "T02\t已立\t换行 制表 题") {
-		t.Fatalf("毒标题应消毒单行: %q", out3)
-	}
-	// 作废 T02 回四行基线——下面推导径与 --db 径对比同输出。
-	if _, err := h.Transition(ctx, "T02", db.PhaseVoid, db.EdgeVoid, "test", ""); err != nil {
-		t.Fatal(err)
-	}
-
-	// --socket 推导库径（*.sock→*.db 同位约定）。
-	out2, err := run("--socket", filepath.Join(d, "meta.sock"))
-	if err != nil || out2 != out {
-		t.Fatalf("推导径输出应同 --db: %q err=%v", out2, err)
-	}
-
-	// 库缺失报错不建空库。
-	miss := filepath.Join(d, "none.db")
-	if _, err := run("--db", miss); err == nil ||
-		!strings.Contains(err.Error(), "库不可读") {
-		t.Fatalf("库缺失应报错: %v", err)
-	}
-	if _, err := os.Stat(miss); !os.IsNotExist(err) {
-		t.Fatalf("缺失库不应被建: %v", err)
-=======
-	for i, ph := range db.NonTerminal {
-		mkPhase(t, h, "S"+string(rune('1'+i)), ph)
-	}
-	if err := h.CreateTicket(ctx, "SB", "卡票", nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.Transition(ctx, "SB", db.PhaseBlocked, db.EdgeBlocked,
-		"gateway", "未知/禁动失败 kind=seat_dead——人工裁定"); err != nil {
-		t.Fatal(err)
-	}
-	mkPhase(t, h, "SD", db.PhaseDone)
-	// 活席×1＋死席×1（dead=1 不计）。
-	for _, r := range []*db.Run{
-		{RunID: "r-live", TicketID: "S4", Role: "施工", Shell: "testshell", PID: os.Getpid(), RunToken: "tk-live"},
-		{RunID: "r-dead", TicketID: "S4", Role: "施工", Shell: "testshell", PID: os.Getpid(), RunToken: "tk-dead"},
-	} {
-		if err := h.CreateRun(ctx, r); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := h.MarkDead(ctx, "r-dead"); err != nil {
-		t.Fatal(err)
-	}
-
-	// svc=down：死 socket 不拒——降级显式 down，库计数照出（--db 直读径）。
-	out = run("--socket", filepath.Join(d2, "dead.sock"), "--db", dbp2)
-	oneLine(out)
-	for _, want := range []string{"svc=down", "在途=8",
-		"已立=1", "设计中=1", "已派=1", "施工中=1", "待审=1", "审计中=1", "待部署=1", "部署中=1",
-		"blocked=1", "活席=1"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("满板缺 %q: %q", want, out)
-		}
-	}
-
-	// 库缺失报错不建空库（--socket 推导径也无库）。
-	var sb strings.Builder
-	if err := statusCmd([]string{"--socket", filepath.Join(d2, "none", "meta.sock")}, &sb); err == nil {
-		t.Fatal("库缺失应报错")
->>>>>>> 38f53fd
 	}
 }
 

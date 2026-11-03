@@ -143,6 +143,7 @@ type runState struct {
 
 	attempt   route.Attempt // 壳路由径：本次尝试的登记行（helper 径为零值）
 	killByGW  bool          // 网关令杀（预算硬停/冻结）——非壳之错，不罚健康
+	killCause string        // T47 死因帧：谁令杀（stall_kill/budget_hard/freeze/ruling/reap）——猝死零输出之谜定位件
 	noRespawn bool          // 判死后不自动重派（预算硬停摆位等 CTO 裁）
 
 	attachedCh chan struct{} // attach 成功即闭（①秒退窗口的等待源）
@@ -519,6 +520,7 @@ func (g *Gateway) onStall(ticketID string) {
 	g.emit(Event{Kind: "stall_kill", TicketID: ticketID, RunID: run.RunID, Note: note2})
 	st := g.bindRun(run)
 	st.killByGW = true // 网关令杀＝非壳之错，不罚健康
+	st.killCause = "stall_kill"
 	g.killRun(st)
 }
 

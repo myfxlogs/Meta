@@ -1683,38 +1683,32 @@ func statusCmd(args []string, w io.Writer) error {
 // 按票号序；空板显式「无在途票」。blocked（§3.3-B 人工态）系非终态照列。
 // DB 直读零写：库路径由 --socket 推导（*.sock→*.db 同位约定，同 0050/0051
 // 双旗布局），--db 可显式覆盖；库文件不存在即报错而不建空库。
+// ticketsCmd T47：改 socket RPC 一致径——直读库会被 migrate 闸挡
+//（mluser 实证打不开）；口径与板面同源 NonTerminalTickets。
 func ticketsCmd(args []string, w io.Writer) error {
 	fs := flag.NewFlagSet("tickets", flag.ContinueOnError)
-	sock := fs.String("socket", "run/meta.sock", "网关 socket（库路径推导源）")
-	dbPath := fs.String("db", "", "缺省由 --socket 推导（*.sock→*.db）")
+	sock := fs.String("socket", "run/meta.sock", "网关 socket")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	p := *dbPath
-	if p == "" {
-		p = strings.TrimSuffix(absOr(sock, "run/meta.sock"), ".sock") + ".db"
-	}
-	if _, err := os.Stat(p); err != nil {
-		return fmt.Errorf("tickets: 库不可读 %s: %w", p, err)
-	}
-	d, err := db.Open(p)
+	c, conn, err := admin(absOr(sock, "run/meta.sock"))
 	if err != nil {
 		return err
 	}
-	defer d.Close()
-	ts, err := d.NonTerminalTickets(context.Background())
+	defer conn.Close()
+	lst, err := c.Tickets(context.Background(), &pbv1.Empty{})
 	if err != nil {
 		return err
 	}
-	if len(ts) == 0 {
+	if len(lst.Tickets) == 0 {
 		fmt.Fprintln(w, "无在途票")
 		return nil
 	}
-	// 票号序（票面钦定）——NonTerminalTickets 钦定序是 created_at，
-	// 板面口径按 id 重排（既有读径零新 SQL）。
-	sort.Slice(ts, func(i, j int) bool { return ts[i].ID < ts[j].ID })
+	// 票号序（票面钦定）。
+	ts := lst.Tickets
+	sort.Slice(ts, func(i, j int) bool { return ts[i].Id < ts[j].Id })
 	for _, t := range ts {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", t.ID, t.Phase, clipTitle(t.Title, 40))
+		fmt.Fprintf(w, "%s\t%s\t%s\n", t.Id, t.Phase, clipTitle(t.Title, 40))
 	}
 	return nil
 }

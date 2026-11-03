@@ -94,10 +94,10 @@ func failCount(epoch []*db.Event, kind string) int {
 	return n
 }
 
-// seatDeadExempt T37 交付后退场豁免（0050 实证）：同票最近一条 deliver
+// phaseHandoff T37 交付后移交判（0050 实证）：同票最近一条 deliver
 // 边在最后一笔失败类事件之后＝席交付功成正常退场，seat_dead 不入失败账。
 // 未交付而死（无 deliver 或 deliver 后又有失败类）照旧计。
-func seatDeadExempt(evs []*db.Event) bool {
+func phaseHandoff(evs []*db.Event) bool {
 	edge, fail := -1, -1
 	for i, e := range evs {
 		if edgeKindSet[e.Kind] {
@@ -107,7 +107,7 @@ func seatDeadExempt(evs []*db.Event) bool {
 			fail = i
 		}
 	}
-	// 豁免域＝最近一条边恰是 deliver 且其后无失败类——交付席退场。
+	// 移交判域＝最近一条边恰是 deliver 且其后无失败类——交付席退场。
 	// 之后新边（audit_start 等）已翻期：后序期席死照旧计。
 	return edge >= 0 && evs[edge].Kind == string(db.EdgeDeliver) && fail < edge
 }
@@ -123,13 +123,17 @@ func lastFailure(epoch []*db.Event) string {
 }
 
 // failedShells 期窗内失败壳键集（取代 g.failSet 内存表——由 seat_run 持久账
-// 推导，重启零丢失）：本相位期窗内死掉的非 adjunct run 的壳名全进排除集。
+// 推导，重启零丢失）：本相位期窗内死掉的非 adjunct run 按壳计死数。
+// T47 轮换两轮制：一死即换是过度判死（壳死随缘非判死——业旨）——同一壳
+// 期窗内死两次才进排除集；死行凭竞序面（seat_dead 账滞后的本轮死席）
+// 不入计数，壳凭持久行不报虚。
 func (g *Gateway) failedShells(ctx context.Context, t *db.Ticket, epochStart time.Time) map[string]bool {
 	out := map[string]bool{}
 	rs, err := g.database.RunsForTicket(ctx, t.ID)
 	if err != nil {
 		return out
 	}
+	deaths := map[string]int{}
 	for _, r := range rs {
 		if r.Adjunct || !r.Dead || r.Shell == "" {
 			continue
@@ -137,7 +141,12 @@ func (g *Gateway) failedShells(ctx context.Context, t *db.Ticket, epochStart tim
 		if !r.ExitedAt.IsZero() && r.ExitedAt.Before(epochStart) {
 			continue // 死在本相位期窗前的不计（无死时戳的死行照计）
 		}
-		out[shellNameOf(r.Shell)] = true
+		deaths[shellNameOf(r.Shell)]++
+	}
+	for sh, n := range deaths {
+		if n >= 2 { // 两轮制：二死才换
+			out[sh] = true
+		}
 	}
 	return out
 }
@@ -324,11 +333,11 @@ func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string
 		epochStart = evs[len(evs)-len(epoch)-1].CreatedAt
 	}
 	kind := lastFailure(epoch)
-	if kind == "seat_dead" && seatDeadExempt(evs) {
+	if kind == "seat_dead" && phaseHandoff(evs) {
 		// T37：deliver 已落账后席退场＝功成身退——不入失败账、不判 blocked。
 		kind = ""
 	}
-	if kind == "" && seatDied && !seatDeadExempt(evs) {
+	if kind == "" && seatDied && !phaseHandoff(evs) {
 		// MarkDead↔seat_dead 落账竞序面：死行本身即凭——本轮死席照换壳，
 		// 防路过调和拿空排除集重放同壳后判重锁死。
 		kind = "seat_dead"

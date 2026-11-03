@@ -44,6 +44,7 @@ service AdminGateway {
   rpc SetTicketProject(TicketProjectReq) returns (Ack);  // 票→项目挂接/存量回填径（attachProject 五判闸，meta ticket set-project）
   rpc Reconcile(Empty) returns (Ack);        // 手动对账径（同幂等调和器，立即跑一轮）
   rpc Resume(TicketRef) returns (Ack);       // blocked 人工放行：回 blocked 边事件记的原相位
+  rpc Tickets(Empty) returns (TicketList);   // 在途票清单径（T47：meta tickets 改 socket 一致径）
   rpc PostMsg(MsgReq) returns (Ack);         // 票内留言入站（票0030 续传）：落 ticket_msg＋活席直投 feed
   rpc InjectEvent(EventReq) returns (Ack);   // 外部事件注入径（票0030 巡检心跳等：systemd timer→meta inject）
 }
@@ -317,6 +318,10 @@ message RetroReq {
 message TicketProjectReq {
   string ticket_id = 1;
   string project = 2;
+}
+
+message TicketList {
+  repeated TicketRow tickets = 1;
 }
 
 message EventList {

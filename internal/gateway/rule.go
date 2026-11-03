@@ -45,6 +45,7 @@ func (g *Gateway) ruleKillRequeue(ctx context.Context, tid string, st *runState,
 	} else {
 		st2 := g.bindRun(run)
 		st2.killByGW = true // 网关令杀＝非壳之错，不罚健康（§5.2 换壳不判死）
+		st2.killCause = "ruling_kill"
 		g.killRun(st2)
 	}
 	g.ruleLanded(ctx, tid, st, "kill_requeue", run, note)

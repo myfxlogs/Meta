@@ -252,9 +252,11 @@ func TestBudget_ThreeGates(t *testing.T) {
 	if tk == nil || !tk.BudgetFrozen {
 		t.Fatal("budget_frozen 未置")
 	}
-	if _, ok := g.AlarmDeadline("tb2"); ok {
-		t.Fatal("冻结未取消未决闹钟")
-	}
+	// 冻结→闹钟取消经处理帧异步落——条件等清零非瞬读（竞读面实证）。
+	waitFor2(t, 5*time.Second, func() bool {
+		_, ok := g.AlarmDeadline("tb2")
+		return !ok
+	})
 	st2, _ := g.DB().RunByToken(ctx, run2.RunToken)
 	deadline := time.Now().Add(3 * time.Second)
 	for st2 != nil && !st2.Dead && time.Now().Before(deadline) {
