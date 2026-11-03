@@ -698,6 +698,14 @@ func (g *Gateway) transition(ctx context.Context, ticketID string, to db.Phase, 
 		return err
 	}
 	g.emit(Event{Kind: "phase:" + string(kind), TicketID: ticketID})
+	// T33② 化身唤醒第三断点：部署失败唯一信号是 phase: 前缀门铃，
+	// ceo_spawn_kinds 配的语义名 "deploy_failed" 查空→泵静默丢
+	// （0049 三连死零 CEO 零 last_resort 实证）。照 EdgeReject→
+	// reject_limit 例补语义门铃——ticket_event 行 Transition 已落
+	// 同 kind，此处只 emit 不再落账。
+	if kind == db.EdgeDeployFailed {
+		g.emit(Event{Kind: "deploy_failed", TicketID: ticketID})
+	}
 	// T4 批量部署开关（E17）：入 待部署 后计数——≥5 张或流水线清空
 	// （无 施工中/设计中）→ 逐张补发 spawn_needed 触发部署派发
 	// （B1 串行锁照走闸——计数从 ticket 表读零轮询）。
