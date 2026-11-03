@@ -59,6 +59,8 @@ func main() {
 		err = serve(os.Args[2:])
 	case "catchrate":
 		err = catchrateCmd(os.Args[2:])
+	case "blocked":
+		err = blockedCmd(os.Args[2:], os.Stdout)
 	case "secret":
 		err = secret(os.Args[2:])
 	case "ticket":
@@ -157,6 +159,7 @@ func usage() {
   meta caster --socket <sock> --routes <f> --state-dir <d> --run-dir <r> --notify-cmd <sh> [--once] [--replay-history]
   meta retro --socket <sock> --ticket <id> --verdict pass|reject --ref <判决档>
   meta reconcile --socket <sock>                                                  (改路由表后滞留补发对账)
+  meta blocked --socket <sock> [--db <meta.db>]                                   (blocked 人工态票列表：票号/标题/末因/动作——库由 sock 推导，纯读)
   meta supervise --bin <bin> [--prev <p>] [--burst N] [--stable 60s] [--backoff 3s] <serve 旗同 meta serve>
   meta upgrade --new <bin> --install <path> [--prev <p>] [--restart-cmd "<cmd>"] [--check-socket <sock>]
   meta ceo [--socket <sock>]                          （交互面：IssueCeoToken→事件侧流→行命令 REPL）
@@ -1438,7 +1441,6 @@ func importLegacy(ctx context.Context, d *db.DB, raw []byte) (int, error) {
 	return n, nil
 }
 
-
 // deployCmd T25 钦定部署径：CLI 直驱——dispatch CliDrive=true（席进程＝
 // meta seat-drive 机械四步，零 AI 税）。seat-drive 经 env 拿 run 凭证。
 func deployCmd(args []string) error {
@@ -1556,6 +1558,52 @@ func seatDriveCmd() error {
 		Deliver: &pbv1.Deliver{Ref: "cli", Note: "META_DEPLOY:done"}}})
 }
 
+// blockedCmd 票0050 v2 运维窗（§3.3-B blocked 人工态唯一读面）：列全部
+// blocked 相位票——票号/标题/末步机器原因（最近 blocked 边事件 note
+// 原文）/动作提示；空表显式「无 blocked 票」。DB 直读零写：库路径由
+// --socket 推导（meta.sock→meta.db 同位约定，同 serve 双旗布局），
+// --db 可显式覆盖；库文件不存在即报错而不建空库（防路径笔误静默吃空）。
+func blockedCmd(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("blocked", flag.ContinueOnError)
+	sock := fs.String("socket", "run/meta.sock", "网关 socket（库路径推导源）")
+	dbPath := fs.String("db", "", "缺省由 --socket 推导（*.sock→*.db）")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	p := *dbPath
+	if p == "" {
+		p = strings.TrimSuffix(absOr(sock, "run/meta.sock"), ".sock") + ".db"
+	}
+	if _, err := os.Stat(p); err != nil {
+		return fmt.Errorf("blocked: 库不可读 %s: %w", p, err)
+	}
+	d, err := db.Open(p)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	rows, err := d.BlockedRows(context.Background())
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		fmt.Fprintln(w, "无 blocked 票")
+		return nil
+	}
+	for _, r := range rows {
+		reason := r.Reason
+		if reason == "" {
+			reason = "（无 blocked 边事件记——相位系手术直改）"
+		}
+		head := r.ID + "\t" + r.Title
+		if r.FromPhase != "" {
+			head += "\t" + r.FromPhase + "→blocked"
+		}
+		fmt.Fprintf(w, "%s\n\t末因: %s\n\t动作: 放行/重试 meta rule --action redirect --ticket %s｜作废 meta rule --action void --ticket %s\n",
+			head, reason, r.ID, r.ID)
+	}
+	return nil
+}
 
 // catchrateCmd T23 自捕率月报件：事件推导聚合——外捕两类（reject/
 // deploy_failed；T34 起 created 不计——巡检立案径切除）+「坑档：」自捕

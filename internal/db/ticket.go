@@ -251,6 +251,48 @@ func (d *DB) CatchRows(ctx context.Context, limit int) ([]*Event, error) {
 	return scanEvents(rows)
 }
 
+// BlockedRow blocked 人工态票运维行（票0050）：票＋末次 blocked 边事件因。
+type BlockedRow struct {
+	ID        string
+	Title     string
+	FromPhase string    // 卡入 blocked 前的原相位（边事件 from_phase）
+	Reason    string    // blocked 边事件 note 原文＝末步机器原因
+	BlockedAt time.Time // 入 blocked 时刻（边事件 created_at；缺行零值）
+}
+
+// BlockedRows 全部 blocked 相位票×各票最近一条 blocked 迁移边事件
+// （kind='blocked' 且 to_phase='blocked'——note 即机器原因原文；其后的
+// 「票 blocked：…可选动作」附言行 to_phase 空天然不命中）。纯读零写，
+// 票号升序（多票序确定性）。边事件缺失（手术直改相位）照列、字段零值。
+func (d *DB) BlockedRows(ctx context.Context) ([]*BlockedRow, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT t.id, t.title, e.from_phase, e.note, e.created_at
+		 FROM ticket t
+		 LEFT JOIN ticket_event e ON e.id = (
+		   SELECT MAX(id) FROM ticket_event
+		   WHERE ticket_id=t.id AND kind='blocked' AND to_phase='blocked')
+		 WHERE t.phase=? ORDER BY t.id`, string(PhaseBlocked))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*BlockedRow
+	for rows.Next() {
+		r := &BlockedRow{}
+		var from, note sql.NullString
+		var at sql.NullInt64
+		if err := rows.Scan(&r.ID, &r.Title, &from, &note, &at); err != nil {
+			return nil, err
+		}
+		r.FromPhase, r.Reason = from.String, note.String
+		if at.Valid {
+			r.BlockedAt = time.Unix(0, at.Int64)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // LatestEventKind 票上最新一条 ticket_event 的 kind（req_pending 泊车标/
 // 对账抑制判据——无行回空串）。
 func (d *DB) LatestEventKind(ctx context.Context, ticketID string) (string, error) {
