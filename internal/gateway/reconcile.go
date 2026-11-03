@@ -405,7 +405,15 @@ func (g *Gateway) deployDyingTicketClose(ctx context.Context, t *db.Ticket, run 
 		g.blockTicket(ctx, t.ID, note)
 		return true
 	case sentinel == "":
-		// 席死无据→deploy_failed 账留给期窗计数（rollback≤1 由表判）。
+		// T48 电平→边沿化：席死无据是常驻态，账只记一期窗一条——
+		// 每期窗重放则 resume 后毫秒级第二轮必超 cap 回 blocked（0050
+		// 四放行全灭实证）。新死席照样记（期窗重置后旧账不抑制）。
+		evs, _ := g.database.Events(ctx, t.ID)
+		for _, e := range epochEvents(evs) {
+			if e.Kind == "deploy_failed" {
+				return false // 期窗已有账——零追加
+			}
+		}
 		_ = g.database.AppendEvent(ctx, t.ID, "deploy_failed", db.Event{
 			Actor: "gateway", Note: "席死无终哨兵无据——先核回滚态"})
 	}
