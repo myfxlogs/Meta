@@ -301,3 +301,41 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 		t.Fatalf("处决应≤2 次止杀: %d", nKill)
 	}
 }
+
+// T31 部署径相位竞态与 cli-drive 收口——三病两锚（②日志锚与③定位随①实证）。
+// ①相位零弹跳：cli-drive 席死相位稳守 部署中＋spawn_needed 续发（旧径
+// 弹回待部署→继任 exec 闸拒→秒退三循环实证）。对抗锚：clidrive_dead 支——
+// 删则弹跳回潮。②死必有日志：席死日志非空（spawn 头行＋exit 落行）。
+func TestT31_CliDrivePhaseStable(t *testing.T) {
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		c.SelfPath = "/bin/false" // 秒退 cli-drive 席
+	})
+	ctx := context.Background()
+	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
+		t.Fatal(err)
+	}
+	mkToDeploy(t, g, "td31", "P")
+	if _, err := g.DB().Transition(context.Background(), "td31", db.PhaseDeploying,
+		db.EdgeDeployStart, "test", "前任已起部署中"); err != nil {
+		t.Fatal(err)
+	}
+	spec := SeatSpec{CliDrive: true}
+	req := spawnReq{ticketID: "td31", role: "CTO"}
+	g.cliDriveSpawn(ctx, req, spec)
+	// 秒退→死判径：相位应稳守 部署中不弹跳＋spawn_needed 补发。
+	waitEvent(t, g, "clidrive_dead", "td31", 5*time.Second)
+	if p, _ := g.DB().PhaseOf(ctx, "td31"); p != db.PhaseDeploying {
+		t.Fatalf("cli-drive 死相位弹跳: %s", p)
+	}
+	waitEvent(t, g, "spawn_needed", "td31", 5*time.Second)
+	// ②日志非空（头行＋exit 落行）。
+	runs, _ := g.DB().RunsForTicket(ctx, "td31")
+	if len(runs) == 0 {
+		t.Fatal("无席")
+	}
+	b, err := os.ReadFile(runs[0].LogPath)
+	if err != nil || len(b) == 0 {
+		t.Fatalf("席死日志零字节: %v len=%d", err, len(b))
+	}
+}

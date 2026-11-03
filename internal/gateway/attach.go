@@ -611,6 +611,21 @@ func (g *Gateway) onRunDead(st *runState) {
 				st.run.TicketID, "席死径态判：已装+socket健康→deploy_ok") {
 				return
 			}
+			// T31① cli-drive 相位稳定化：机械部署席死不等部署失败——
+			// 相位保持 部署中＋补发生成继任续步（旧径弹回待部署→继任
+			// exec 闸拒非部署中→秒退→再死不收敛，0048 三循环实证）。
+			// T26 闸语义不动（翻负只剥 cli-drive 支，AI 席 D-2 语义照走）。
+			if st.run.Shell == "cli-drive" {
+				note := "cli-drive 席死相位稳守部署中——补发继任续步 exit=" +
+					fmt.Sprint(st.exitCode)
+				_ = g.database.AppendEvent(ctx, st.run.TicketID, "clidrive_dead", db.Event{
+					Actor: "gateway", Note: note})
+				g.emit(Event{Kind: "clidrive_dead", TicketID: st.run.TicketID,
+					Role: "CTO", Note: note})
+				g.emit(Event{Kind: "spawn_needed", TicketID: st.run.TicketID,
+					Role: "CTO", Note: "cli-drive 死续 CTO-B"})
+				return
+			}
 		}
 	case db.PhaseToDeploy:
 		// 部署席死在 claim 前（相位还没步行）：非部署失败＝机器失效——
