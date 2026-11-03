@@ -8,3 +8,5 @@ run/
 *.sock
 /meta
 shellbin/
+bin/meta.new
+bin/meta.bak-*
