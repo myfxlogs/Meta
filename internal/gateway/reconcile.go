@@ -302,11 +302,14 @@ func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string
 		seatDied = true
 	}
 	// Working 相位行动者角色由最近 run 血统定（非 adjunct）。
+	// T45：血统仅采可派角色——CTO 在施工中不可派（DispatchSeat 硬拒
+	// 静默吞＝零新席零事件，0052 手踢实证）。不可派血统退化「施工」
+	// ——该相位唯一可起席的角色，血统角只负责保施工/审计血统。
 	if t.Phase == db.PhaseWorking {
-		if er, err := g.database.LatestRunForTicket(ctx, t.ID); err == nil && er != nil && er.Role != "" {
+		role = "施工"
+		if er, err := g.database.LatestRunForTicket(ctx, t.ID); err == nil && er != nil &&
+			er.Role != "" && er.Role != "CTO" {
 			role = er.Role
-		} else {
-			role = "施工"
 		}
 	}
 	// 部署中席死先排干哨兵：done/账齐/态判→deploy_done 完成边（非失败）。
