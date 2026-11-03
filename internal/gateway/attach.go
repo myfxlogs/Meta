@@ -291,6 +291,7 @@ func (g *Gateway) freezeTicket(ctx context.Context, ticketID string, st *runStat
 	}
 	if st != nil {
 		st.killByGW = true
+		st.killCause = "freeze_or_requeue"
 		g.killRun(st)
 	}
 	// 后冻。
@@ -552,7 +553,7 @@ func (g *Gateway) onRunDead(st *runState) {
 		return
 	}
 	_ = g.database.AppendEvent(ctx, st.run.TicketID, "seat_dead", db.Event{
-		Actor: "gateway", Note: "席死 " + st.run.RunID + " role=" + st.run.Role})
+		Actor: "gateway", Note: "席死 " + st.run.RunID + " role=" + st.run.Role + " cause=" + deadCauseOf(st)})
 	g.emit(Event{Kind: "seat_dead", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
 
 	if st.run.Role == "CEO" {
@@ -620,4 +621,19 @@ func (g *Gateway) onRunDead(st *runState) {
 			}
 		}
 	}
+}
+
+// deadCauseOf T47 死因帧取值：killCause 戳在＝网关令杀（戳即凶名）；
+// 无戳＝自退/外因（exit=-1 猝死之谜的下一判据——非网关杀即外因）。
+func deadCauseOf(st *runState) string {
+	if st == nil {
+		return "unknown"
+	}
+	if st.killCause != "" {
+		return st.killCause
+	}
+	if st.killByGW {
+		return "gateway_kill"
+	}
+	return "self_exit_or_external"
 }

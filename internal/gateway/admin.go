@@ -148,6 +148,26 @@ func eventItemChecked(e *db.Event) *pbv1.EventItem {
 	return it
 }
 
+// Tickets 在途票清单径（T47：meta tickets 改 socket 一致径——mluser 直读
+// 库会被 migrate 闸挡，RPC 口径与板面同源）。票面钦定序＝票号序。
+func (g *Gateway) Tickets(ctx context.Context, _ *pbv1.Empty) (*pbv1.TicketList, error) {
+	ts, err := g.database.NonTerminalTickets(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &pbv1.TicketList{}
+	for _, t := range ts {
+		row := &pbv1.TicketRow{
+			Id: t.ID, Title: t.Title, Phase: string(t.Phase),
+			BudgetFrozen: t.BudgetFrozen}
+		if b, err := g.database.GetBudget(ctx, t.ID); err == nil {
+			row.UsedTotal, row.HardCap = b.UsedTotal, b.HardCap
+		}
+		out.Tickets = append(out.Tickets, row)
+	}
+	return out, nil
+}
+
 // RetroVerdict 回翻件（决策40 §15.4）：滞留 待审 票一次性机械补录——
 // 两跳皆走钦定边经 transition() 包装（事件行＋门铃照出，路由通知自动跟发）：
 // 待审→审计中(audit_start)→待部署(audit_pass) 或 →已派(reject)。

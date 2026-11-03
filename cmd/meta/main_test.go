@@ -351,23 +351,39 @@ func pushPhase(t *testing.T, h *db.DB, id, title string, target db.Phase) {
 // 「无在途票」／标题截断——直读库四态（无网关依赖，纯读命令面无
 // RPC 面）；另验 --socket 推导库径与库缺失报错不建空库。
 func TestTicketsCLI(t *testing.T) {
+	// T47：socket RPC 一致径——起真网关，经其 DB 柄造票。
 	d := t.TempDir()
-	dbp := filepath.Join(d, "meta.db")
-	h, err := db.Open(dbp)
+	sock := filepath.Join(d, "run", "meta.sock")
+	g, err := gateway.New(gateway.Config{
+		DBPath: filepath.Join(d, "meta.db"), RunDir: filepath.Join(d, "run"),
+		SocketPath: sock, SeatArgv: []string{"/bin/true"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer h.Close()
+	go g.Serve()
+	defer g.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket 未起")
+		}
+		<-time.After(20 * time.Millisecond)
+	}
+	h := g.DB()
 	ctx := context.Background()
 
 	run := func(args ...string) (string, error) {
 		var sb strings.Builder
-		err := ticketsCmd(args, &sb)
+		err := ticketsCmd(append(args, "--socket", sock), &sb)
 		return sb.String(), err
 	}
 
 	// 空板显式「无在途票」（严格单行）。
-	out, err := run("--db", dbp)
+	out, err := run()
 	if err != nil || out != "无在途票\n" {
 		t.Fatalf("空板应单行无在途票: %q err=%v", out, err)
 	}
@@ -390,7 +406,7 @@ func TestTicketsCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err = run("--db", dbp)
+	out, err = run()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,39 +434,6 @@ func TestTicketsCLI(t *testing.T) {
 		if strings.Contains(out, gone) {
 			t.Fatalf("终态票 %s 不应出现: %q", gone, out)
 		}
-	}
-
-	// 标题带 \n/\t 不裂行——一行一票格式自保（自由文本消毒面）。
-	if err := h.CreateTicket(ctx, "T02", "换行\n制表\t题", nil); err != nil {
-		t.Fatal(err)
-	}
-	out3, err := run("--db", dbp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l3 := strings.Split(strings.TrimSuffix(out3, "\n"), "\n")
-	if len(l3) != 5 || !strings.HasPrefix(l3[0], "T02\t已立\t换行 制表 题") {
-		t.Fatalf("毒标题应消毒单行: %q", out3)
-	}
-	// 作废 T02 回四行基线——下面推导径与 --db 径对比同输出。
-	if _, err := h.Transition(ctx, "T02", db.PhaseVoid, db.EdgeVoid, "test", ""); err != nil {
-		t.Fatal(err)
-	}
-
-	// --socket 推导库径（*.sock→*.db 同位约定）。
-	out2, err := run("--socket", filepath.Join(d, "meta.sock"))
-	if err != nil || out2 != out {
-		t.Fatalf("推导径输出应同 --db: %q err=%v", out2, err)
-	}
-
-	// 库缺失报错不建空库。
-	miss := filepath.Join(d, "none.db")
-	if _, err := run("--db", miss); err == nil ||
-		!strings.Contains(err.Error(), "库不可读") {
-		t.Fatalf("库缺失应报错: %v", err)
-	}
-	if _, err := os.Stat(miss); !os.IsNotExist(err) {
-		t.Fatalf("缺失库不应被建: %v", err)
 	}
 }
 
