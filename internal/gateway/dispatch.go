@@ -540,10 +540,23 @@ func (g *Gateway) cliDriveSpawn(ctx context.Context, req spawnReq, spec SeatSpec
 				lockIntegrate, lockDeploy)
 		}
 	}
+	// T30 断路器重置径：连败账只计最近 ruling（CEO 裁决含 redirect 重派
+	// 落 ruling 行 ceo.go:505/rule.go:97）之后死的 cli-drive——连败三停是
+	// 断路器非永锁，裁决即人工复位再放行（0048 停摆等裁无门实证）。
+	// 不动连败阈值 3（票禁）。
+	var base time.Time
+	if evs, err := g.database.Events(ctx, req.ticketID); err == nil {
+		for i := len(evs) - 1; i >= 0; i-- {
+			if evs[i].Kind == "ruling" {
+				base = evs[i].CreatedAt
+				break
+			}
+		}
+	}
 	dead := 0
 	if runs, err := g.database.RunsForTicket(ctx, req.ticketID); err == nil {
 		for _, r := range runs {
-			if r.Shell == cliShell && r.Dead {
+			if r.Shell == cliShell && r.Dead && r.StartedAt.After(base) {
 				dead++
 			}
 		}

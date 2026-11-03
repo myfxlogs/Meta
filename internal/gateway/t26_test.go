@@ -301,3 +301,47 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 		t.Fatalf("处决应≤2 次止杀: %d", nKill)
 	}
 }
+
+// T30 断路器重置径：连败三停→ruling 裁决→再 spawn 放行（阈值不动）。
+// 对抗锚提名行：base 取 ruling 后死账——删则截断成永锁。
+func TestT30_CliDriveResetByRuling(t *testing.T) {
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		c.SelfPath = "/bin/false"
+	})
+	ctx := context.Background()
+	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
+		t.Fatal(err)
+	}
+	mkToDeploy(t, g, "tr30", "P")
+	spec := SeatSpec{CliDrive: true}
+	req := spawnReq{ticketID: "tr30", role: "CTO"}
+	deadCount := func() int {
+		n := 0
+		runs, _ := g.DB().RunsForTicket(ctx, "tr30")
+		for _, r := range runs {
+			if r.Shell == "cli-drive" && r.Dead {
+				n++
+			}
+		}
+		return n
+	}
+	for i := 0; i < 3; i++ {
+		g.cliDriveSpawn(ctx, req, spec)
+		deadline := time.Now().Add(5 * time.Second)
+		for deadCount() <= i && time.Now().Before(deadline) {
+			<-time.After(20 * time.Millisecond)
+		}
+	}
+	n0 := deadCount()
+	g.cliDriveSpawn(ctx, req, spec) // 截断
+	if deadCount() != n0 {
+		t.Fatal("三停未截")
+	}
+	// ruling 裁决行落账→断路器复位→再 spawn 放行（新席建账）。
+	_ = g.DB().AppendEvent(ctx, "tr30", "ruling", db.Event{Actor: "CEO", Note: "redirect 重派"})
+	g.cliDriveSpawn(ctx, req, spec)
+	if deadCount() != n0+1 {
+		t.Fatalf("裁决后未放行: dead=%d", deadCount())
+	}
+}
