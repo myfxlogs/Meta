@@ -533,8 +533,8 @@ message GatewayConfig {
   string ceo_prompt = 14;               // 无头席提示模板路径（{{kind}} 等占位）
   string board_listen = 15;             // 前端面 TCP 监听（127.0.0.1:<port>；空=不挂板）
   int32 audit_shell_skip_streak = 16;   // 审计重派壳偏置连败阈值（D-46/票0022）：≤0=关
-  repeated PatrolSub subscribe = 17;    // 巡检订阅种子（票0030）：kind→role，种入 subscription 表
-  FilterShell filter_shell = 18;        // 两级过滤便宜壳（票0030）：name 空＝过滤关全放行
+  reserved 17, 18;                      // T34：巡检订阅种子/过滤壳随巡检席切除
+  reserved "subscribe", "filter_shell";
   google.protobuf.Duration reconcile_debounce = 19; // 立票点火去抖窗（票0039/T11）：票事件落账重置，缺省 30s
 
   // 票0033/T8 席位容器笼出闸种子（码面未接前纯配置态——钦定径禁即刻生效）：
@@ -544,25 +544,7 @@ message GatewayConfig {
   repeated string seat_extra_mount = 23;  // 额外挂载 "src:dst[:ro]"
 }
 
-// PatrolSub 巡检订阅种行（票0030）：事件 kind→派发角色；种入 subscription
-// 表（已有行不动，DB 行是活态）。
-message PatrolSub {
-  string kind = 1;
-  string role = 2;
-}
-
-// FilterShell 两级过滤便宜壳（票0030）：事件批先过此壳筛 KEEP/DROP，
-// 信号才喂贵席。壳缺席/输出不可判→全放行＋filter_degraded（信号可用性
-// 优先，省 token 是收益不是闸）。
-message FilterShell {
-  string name = 1;                       // 壳名（adapter 登记名）；空＝过滤关
-  string model = 2;                      // 模型覆盖；空＝壳自身缺省
-  google.protobuf.Duration batch_window = 3; // 批收窗（首事件起一次性闹钟），缺省 20s
-  int32 batch_max = 4;                   // 批满提前冲，缺省 20
-  google.protobuf.Duration timeout = 5;  // 单次过滤调用上限，缺省 120s
-}
-
-// ---------- 票级续传＋巡检（票0030） ----------
+// ---------- 票级续传（票0030） ----------
 
 // Session 壳会话 id 上报：适配器流内捕到即经席位流报网关，落
 // seat_run.session_id——驳回/重派续会复用的真源。

@@ -30,24 +30,6 @@ func TestT30_MsgLifecycle(t *testing.T) {
 	}
 }
 
-// TestT30_Subscription subscription 锚：种子幂等（同键不动）＋启用行可见。
-func TestT30_Subscription(t *testing.T) {
-	d := openTemp(t)
-	ctx := context.Background()
-	for i := 0; i < 2; i++ {
-		if err := d.SeedSubscription(ctx, "exec_denied", "巡检"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	subs, err := d.ListSubscriptions(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(subs) != 1 || subs[0].Kind != "exec_denied" || subs[0].Role != "巡检" || !subs[0].Enabled {
-		t.Fatalf("订阅种子幂等/启用: %+v", subs)
-	}
-}
-
 // TestT30_SessionAnchor session_id 列锚：SetRunSession→
 // LatestSessionForTicketRole 取回最近锚行；无锚票回 nil。
 func TestT30_SessionAnchor(t *testing.T) {

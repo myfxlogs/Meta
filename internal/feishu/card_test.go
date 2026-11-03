@@ -358,7 +358,7 @@ func TestRenderCatchLine(t *testing.T) {
 	s := renderCard(v)
 	for _, want := range []string{
 		"**自捕率**：50%（近 2 判）", `"tag":"note"`, "自捕率口径：分母＝近20判窗口",
-		"非patrol-前缀自立案不计",
+		"created 不再计外捕",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("卡面缺自捕率要素 %q: %s", want, s)

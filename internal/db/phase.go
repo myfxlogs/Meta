@@ -39,7 +39,6 @@ const (
 	EdgeAuditPass    EdgeKind = "audit_pass"    // 审计中→待部署：判决通过
 	EdgeDeployStart  EdgeKind = "deploy_start"  // 待部署→部署中：起部署实例
 	EdgeDeployDone   EdgeKind = "deploy_done"   // 部署中→完成：三锚全绿
-	EdgePatrolDone   EdgeKind = "patrol_done"   // T5：patrol-* 施工中→完成（免审免部署径）
 	EdgeRequeue      EdgeKind = "requeue"       // 施工中→已派：席死/卡死/换壳回队
 	EdgeReject       EdgeKind = "reject"        // 审计中→已派：驳回（同壳重做）
 	EdgeDesignDead   EdgeKind = "design_dead"   // 补边：设计中→已立（CTO 席死）
@@ -63,7 +62,6 @@ var Edges = []Edge{
 	{PhaseDesigning, PhaseAssigned, EdgeDispatch},
 	{PhaseAssigned, PhaseWorking, EdgeClaim},
 	{PhaseWorking, PhaseReview, EdgeDeliver},
-	{PhaseWorking, PhaseDone, EdgePatrolDone},
 	{PhaseReview, PhaseAuditing, EdgeAuditStart},
 	{PhaseAuditing, PhaseToDeploy, EdgeAuditPass},
 	{PhaseToDeploy, PhaseDeploying, EdgeDeployStart},

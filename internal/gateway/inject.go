@@ -3,9 +3,10 @@ package gateway
 import (
 	"context"
 	"fmt"
-	"strings"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -83,6 +84,79 @@ func (g *Gateway) injectPrompt(ctx context.Context, ticketID, role string, t *db
 		return "", err
 	}
 	return p, nil
+}
+
+// injectTokenCap T34/V7 注入前缀硬顶（est token）。估算口径：ASCII 4 字符
+// ≈1 token，非 ASCII 每 rune ≈1 token（CJK 保守上偏）——无 tokenizer 依赖、
+// 纯函数可测；宁可多截不漏顶。
+const injectTokenCap = 8000
+
+// estTokens 提示 token 估算（T34，纯函数）：ASCII 计 1/4，非 ASCII rune 计 1。
+func estTokens(s string) int {
+	n := 0
+	for _, r := range s {
+		if r < 128 {
+			n++ // 末尾 /4
+		} else {
+			n += 4
+		}
+	}
+	return n / 4
+}
+
+// capPromptFile 注入硬顶闸（T34 §3.1/V7）：提示文件估算 >8k token→中段截
+// （头 75%＋尾 25%，保哨兵契约末行）落 run/inject/trunc-*.md 副本换路径，
+// 原文件不动；截断发 inject_truncated 事件（事件行＋emit，双径）。
+// 文件读不出→原样返回（可读性归 D-40 空提示闸判，不在本闸重复）。
+func (g *Gateway) capPromptFile(ctx context.Context, req spawnReq, path string) string {
+	if path == "" {
+		return path
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || estTokens(string(b)) <= injectTokenCap {
+		return path
+	}
+	runes := []rune(string(b))
+	budget := injectTokenCap * 4 // 估算分母单位（ASCII 字符当量）
+	acc := make([]int, len(runes))
+	for i, r := range runes {
+		if r < 128 {
+			acc[i] = 1
+		} else {
+			acc[i] = 4
+		}
+	}
+	// 头取 75% 预算、尾取 25% 预算（哨兵契约在尾部——截中段不截尾）。
+	head, tail := budget*3/4, budget/4
+	hi := 0
+	for hi < len(runes) && acc[hi] <= head {
+		head -= acc[hi]
+		hi++
+	}
+	ti := len(runes)
+	for ti > hi && acc[ti-1] <= tail {
+		tail -= acc[ti-1]
+		ti--
+	}
+	marker := fmt.Sprintf("\n\n> [T34 注入硬顶：中段 %d rune 已截——原文 %s]\n\n",
+		ti-hi, path)
+	out := string(runes[:hi]) + marker + string(runes[ti:])
+	dir := filepath.Join(g.cfg.RunDir, "inject")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return path
+	}
+	p := filepath.Join(dir, fmt.Sprintf("trunc-%s-%s-%d.md", req.ticketID, req.role,
+		time.Now().UnixNano()))
+	if err := os.WriteFile(p, []byte(out), 0o600); err != nil {
+		return path
+	}
+	note := fmt.Sprintf("提示件截断 %d→%d est token（cap=%d）", estTokens(string(b)),
+		estTokens(out), injectTokenCap)
+	_ = g.database.AppendEvent(ctx, req.ticketID, "inject_truncated", db.Event{
+		Actor: "gateway", Note: note})
+	g.emit(Event{Kind: "inject_truncated", TicketID: req.ticketID, Role: req.role,
+		Note: note})
+	return p
 }
 
 // extSrcTicket 票级外源判定（T10）：created 事件 provenance——feishu 需求

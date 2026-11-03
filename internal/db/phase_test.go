@@ -14,7 +14,6 @@ var expectedEdges = []Edge{
 	{PhaseDesigning, PhaseAssigned, EdgeDispatch},
 	{PhaseAssigned, PhaseWorking, EdgeClaim},
 	{PhaseWorking, PhaseReview, EdgeDeliver},
-	{PhaseWorking, PhaseDone, EdgePatrolDone},
 	{PhaseReview, PhaseAuditing, EdgeAuditStart},
 	{PhaseAuditing, PhaseToDeploy, EdgeAuditPass},
 	{PhaseToDeploy, PhaseDeploying, EdgeDeployStart},
@@ -42,7 +41,7 @@ var expectedEdges = []Edge{
 var allKinds = []EdgeKind{
 	EdgeDesignStart, EdgeDispatch, EdgeClaim, EdgeDeliver, EdgeAuditStart,
 	EdgeAuditPass, EdgeDeployStart, EdgeDeployDone, EdgeRequeue, EdgeReject,
-	EdgeDesignDead, EdgeDeployFailed, EdgeAuditDead, EdgeYield, EdgeReqPending, EdgeVoid, EdgePatrolDone,
+	EdgeDesignDead, EdgeDeployFailed, EdgeAuditDead, EdgeYield, EdgeReqPending, EdgeVoid,
 }
 
 func allPhases() []Phase { return append(append([]Phase{}, NonTerminal...), Terminal...) }
@@ -137,7 +136,6 @@ func TestAnchorH_MigrationSmoke(t *testing.T) {
 		"cmd_run":     true, // 票0010 第十表（代跑留痕）
 		"feishu_card": true, // 票0014 第十一表（活票卡 message_id↔票）
 		"ticket_msg":  true, // 票0030 第十二表（票内留言·续传）
-		"subscription": true, // 票0030 第十三表（巡检订阅 kind→role）
 	}
 	if len(tables) != len(want) {
 		t.Fatalf("表数 %d ≠ %d: %v", len(tables), len(want), tables)

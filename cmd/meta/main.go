@@ -293,26 +293,10 @@ func serve(args []string) error {
 			Priority: int(s.Priority), AttemptCap: s.AttemptCap,
 		})
 	}
-	// 巡检（票0030）：订阅种子＋两级过滤便宜壳（纯配置径，无旗标）。
-	for _, s := range gc.Subscribe {
-		gcfg.Subs = append(gcfg.Subs, gateway.SubSeed{Kind: s.Kind, Role: s.Role})
-	}
 	gcfg.SeatImage, gcfg.SeatNet = gc.SeatImage, gc.SeatNet
 	gcfg.SeatMountMask, gcfg.SeatExtraMount = gc.SeatMountMask, gc.SeatExtraMount
 	if gc.ReconcileDebounce != nil {
 		gcfg.ReconcileDebounce = gc.ReconcileDebounce.AsDuration()
-	}
-	if fsh := gc.FilterShell; fsh != nil {
-		gcfg.Filter = gateway.FilterSpec{
-			Name: fsh.Name, Model: fsh.Model,
-			BatchMax: int(fsh.BatchMax),
-		}
-		if fsh.BatchWindow != nil {
-			gcfg.Filter.BatchWindow = fsh.BatchWindow.AsDuration()
-		}
-		if fsh.Timeout != nil {
-			gcfg.Filter.Timeout = fsh.Timeout.AsDuration()
-		}
 	}
 
 	g, err := gateway.New(gcfg)
@@ -1565,8 +1549,9 @@ func seatDriveCmd() error {
 }
 
 
-// catchrateCmd T23 自捕率月报件：事件推导聚合——外捕三类（reject/
-// deploy_failed/patrol- created）+「坑档：」自捕标签按月分桶；输出
+// catchrateCmd T23 自捕率月报件：事件推导聚合——外捕两类（reject/
+// deploy_failed；T34 起 created 不计——巡检立案径切除）+「坑档：」自捕
+// 标签按月分桶；输出
 // 月→判例/自捕/自捕率＋决策 77 基线对照（≥90% 目标）。纯读零写。
 func catchrateCmd(args []string) error {
 	fs := flag.NewFlagSet("catchrate", flag.ContinueOnError)
@@ -1593,8 +1578,7 @@ func catchrateCmd(args []string) error {
 			byMonth[m] = &bucket{}
 			months = append(months, m)
 		}
-		ext := e.Kind == "reject" || e.Kind == "deploy_failed" ||
-			(e.Kind == "created" && strings.HasPrefix(e.TicketID, "patrol-"))
+		ext := e.Kind == "reject" || e.Kind == "deploy_failed"
 		if ext {
 			byMonth[m].total++
 			if e.Kind == "reject" && rejected[e.TicketID] < e.ID {
