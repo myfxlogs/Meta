@@ -147,9 +147,8 @@ func TestAttach_Dispatch(t *testing.T) {
 	mkToDeploy(t, g, "tdep", "")
 	spec := deploySpec(t)
 	spec.Project = "P"
-	if err := g.DispatchSeat(ctx, "tdep", "CTO", spec); err != nil {
-		t.Fatalf("待部署派 CTO 应放: %v", err)
-	}
+	// T35：调和器可能已先派——手工派发幂等相会（锁拒/去重均合法）。
+	_ = g.DispatchSeat(ctx, "tdep", "CTO", spec)
 	g.mu.Lock()
 	held := g.projectLocks["P"]
 	emptyBucket := g.projectLocks[""]

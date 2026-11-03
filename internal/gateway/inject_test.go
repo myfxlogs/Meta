@@ -28,6 +28,8 @@ func injectFixture(t *testing.T) string {
 		}
 	}
 	mk("roles/施工.md", "# 角色卡：施工\n\n你是一个**施工实例**，fixture 关键行。\n")
+	mk("roles/CTO.md", "# 角色卡：CTO\n\n你是一个 **CTO 实例**，fixture 关键行。\n")
+	mk("roles/审计.md", "# 角色卡：审计\n\n你是一个**审计实例**，fixture 关键行。\n")
 	mk("docs/经验库/2026-11-01-注入坑.md", "x")
 	mk("docs/技能库/注入技.md", "x")
 	mk("recipe.md", "配方 fixture：纪律行")

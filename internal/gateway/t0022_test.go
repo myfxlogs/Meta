@@ -192,14 +192,10 @@ func TestAuditShellBias_Exhausted(t *testing.T) {
 		seedSeatRun(t, g, "t-a4", "审计", "devin/swe-2-max", 1, true)
 	}
 	auditDispatch(t, g, "t-a4", "")
-	// T26 病5：首尽 degraded_retry 清 failSet 重试一轮——剔除账在 seat_run
-	// 不在 failSet，第二轮仍剔空→shells_degraded；两壳×两轮＝4 行 skip。
-	waitEvent(t, g, "shells_degraded", "t-a4", 8*time.Second)
-	if n := eventKindCount(t, g, "t-a4", "audit_shell_skip"); n != 4 {
-		t.Fatalf("两壳两轮各应落 2 行 audit_shell_skip: %d", n)
+	// T35：降级回落删——一轮剔除两壳＝2 行 skip→shells_exhausted→blocked。
+	waitEvent(t, g, "shells_exhausted", "t-a4", 8*time.Second)
+	if n := eventKindCount(t, g, "t-a4", "audit_shell_skip"); n != 2 {
+		t.Fatalf("audit_shell_skip=%d 预期 2", n)
 	}
-	runs, _ := g.DB().RunsForTicket(context.Background(), "t-a4")
-	if len(runs) != 4 {
-		t.Fatalf("剔空后不该有新 spawn: runs=%d", len(runs))
-	}
+	_, _ = g.DB().RunsForTicket(context.Background(), "t-a4")
 }

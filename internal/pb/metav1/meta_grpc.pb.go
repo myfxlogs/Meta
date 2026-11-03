@@ -356,6 +356,7 @@ const (
 	AdminGateway_IssueCeoToken_FullMethodName    = "/meta.v1.AdminGateway/IssueCeoToken"
 	AdminGateway_SetTicketProject_FullMethodName = "/meta.v1.AdminGateway/SetTicketProject"
 	AdminGateway_Reconcile_FullMethodName        = "/meta.v1.AdminGateway/Reconcile"
+	AdminGateway_Resume_FullMethodName           = "/meta.v1.AdminGateway/Resume"
 	AdminGateway_PostMsg_FullMethodName          = "/meta.v1.AdminGateway/PostMsg"
 	AdminGateway_InjectEvent_FullMethodName      = "/meta.v1.AdminGateway/InjectEvent"
 )
@@ -381,6 +382,7 @@ type AdminGatewayClient interface {
 	IssueCeoToken(ctx context.Context, in *CeoTokenReq, opts ...grpc.CallOption) (*CeoTokenResp, error)
 	SetTicketProject(ctx context.Context, in *TicketProjectReq, opts ...grpc.CallOption) (*Ack, error)
 	Reconcile(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Ack, error)
+	Resume(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*Ack, error)
 	PostMsg(ctx context.Context, in *MsgReq, opts ...grpc.CallOption) (*Ack, error)
 	InjectEvent(ctx context.Context, in *EventReq, opts ...grpc.CallOption) (*Ack, error)
 }
@@ -542,6 +544,16 @@ func (c *adminGatewayClient) Reconcile(ctx context.Context, in *Empty, opts ...g
 	return out, nil
 }
 
+func (c *adminGatewayClient) Resume(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*Ack, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Ack)
+	err := c.cc.Invoke(ctx, AdminGateway_Resume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminGatewayClient) PostMsg(ctx context.Context, in *MsgReq, opts ...grpc.CallOption) (*Ack, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Ack)
@@ -583,6 +595,7 @@ type AdminGatewayServer interface {
 	IssueCeoToken(context.Context, *CeoTokenReq) (*CeoTokenResp, error)
 	SetTicketProject(context.Context, *TicketProjectReq) (*Ack, error)
 	Reconcile(context.Context, *Empty) (*Ack, error)
+	Resume(context.Context, *TicketRef) (*Ack, error)
 	PostMsg(context.Context, *MsgReq) (*Ack, error)
 	InjectEvent(context.Context, *EventReq) (*Ack, error)
 	mustEmbedUnimplementedAdminGatewayServer()
@@ -636,6 +649,9 @@ func (UnimplementedAdminGatewayServer) SetTicketProject(context.Context, *Ticket
 }
 func (UnimplementedAdminGatewayServer) Reconcile(context.Context, *Empty) (*Ack, error) {
 	return nil, status.Error(codes.Unimplemented, "method Reconcile not implemented")
+}
+func (UnimplementedAdminGatewayServer) Resume(context.Context, *TicketRef) (*Ack, error) {
+	return nil, status.Error(codes.Unimplemented, "method Resume not implemented")
 }
 func (UnimplementedAdminGatewayServer) PostMsg(context.Context, *MsgReq) (*Ack, error) {
 	return nil, status.Error(codes.Unimplemented, "method PostMsg not implemented")
@@ -909,6 +925,24 @@ func _AdminGateway_Reconcile_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminGateway_Resume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TicketRef)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Resume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Resume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Resume(ctx, req.(*TicketRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminGateway_PostMsg_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MsgReq)
 	if err := dec(in); err != nil {
@@ -1003,6 +1037,10 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Reconcile",
 			Handler:    _AdminGateway_Reconcile_Handler,
+		},
+		{
+			MethodName: "Resume",
+			Handler:    _AdminGateway_Resume_Handler,
 		},
 		{
 			MethodName: "PostMsg",

@@ -523,8 +523,8 @@ func TestProdConfig(t *testing.T) {
 	if !ctoLine || !workLine {
 		t.Fatalf("deliver 未按 role 拆两行: CTO=%v 施工=%v", ctoLine, workLine)
 	}
-	if auditDisp != 3 {
-		t.Fatalf("审计 dispatch 行数=%d 预期 3（deliver/audit_dead/spawn_needed）", auditDisp)
+	if auditDisp != 2 {
+		t.Fatalf("审计 dispatch 行数=%d 预期 2（deliver/audit_dead；T35 spawn_needed 路由删净）", auditDisp)
 	}
 
 	// 票0021 锚 A2：手工路由转正式断言——audit_dead 行 notify＋dispatch
@@ -559,8 +559,8 @@ func TestProdConfig(t *testing.T) {
 					ctoLines[r.NoteContains] = d.PromptTemplate
 				}
 			}
-		case r.Kind == "spawn_needed" && r.NoteContains == "CTO":
-			t.Fatal("旧格式 CTO 单行未拆——note_contains=CTO 仍会吃错模板")
+		case r.Kind == "spawn_needed":
+			t.Fatal("T35：spawn_needed 路由行应全删——残行仍消费补发链")
 		}
 	}
 	if !adNotify || !adDispatch {
@@ -569,11 +569,9 @@ func TestProdConfig(t *testing.T) {
 	if !slNotify {
 		t.Fatal("shell_limited 行缺 notify")
 	}
-	if ctoLines["CTO-A"] != "caster/cto-design.md" {
-		t.Fatalf("CTO-A 行模板=%q 预期 caster/cto-design.md", ctoLines["CTO-A"])
-	}
-	if ctoLines["CTO-B"] != "caster/cto-deploy.md" {
-		t.Fatalf("CTO-B 行模板=%q 预期 caster/cto-deploy.md", ctoLines["CTO-B"])
+	_ = ctoLines // T35：CTO-A/B 分线模板行随 spawn_needed 删净
+	if len(ctoLines) != 0 {
+		t.Fatalf("CTO 分线残行: %v", ctoLines)
 	}
 	if dn := tb.GetDefaultNotify(); dn != nil && len(dn.Kinds) > 0 {
 		dnBlock = true
@@ -692,38 +690,13 @@ func TestSpawnNeededCTOAB(t *testing.T) {
 			},
 			Logf: func(string, ...any) {}}}
 	ctx := context.Background()
-	e.process(ctx, f, &pbv1.EventItem{Id: 1, Kind: "spawn_needed", TicketId: "ta", Note: "对账补发: CTO-A"})
-	e.process(ctx, f, &pbv1.EventItem{Id: 2, Kind: "spawn_needed", TicketId: "tb", Note: "对账补发: CTO-B"})
-	e.process(ctx, f, &pbv1.EventItem{Id: 3, Kind: "spawn_needed", TicketId: "tc", Note: "对账补发: CTO"}) // 旧格式
-	if f.nDispatch() != 2 {
-		t.Fatalf("Dispatch=%d 预期 2（旧格式两行皆不中）: %+v", f.nDispatch(), f.dispatches)
+		e.process(ctx, f, &pbv1.EventItem{Id: 1, Kind: "spawn_needed", TicketId: "ta", Note: "对账补发: CTO-A"})
+	e.process(ctx, f, &pbv1.EventItem{Id: 2, Kind: "blocked", TicketId: "tb", Note: "失败表到限"})
+	if f.nDispatch() != 0 {
+		t.Fatalf("Dispatch=%d 预期 0（spawn_needed 路由删净）: %+v", f.nDispatch(), f.dispatches)
 	}
-	if f.dispatches[0].Role != "CTO" || f.dispatches[1].Role != "CTO" {
-		t.Fatalf("分线派发角色非 CTO: %+v", f.dispatches)
-	}
-	// 渲染 prompt 文件内容比对：CTO-A 必须出自 cto-design.md。
-	for i, tmpl := range []string{"cto-design.md", "cto-deploy.md"} {
-		pf := f.dispatches[i].PromptFile
-		if pf == "" {
-			t.Fatalf("CTO-%c 派发无 PromptFile", 'A'+i)
-		}
-		got, err := os.ReadFile(pf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		src, err := os.ReadFile(filepath.Join("..", "..", "config", "caster", tmpl))
-		if err != nil {
-			t.Fatal(err)
-		}
-		row := &pbv1.EventItem{Kind: "spawn_needed", TicketId: f.dispatches[i].TicketId,
-			Note: "对账补发: CTO-" + string(rune('A'+i))}
-		if want := e.render(string(src), row, false); string(got) != want {
-			t.Fatalf("CTO-%c prompt 非 %s 源:\n%s", 'A'+i, tmpl, got)
-		}
-	}
-	// 旧格式落 default_notify（spawn_needed 属种子）：报 1 枚。
 	if len(notifies) != 1 {
-		t.Fatalf("旧格式应落 default_notify 报 1 枚: %v", notifies)
+		t.Fatalf("blocked 应落 1 通知: %v", notifies)
 	}
 }
 

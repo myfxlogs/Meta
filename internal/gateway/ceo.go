@@ -555,9 +555,6 @@ func (g *Gateway) CeoRule(ctx context.Context, r *pbv1.Ruling) (*pbv1.RuleAck, e
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 		if b.UsedTotal < r.HardCap { // 抬帽解冻同 admin.SetBudget 径
-			g.mu.Lock()
-			delete(g.frozen, r.TicketId)
-			g.mu.Unlock()
 			_ = g.database.SetBudgetFrozen(ctx, r.TicketId, false)
 		}
 		return land()
@@ -828,23 +825,22 @@ func (g *Gateway) handleAdmin(ctx context.Context, st *runState, stream pbv1.Sea
 
 // ---------- 终态清理（D-15）与设计锁释放（B1） ----------
 
-// onTerminal 票入终态（完成/作废）即删进程级内存键——specs/failSet/warned/
-// frozen 四表 + 未决闹钟；终态票不该再占内存也不该有幽灵事件。
+// onTerminal 票入终态（完成/作废）即删进程级内存键＋未决闹钟；
+// 终态票不该再占内存也不该有幽灵事件。T35：specs/failSet/warned/frozen
+// 四表已退役（派发参数纯推导），余下只清派生互斥件。
 func (g *Gateway) onTerminal(ticketID string) {
 	g.mu.Lock()
-	for k := range g.specs {
-		if k.ticket == ticketID {
-			delete(g.specs, k)
-		}
-	}
-	delete(g.failSet, ticketID)
-	delete(g.warned, ticketID)
-	delete(g.frozen, ticketID)
-	delete(g.degradedRetried, ticketID) // T26：降级重试账随终态清
-	delete(g.stallFalls, ticketID)      // T26：处决计数随终态清
-	delete(g.cloneLocks, ticketID)      // T26：克隆互斥随终态清
+	delete(g.cloneLocks, ticketID) // T26：克隆互斥随终态清
+
 	g.mu.Unlock()
 	g.cancelAlarm(ticketID)
+	if rs, err := g.database.RunsForTicket(context.Background(), ticketID); err == nil {
+		g.mu.Lock()
+		for _, r := range rs {
+			delete(g.runWorkDir, r.RunID)
+		}
+		g.mu.Unlock()
+	}
 }
 
 // releaseDesignLock 持锁票离开施工中/入终态→放项目设计锁；锁释放事件→查
@@ -861,18 +857,14 @@ func (g *Gateway) releaseDesignLock(ctx context.Context, ticketID string) {
 	}
 	delete(g.designLocks, t.Project)
 	g.mu.Unlock()
+	g.kickRecon("lock_release") // 锁释＝世界变——踢调和器拾滞留票
 	ids, err := g.database.TicketsByProjectPhaseIDs(ctx, t.Project, db.PhaseCreated)
 	if err != nil {
 		return
 	}
-	for _, id := range ids {
-		if k, _ := g.database.LatestEventKind(ctx, id); k == string(db.EdgeReqPending) {
-			continue // 泊车票同抑制
-		}
-		_ = g.database.AppendEvent(ctx, id, "spawn_needed", db.Event{
-			Actor: "gateway", Note: "对账补发: CTO-A（设计锁释放）"})
-		g.emit(Event{Kind: "spawn_needed", TicketID: id, Role: "CTO"})
-	}
+	// T35：锁释不再就地补发——调和器下轮照 已立 相位派 CTO-A（泊车
+	// 票由 parkedTicket 抑制）。
+	_ = ids
 }
 
 func preview80(s string) string {

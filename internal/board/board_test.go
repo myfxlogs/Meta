@@ -116,6 +116,7 @@ func mkRun(t *testing.T, r *rig, runID, ticketID, role, token string) {
 		RunID:      runID,
 		TicketID:   ticketID,
 		Role:       role,
+		PID:        os.Getpid(), // T35：调和器收尸假 pid——测试进程自任活席
 		Shell:      "devin/swe-2-high",
 		RunToken:   token,
 		SocketPath: filepath.Join(r.runDir, "seats", runID+".sock"),

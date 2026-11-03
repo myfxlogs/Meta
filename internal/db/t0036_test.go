@@ -50,8 +50,8 @@ func TestT36_PhaseEnteredAt(t *testing.T) {
 
 	// 回摆：施工中→已派→施工中——两段同相位进入，取最近一次（本段）。
 	// ORDER BY id ASC 的变异在此红（会取回 @base+5m）。
-	step(PhaseAssigned, EdgeYield, 8*time.Minute)
-	step(PhaseWorking, EdgeClaim, 9*time.Minute)
+	step(PhaseBlocked, EdgeBlocked, 8*time.Minute)
+	step(PhaseWorking, EdgeResume, 9*time.Minute)
 	want = base.Add(9 * time.Minute)
 	if got, err := d.PhaseEnteredAt(ctx, "te", PhaseWorking); err != nil || !got.Equal(want) {
 		t.Fatalf("回摆后进入时刻: got=%v want=%v err=%v", got, want, err)

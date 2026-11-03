@@ -256,13 +256,7 @@ func (g *Gateway) cleanSeatResidue(run *db.Run) {
 		_ = os.Remove(run.SocketPath)
 	}
 	g.mu.Lock()
-	wd := ""
-	for k, sp := range g.specs {
-		if k.ticket == run.TicketID && k.role == run.Role {
-			wd = sp.WorkDir
-			break
-		}
-	}
+	wd := g.runWorkDir[run.RunID]
 	g.mu.Unlock()
 	if wd == "" {
 		return

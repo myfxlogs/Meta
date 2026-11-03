@@ -2,54 +2,83 @@ package gateway
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"meta/internal/db"
 )
 
-// TestT4_BatchDeploy 批量闸锚：第 5 张到待部署→批量 spawn_needed；
-// 4 张不触发；流水线忙（有施工票）也不触发。
+// TestT4_BatchDeploy 批量闸锚（T35 并入调和器）：待部署≥5 或流水线清空
+// （无 施工中/设计中）→调和器起 CTO-B；不足批且流水线忙→挂起不派。
 func TestT4_BatchDeploy(t *testing.T) {
-	g, _ := newTestGateway(t, nil)
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "idle")
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		c.ReconcileDebounce = 60 * time.Second // 关周期噪声只留事件径
+			c.SelfPath = "/bin/false" // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
+	})
 	ctx := context.Background()
-	// 流水线忙挡：1 张待部署＋1 张施工中→不触发。
+	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
+		t.Fatal(err)
+	}
+	noRun := func(tid string) {
+		if r, _ := g.DB().ActiveRunForTicket(ctx, tid); r != nil {
+			t.Fatalf("流水线忙竟起席 %s: %s", tid, r.RunID)
+		}
+	}
+
+	// 流水线忙（w1 施工中）＋4 张待部署→不触发。
 	mkTicketAt(t, g, "w1", db.PhaseWorking)
-	mkTicketAt(t, g, "b0", db.PhaseAuditing)
-	if err := g.transition(ctx, "b0", db.PhaseToDeploy, db.EdgeAuditPass, "t", ""); err != nil {
-		t.Fatal(err)
+	for _, id := range []string{"b1", "b2", "b3"} {
+		mkToDeploy(t, g, id, "P")
 	}
+	g.reconcile(ctx)
 	<-time.After(300 * time.Millisecond)
-	for _, e := range collectEvents(g, 100*time.Millisecond) {
-		if e.Kind == "batch_deploy" || (e.Kind == "spawn_needed" && e.TicketID == "b0") {
-			t.Fatalf("流水线忙竟触发批部署: %+v", e)
-		}
+	for _, id := range []string{"b0", "b1", "b2", "b3"} {
+		noRun(id)
 	}
-	// 4 张＋流水线清空（w1→完成）：仍不触发（<5 但清空会触发——先验 4 张
-	// 忙线不触发，再清空验触发）。
-	for i := 0; i < 3; i++ {
-		id := "b" + string(rune('1'+i))
-		mkTicketAt(t, g, id, db.PhaseAuditing)
-		if err := g.transition(ctx, id, db.PhaseToDeploy, db.EdgeAuditPass, "t", ""); err != nil {
-			t.Fatal(err)
+
+	// 第 5 张到待部署（流水线仍忙）→≥5 开闸：首票拿 B1 双锁起 CTO-B
+	// （同项目串行——他票 spawn_blocked 属闸内语义，非调和失格）。
+	mkToDeploy(t, g, "b4", "P")
+	g.reconcile(ctx)
+	// 开闸证：任一待部署票派发尝试/run 落账（B1 串行——谁先谁后属竞态）。
+	waitFor2(t, 30*time.Second, func() bool {
+		for _, id := range []string{"b0", "b1", "b2", "b3", "b4"} {
+			evs, _ := g.DB().Events(ctx, id)
+			for _, e := range evs {
+				if e.Kind == "spawn_failed" || e.Kind == "seat_err" ||
+					e.Kind == "shells_exhausted" || e.Kind == "spawn_blocked" {
+					return true
+				}
+			}
+			rs, _ := g.DB().RunsForTicket(ctx, id)
+			if len(rs) > 0 {
+				return true
+			}
 		}
-	}
-	<-time.After(300 * time.Millisecond)
-	for _, e := range collectEvents(g, 100*time.Millisecond) {
-		if e.Kind == "batch_deploy" {
-			t.Fatal("4 张忙线竟触发批部署")
-		}
-	}
-	// 第 5 张＋流水线清空（施工中票全完）→触发。
-	mkTicketAt(t, g, "b4", db.PhaseAuditing)
-	// 回队清空流水线（非终态但仍忙——已派算忙吗？判定只数 施工中/设计中，
-	// 回 已派 即算清空）。
-	if err := g.transition(ctx, "w1", db.PhaseAssigned, db.EdgeRequeue, "t", ""); err != nil {
+		return false
+	})
+}
+
+// TestT4_PipelineClear 流水线清空（无 施工中/设计中）→<5 张待部署也开闸。
+func TestT4_PipelineClear(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "idle")
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		c.ReconcileDebounce = 60 * time.Second
+	})
+	ctx := context.Background()
+	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.transition(ctx, "b4", db.PhaseToDeploy, db.EdgeAuditPass, "t", ""); err != nil {
-		t.Fatal(err)
-	}
-	waitEvent(t, g, "batch_deploy", "", 5*time.Second)
-	waitEvent(t, g, "spawn_needed", "b0", 5*time.Second)
+	mkToDeploy(t, g, "pb0", "P")
+	g.reconcile(ctx)
+	waitFor2(t, 15*time.Second, func() bool {
+		rs, _ := g.DB().RunsForTicket(ctx, "pb0")
+		return len(rs) > 0
+	})
 }

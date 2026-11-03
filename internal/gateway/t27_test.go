@@ -50,7 +50,7 @@ func TestT27_SeatResidueClean(t *testing.T) {
 	run("-C", repo, "worktree", "add", "-q", wd, "-b", "wt-x")
 	mkTicketAt(t, g, "tr27", db.PhaseWorking)
 	g.mu.Lock()
-	g.specs[specKey{"tr27", "施工"}] = SeatSpec{WorkDir: wd}
+	g.runWorkDir[runID] = wd
 	g.mu.Unlock()
 	g.cleanSeatResidue(&db.Run{RunID: runID, TicketID: "tr27", Role: "施工", SocketPath: sock})
 	if _, err := os.Stat(sock); !os.IsNotExist(err) {
@@ -62,7 +62,7 @@ func TestT27_SeatResidueClean(t *testing.T) {
 	// 非 worktree 工作区不动（手工件不误删）。
 	plain := t.TempDir()
 	g.mu.Lock()
-	g.specs[specKey{"tr27", "施工"}] = SeatSpec{WorkDir: plain}
+	g.runWorkDir["resid002"] = plain
 	g.mu.Unlock()
 	g.cleanSeatResidue(&db.Run{RunID: "resid002", TicketID: "tr27", Role: "施工"})
 	if _, err := os.Stat(plain); err != nil {

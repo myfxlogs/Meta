@@ -23,6 +23,8 @@ routes {
   note: "驳回达 3→通知；同上预留 CEO 面"
   actions { notify  { template: "【Meta】⚠️连驳三次[{{ticket_id}}]——CEO 已接手" } }
 }
+routes { kind: "blocked" note: "失败表到限→人工态（V5：同票同原因恰一条）"
+  actions { notify { template: "【Meta】⛔票 blocked[{{ticket_id}}]——{{note}}（放行:meta resume/重试/作废:meta rule void）" } } }
 routes { kind: "defer_limit" note: "延期帽尽→通知" actions { notify { template: "【Meta】⚠️卡死裁决延期已尽[{{ticket_id}}]——CEO 已接手" } } }
 # ——审计派发径（决策40，设计 §15 落点）——
 # D-39：deliver 按事件 role 拆行——CTO 交设计票只通知（事后验归 CEO，决策49/53），
@@ -49,10 +51,6 @@ routes { kind: "reject" note: "驳回→通知＋自动重派施工（判决史�
 routes { kind: "audit_dead" note: "审计席死→通知＋重起审计（不计驳回）"
   actions { notify { template: "【Meta】⚠️审计席中断[{{ticket_id}}]——自动重派中" } }
   actions { dispatch { role: "审计" prefer_shell: "devin" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
-routes { kind: "spawn_needed" note_contains: "审计" note: "对账补发消费端：待审滞留→派审计" actions { dispatch { role: "审计" prefer_shell: "devin" work_dir: "/opt/meta" prompt_template: "caster/audit-review.md" } } }
-routes { kind: "spawn_needed" note_contains: "CTO-A" note: "补发消费端：已立滞留/设计锁释补发→派 CTO-A 设计席" actions { dispatch { role: "CTO" work_dir: "/opt/meta" prompt_template: "caster/cto-design.md" } } }
-routes { kind: "spawn_needed" note_contains: "CTO-B" note: "补发消费端：待部署滞留/部署锁释补发→派 CTO-B 部署席（T26：CliDrive 钦定径——机械四步零 AI 税）" actions { dispatch { role: "CTO" work_dir: "/opt/meta" cli_drive: true prompt_template: "caster/cto-deploy.md" } } }
-routes { kind: "spawn_needed" note_contains: "施工" note: "对账补发消费端：已派滞留→派施工" actions { dispatch { role: "施工" work_dir: "/opt/meta" prompt_template: "caster/build-seat.md" } } }
 # ——飞书通道知行（票0013 通知面；dispatch CEO 行不写——消费径走 CeoGateway 泵/通道自身出站）——
 routes { kind: "feishu_cred_bad" note: "凭证行缺/坏→通道不启（fail loud；需业主重打包 secret.feishu.app）"
   actions { notify { template: "【Meta】⚠️飞书凭证坏：通道未起——需重打包 secret.feishu.app" } } }
@@ -75,7 +73,7 @@ routes { kind: "ruling"            actions { notify { template: "【Meta】{{rol
 # spawn_blocked 钦定不入（决策75：队列内务，终态有 shells_exhausted），seat_dead 不入
 # （正常交付退席同打此 kind，收则刷屏）；模板空＝缺省形【Meta】{{role}}:{{action}}[{{ticket_id}}]。
 default_notify {
-  kinds: "spawn_needed"    kinds: "spawn_failed"       kinds: "spawn_dup"
+  kinds: "blocked"         kinds: "spawn_failed"       kinds: "spawn_dup"
   kinds: "spawnq_full"     kinds: "inject_failed"      kinds: "seat_err"
   kinds: "adjunct_dead"    kinds: "adjunct_yield"      kinds: "adopt_failed"
   kinds: "budget_reset_failed" kinds: "budget_stop"    kinds: "exec_denied"

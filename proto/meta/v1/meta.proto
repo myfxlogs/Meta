@@ -41,7 +41,8 @@ service AdminGateway {
   rpc Ping(Empty) returns (Ack);             // 健康核验径（meta ping / meta-probe.sh）
   rpc IssueCeoToken(CeoTokenReq) returns (CeoTokenResp); // `meta ceo` 交互面开 run：provenance=terminal
   rpc SetTicketProject(TicketProjectReq) returns (Ack);  // 票→项目挂接/存量回填径（attachProject 五判闸，meta ticket set-project）
-  rpc Reconcile(Empty) returns (Ack);        // 手动对账径（改路由表后滞留补发；同启动对账，幂等）
+  rpc Reconcile(Empty) returns (Ack);        // 手动对账径（同幂等调和器，立即跑一轮）
+  rpc Resume(TicketRef) returns (Ack);       // blocked 人工放行：回 blocked 边事件记的原相位
   rpc PostMsg(MsgReq) returns (Ack);         // 票内留言入站（票0030 续传）：落 ticket_msg＋活席直投 feed
   rpc InjectEvent(EventReq) returns (Ack);   // 外部事件注入径（票0030 巡检心跳等：systemd timer→meta inject）
 }
@@ -535,13 +536,26 @@ message GatewayConfig {
   int32 audit_shell_skip_streak = 16;   // 审计重派壳偏置连败阈值（D-46/票0022）：≤0=关
   reserved 17, 18;                      // T34：巡检订阅种子/过滤壳随巡检席切除
   reserved "subscribe", "filter_shell";
-  google.protobuf.Duration reconcile_debounce = 19; // 立票点火去抖窗（票0039/T11）：票事件落账重置，缺省 30s
+  google.protobuf.Duration reconcile_debounce = 19; // T35 改义：幂等调和器周期（缺省 60s；≤0 关周期只留事件驱动）——R2′ 钦定唯一周期例外
+  repeated FailureRule failure_rule = 24;    // 失败表（v2 §3.3-B）：kind→确定性处置＋上限，到限→blocked
 
   // 票0033/T8 席位容器笼出闸种子（码面未接前纯配置态——钦定径禁即刻生效）：
   string seat_image = 20;                 // 笼镜像（空＝笼关旧径活）
   string seat_net = 21;                   // 笼网（meta-seat，egress 照旧非 internal）
   repeated string seat_mount_mask = 22;   // tmpfs 遮罩径（run/ 等宿主件不入笼）
   repeated string seat_extra_mount = 23;  // 额外挂载 "src:dst[:ro]"
+}
+
+// FailureRule 失败表一行（v2 §3.3-B）：事件 kind→确定性处置。
+// action 枚举：next_shell（换下一壳；cap=0 意为壳列表用尽即止）／
+// retry_same（同壳退避重试 cap 次后换壳）／shell_dead_next（标壳不可用换壳，
+// 全壳尽→blocked）／kill_respawn（杀＋换壳重派 cap 次）／same_shell（同壳
+// 重做 cap 次）／rollback（回滚 cap 次）／freeze（置 budget_frozen）／
+// blocked（立即人工态）。cap＝本相位期窗内同类失败计数上限，超限→blocked。
+message FailureRule {
+  string kind = 1;    // 事件 kind；特殊值 "*" 兜底未列 kind
+  string action = 2;
+  int32 cap = 3;
 }
 
 // ---------- 票级续传（票0030） ----------

@@ -2,138 +2,109 @@ package gateway
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"os"
 )
 
-// TestT11_点火洞 票面四锚：
-// ①裸立票→≤去抖窗+5s spawn_needed 必发（无人工无重启）
-// ②窗内两事件只醒一次（reconcileNow 计数）
-// ③patrol-* 立票→醒来派巡检不误派 CTO（spawn_needed role 断言）
-// ④新路径一次性闹钟——对账在飞期事件不续命（reconBusy 抑制）
+// TestT11_点火洞（T35 改义：kick＋周期双源调和器）票面锚：
+// ①裸立票→事件 kick→调和器起 CTO 席（无人工无重启）
+// ②kick 道缓冲 1 自并——忙期多踢不堆队
+// ③机器记账 kind 不踢（自踢自转＝变相轮询放大）
 func TestT11_点火洞(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "worker")
 	var calls int32
 	g, _ := newTestGateway(t, func(c *Config) {
-		c.ReconcileDebounce = 80 * time.Millisecond
+		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		c.ReconcileDebounce = 60 * time.Second // 关周期噪声：本锚只验事件径
+		c.InjectRoot = injectFixture(t)
 	})
 	g.reconcileNow = func(ctx context.Context) {
 		atomic.AddInt32(&calls, 1)
-		g.reconcile(ctx) // 真对账照跑（spawn_needed 断言需要）
-	}
-	ctx := context.Background()
-
-	// ①裸立票（meta ticket new 同径）→去抖醒→spawn_needed。
-	if err := g.DB().CreateTicketProv(ctx, "tA", "裸票", nil, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	waitEvent(t, g, "spawn_needed", "tA", 8*time.Second)
-
-	// ②窗内连续两事件只醒一次：calls 已计一次（上段唤醒），
-	// 立刻再立两票，窗内归并——醒后 calls 只 +1。
-	base := atomic.LoadInt32(&calls)
-	if err := g.DB().CreateTicketProv(ctx, "tB", "二", nil, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	<-time.After(30 * time.Millisecond) // 窗内
-	if err := g.DB().CreateTicketProv(ctx, "tC", "三", nil, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	<-time.After(300 * time.Millisecond)
-	if got := atomic.LoadInt32(&calls); got != base+1 {
-		t.Fatalf("窗内两事件应只醒一次，calls=%d base=%d", got, base)
-	}
-
-	// ③patrol-* 立票：reconcile 已立行给 巡检 角色（D-54 前缀行），
-	// 不得误派 CTO。
-	if err := g.DB().CreateTicketProv(ctx, "patrol-999", "值班", nil, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(8 * time.Second)
-	for {
-		e := waitEvent(t, g, "spawn_needed", "patrol-999", time.Until(deadline))
-		if e.Role == "巡检" {
-			break
-		}
-		if e.Role == "CTO" {
-			t.Fatalf("patrol 票误派 CTO: %+v", e)
-		}
-	}
-
-	// ④判决返修竞态锚：对账在飞期 created→置脏标（不丢不续命）；
-	// 收尾查脏→再醒一轮（竞态窗闭合实证）。另：机器记账 kind 永不武装。
-	g.mu.Lock()
-	g.reconBusy = true
-	g.mu.Unlock()
-	g.armRecon("created") // 模拟对账在飞期新票落账
-	g.mu.Lock()
-	dirty, armed := g.reconDirty, g.reconTimer != nil
-	g.reconBusy = false
-	g.mu.Unlock()
-	if !dirty {
-		t.Fatal("busy 期真事件未置脏标——丢事件偶现点火洞复现")
-	}
-	if armed {
-		t.Fatal("busy 期竟武装闹钟——续命变相轮询复现")
-	}
-	g.armRecon("spawn_needed") // 机器记账 kind
-	g.mu.Lock()
-	armed = g.reconTimer != nil
-	g.mu.Unlock()
-	if armed {
-		t.Fatal("spawn_needed 竟武装闹钟——R2 变相轮询复现")
-	}
-}
-
-// TestT11_竞态窗闭合 判决返修新锚：对账在飞期注入 created→收尾后必
-// 再醒一轮（reconcileNow 计数 2：首轮点火＋脏标追醒）。
-func TestT11_竞态窗闭合(t *testing.T) {
-	var calls int32
-	g, _ := newTestGateway(t, func(c *Config) {
-		c.ReconcileDebounce = 60 * time.Millisecond
-	})
-	started := make(chan struct{})
-	g.reconcileNow = func(ctx context.Context) {
-		atomic.AddInt32(&calls, 1)
-		select {
-		case started <- struct{}{}:
-		default:
-		}
 		g.reconcile(ctx)
 	}
 	ctx := context.Background()
-	if err := g.DB().CreateTicketProv(ctx, "tR", "竞态", nil, "", ""); err != nil {
+
+	// ①裸立票（meta ticket new 同径）→事件落账踢调和→CTO-A 席起。
+	if err := g.DB().CreateTicketProv(ctx, "tA", "裸票", nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	<-started // 等闹钟醒、对账在飞（busy=true 保持至 reconcileNow 返回）
-	// 对账在飞期注真事件（armRecon 走 db 钩同径——本锚直调等价）。
-	g.armRecon("created")
-	// 首轮收尾查脏→再醒一轮。
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		if atomic.LoadInt32(&calls) >= 2 {
-			return
-		}
-		<-time.After(10 * time.Millisecond)
+	if err := g.DB().UpdateSpec(ctx, "tA", testSpec(t)); err != nil {
+		t.Fatal(err)
 	}
-	t.Fatalf("脏标追醒未到（calls=%d）——竞态窗未闭合", calls)
+	waitFor2(t, 10*time.Second, func() bool {
+		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tA", "CTO")
+		return r != nil
+	})
+
+	// ②忙期多踢自并：向 kick 道连灌，计数只 +少量（chan cap 1）。
+	base := atomic.LoadInt32(&calls)
+	for i := 0; i < 8; i++ {
+		g.kickRecon("created")
+	}
+	<-time.After(500 * time.Millisecond)
+	if got := atomic.LoadInt32(&calls); got > base+2 {
+		t.Fatalf("多踢未自并 calls=%d base=%d", got, base)
+	}
+
+	// ③机器记账 kind 不踢：blocked/seat_err 等不调 reconcileNow。
+	base = atomic.LoadInt32(&calls)
+	g.kickRecon("blocked")
+	g.kickRecon("seat_err")
+	<-time.After(300 * time.Millisecond)
+	if got := atomic.LoadInt32(&calls); got != base {
+		t.Fatalf("机器记账 kind 竟踢调和 calls=%d base=%d", got, base)
+	}
 }
 
-// TestT11_零周期码锚 代码锚：armRecon 用一次性 AfterFunc——源内无
-// Ticker/周期 goroutine 引 recon。
-func TestT11_零周期码锚(t *testing.T) {
+// TestT11_幂等锚：同世界态 reconcile 连跑 N 次产出相同（v2 §3.3-A
+// 钦定锚——desired==actual 跳过，seat_run 数不变）。
+func TestT11_幂等锚(t *testing.T) {
+	t.Setenv("GO_HELPER_SEAT", "1")
+	t.Setenv("SEAT_MODE", "worker")
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		c.ReconcileDebounce = 60 * time.Second
+		c.InjectRoot = injectFixture(t)
+	})
+	ctx := context.Background()
+	if err := g.DB().CreateTicketProv(ctx, "tI", "幂等", nil, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.DB().UpdateSpec(ctx, "tI", testSpec(t)); err != nil {
+		t.Fatal(err)
+	}
+	// 等调和器把 CTO 席派起来。
+	waitFor2(t, 10*time.Second, func() bool {
+		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tI", "CTO")
+		return r != nil
+	})
+	rs1, _ := g.DB().RunsForTicket(ctx, "tI")
+	g.reconcile(ctx)
+	g.reconcile(ctx)
+	rs2, _ := g.DB().RunsForTicket(ctx, "tI")
+	if len(rs1) != len(rs2) {
+		t.Fatalf("幂等破：连跑 run 数 %d→%d", len(rs1), len(rs2))
+	}
+}
+
+// TestT11_R2锚 代码锚：周期循环仅此一处（reconcileLoop 的 R2′ 钦定
+// 例外）＋驱动为 buffered kick 道非 sleep 轮询。
+func TestT11_R2锚(t *testing.T) {
 	b, err := os.ReadFile("gateway.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	if strings.Contains(s, "NewTicker") {
-		t.Fatal("gateway.go 现 NewTicker——违 R2 零周期锚")
+	if !strings.Contains(s, "NewTicker") || !strings.Contains(s, "reconKick") {
+		t.Fatal("调和器驱动形态缺（ticker+kick 钦定双源）")
 	}
-	if !strings.Contains(s, "time.AfterFunc(span, func()") {
-		t.Fatal("armRecon 非一次性闹钟形态")
+	if strings.Contains(s, "for {") && strings.Contains(s, "time.Sleep") &&
+		strings.Index(s, "time.Sleep") < strings.Index(s, "reconcileLoop") {
+		t.Fatal("调和器径外现 sleep 轮询嫌疑")
 	}
 }

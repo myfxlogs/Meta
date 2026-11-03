@@ -298,6 +298,10 @@ func serve(args []string) error {
 	if gc.ReconcileDebounce != nil {
 		gcfg.ReconcileDebounce = gc.ReconcileDebounce.AsDuration()
 	}
+	for _, fr := range gc.FailureRule {
+		gcfg.FailureRules = append(gcfg.FailureRules, gateway.FailureRule{
+			Kind: fr.Kind, Action: fr.Action, Cap: int(fr.Cap)})
+	}
 
 	g, err := gateway.New(gcfg)
 	if err != nil {
