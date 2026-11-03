@@ -53,7 +53,7 @@ done
 [ "$ok" = 1 ] || fail "30s 内未恢复 serve / 未回退 prev"
 
 v=$("$META" version 2>/dev/null || true)
-[ "$v" = "meta drill-good" ] || fail "version 戳不符（应 drill-good）: $v"
+[ "${v%%+*}" = "meta drill-good" ] || fail "version 戳不符（应 drill-good）: $v"
 grep -q "已回退" "$LOG" || fail "守护日志无回退记录"
 grep -q "连崩熔断" "$LOG" || fail "守护日志无熔断记录"
 say "植入坏版→熔断→自动回退 prev→serve 恢复：全绿"

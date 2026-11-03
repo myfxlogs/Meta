@@ -24,6 +24,7 @@ stamp="${code_head:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}-d
 # 换装重启直接退 0——重启会杀部署席自身流（收养单次握手窗口竞态），
 # 非必要不重启；存量票核实即完成径全走本短路。
 cur="$("$INSTALL" version 2>/dev/null | awk '{print $2}')"
+cur="${cur%%+*}"
 if [ "$cur" = "$stamp" ]; then
 	echo "meta-deploy: 已在 $stamp——幂等跳过换装重启"
 	exit 0

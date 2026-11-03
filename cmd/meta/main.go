@@ -29,6 +29,7 @@ import (
 	"connectrpc.com/connect/v2/connecthttp"
 
 	"meta/internal/board"
+	"meta/internal/buildinfo"
 	"meta/internal/caster"
 	"meta/internal/config"
 	"meta/internal/db"
@@ -125,7 +126,9 @@ func main() {
 	case "seat-drive":
 		err = seatDriveCmd()
 	case "version":
-		fmt.Println("meta", buildStamp)
+		// 对抗锚提名行（票0048-p1）：拼接调 buildinfo.Version——删则
+		// 输出永远 meta <stamp>，实跑锚必红。
+		fmt.Println("meta", buildinfo.Version(buildStamp, buildinfo.Short()))
 	default:
 		usage()
 		os.Exit(2)
