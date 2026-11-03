@@ -144,7 +144,10 @@ func (g *Gateway) ceoBusy(ctx context.Context) bool {
 		return true
 	}
 	run, _ := g.database.ActiveRunForRole(ctx, "CEO")
-	return run != nil && run.PID > 0 && processAlive(run.PID)
+	// T32①：PID 复用假在岗实证——stale CEO 行的 pid 被他进程占则
+	// ceoBusy 恒真、ensureCEO 静默早退（壳行已补仍零尝试零 CEO 行的
+	// 第二断点）。kill0 之外验 cmdline 含 seat 字样才认本席。
+	return run != nil && run.PID > 0 && processAliveRun(run)
 }
 
 // ---------- 事件泵（订阅口消费同一事件源；spawn_kind→订阅/排队+唤起） ----------
@@ -559,7 +562,17 @@ func (g *Gateway) CeoRule(ctx context.Context, r *pbv1.Ruling) (*pbv1.RuleAck, e
 		return land()
 	case "redirect":
 		// 泊车专裁：最新事件须 req_pending（对非泊车票重定向＝拒）。
+		// T32③门角：待部署票亦受理——部署裁 redirect＝CliDrive 重派
+		// （与 T30 断路器复位链衔：ruling 落行即连败账清零）。
 		k, _ := g.database.LatestEventKind(ctx, r.TicketId)
+		if t.Phase == db.PhaseToDeploy {
+			spec := SeatSpec{WorkDir: g.ceoWorkDir(), CliDrive: true,
+				Provenance: run.Provenance}
+			if err := g.DispatchSeat(ctx, r.TicketId, "CTO", spec); err != nil {
+				return fail(err.Error())
+			}
+			return land()
+		}
 		if t.Phase != db.PhaseCreated || k != string(db.EdgeReqPending) {
 			return fail("票 " + r.TicketId + " 非 req_pending 泊车态")
 		}

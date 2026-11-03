@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -8,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"meta/internal/db"
 )
@@ -140,6 +143,57 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// processAliveRun 核 PID 属本席进程（T32①）：kill0 之外验进程启动时刻
+// ——PID 复用者启动早于席行（run.StartedAt 先于 cmd.Start 落账）即判非
+// 本席，stale 行不再假在岗。proc 读不了回保守 kill0 口径（容器/权限角）。
+// starttime=jiffies@boot；/proc/stat btime=开机历元；CLK_TCK=100
+// （x86_64 恒定——arch 异则退回容忍口径仍不楔）。
+func processAliveRun(r *db.Run) bool {
+	if r == nil || r.PID <= 0 || !processAlive(r.PID) {
+		return false
+	}
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", r.PID))
+	if err != nil {
+		return true
+	}
+	i := bytes.LastIndexByte(b, ')') // comm 可含空格/括号——从末 ')' 后切
+	if i < 0 {
+		return true
+	}
+	f := strings.Fields(string(b[i+1:]))
+	if len(f) < 20 {
+		return true
+	}
+	jif, err := strconv.ParseUint(f[19], 10, 64) // stat 第 22 字段=starttime
+	if err != nil {
+		return true
+	}
+	boot := bootEpoch()
+	if boot == 0 {
+		return true
+	}
+	// 双窗：本席进程起刻 ≈ StartedAt（spawn 滞后秒级）；早 2s 或晚 60s
+	// 外＝PID 复用者（stale 行的 pid 被晚起/早起进程占——起刻必异）。
+	procStart := time.Unix(boot+int64(jif/100), 0)
+	return procStart.After(r.StartedAt.Add(-2*time.Second)) &&
+		procStart.Before(r.StartedAt.Add(60*time.Second))
+}
+
+// bootEpoch /proc/stat btime 开机历元；读不了返 0（判径退回容忍口径）。
+func bootEpoch() int64 {
+	b, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return 0
+	}
+	for _, ln := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(ln, "btime ") {
+			v, _ := strconv.ParseInt(strings.TrimSpace(ln[6:]), 10, 64)
+			return v
+		}
+	}
+	return 0
 }
 
 // killRunGroup 席进程整组 SIGKILL——spawn 走 Setpgid，杀负 pid 连坐
