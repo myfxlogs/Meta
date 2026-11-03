@@ -149,11 +149,22 @@ func (g *Gateway) deployStateOK(ctx context.Context, tid string) bool {
 	if err != nil || cur == "" {
 		return false
 	}
-	// 对抗锚提名行：装戳判等——删/翻则「戳不符翻负」锚红。
-	if want := ev.expected(); want == "" || cur != want {
+	// 对抗锚提名行：装戳判等（票0048-p1 双侧剥 +* 尾——+hash 是构建
+	// 检出戳非码面身份，次选径 repoCodeHead+"-deploy" 无 hash 对
+	// stamp+hash 不剥必假负）——删/翻则「戳不符翻负」锚红。
+	if want := ev.expected(); want == "" || stampKey(cur) != stampKey(want) {
 		return false
 	}
 	return deployProbe(g.cfg.SocketPath, 2*time.Second) == nil
+}
+
+// stampKey 戳核钥：剥 version 第二段 <stamp>+<vcs短哈希> 的构建哈希
+// 尾，判等只比码面 stamp 段（meta-deploy.sh 幂等闸同式剥尾）。
+func stampKey(s string) string {
+	if i := strings.IndexByte(s, '+'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // deployInstallEvidence 要件1 取证（二取一）：首选最新 exec 日志「已装」
