@@ -104,6 +104,9 @@ func ProjectDrift(cur, seed *Project) []string {
 	if cur.SandboxSpec != seed.SandboxSpec {
 		out = append(out, "sandbox_spec")
 	}
+	if cur.AutoTicketMode != seed.AutoTicketMode {
+		out = append(out, "auto_ticket_mode") // T36 增列——漂移面同归一
+	}
 	return out
 }
 
