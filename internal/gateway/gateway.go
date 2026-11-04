@@ -211,6 +211,7 @@ type Gateway struct {
 	// T35 幂等调和器驱动：事件钩→非阻塞 kick；60s ticker＋kick 双源
 	// 串行跑 reconcile（同一 goroutine 天然去抖——缓冲 1 多踢自并）。
 	reconKick    chan struct{}
+	reconMu      sync.Mutex // T48 返修：直调径与 kick 环并发互斥——整轮串行
 	reconcileNow func(ctx context.Context) // 测试注入缝；缺省 g.reconcile
 }
 
