@@ -506,19 +506,31 @@ func collectEvents(g *Gateway, dur time.Duration) []Event {
 	}
 }
 
-// waitPhase 有界重试链（≤deadline）等相位到达——机械判，非周期巡检。
+// waitPhase 事件订阅驱动等相位（T53 确定性化）：订 EventCh 扇出道，
+// 每事件即查相位——相位转移经 emit 广播，事件到即醒不再押 10ms 轮
+// 询窗；deadline 只作安全网非节奏源（笼内慢环境饿死族根修）。
 func waitPhase(t *testing.T, g *Gateway, id string, want db.Phase, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		p, err := g.DB().PhaseOf(context.Background(), id)
-		if err == nil && p == want {
-			return
-		}
-		<-time.After(10 * time.Millisecond)
+	if p, err := g.DB().PhaseOf(context.Background(), id); err == nil && p == want {
+		return
 	}
-	p, _ := g.DB().PhaseOf(context.Background(), id)
-	t.Fatalf("票 %s 相位=%s 预期 %s（%v 未达）", id, p, want, timeout)
+	sub := g.subscribe()
+	defer g.unsubscribe(sub)
+	deadline := time.After(timeout)
+	for {
+		select {
+		case e := <-sub:
+			if e.TicketID != id {
+				continue
+			}
+			if p, err := g.DB().PhaseOf(context.Background(), id); err == nil && p == want {
+				return
+			}
+		case <-deadline:
+			p, _ := g.DB().PhaseOf(context.Background(), id)
+			t.Fatalf("票 %s 相位=%s 预期 %s（%v 未达）", id, p, want, timeout)
+		}
+	}
 }
 
 // adoptOnce 对席位收养口发一次 Adopt（单次调用，供有界重试链用）。

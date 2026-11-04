@@ -596,14 +596,40 @@ func TestInject_PerRole(t *testing.T) {
 	}
 }
 
-func waitFor2(t *testing.T, d time.Duration, ok func() bool) {
+// waitFor2 有界条件等：给 gw 则事件订阅驱动——每事件即复查条件
+// （T53 确定性化：相位/seat 变迁都广播，事件到即醒不再押 15ms 轮
+// 询窗，慢环境饿死族根修）；不带则回退轮询旧径（兼容非网关条件）。
+func waitFor2(t *testing.T, d time.Duration, ok func() bool, gw ...*Gateway) {
 	t.Helper()
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if ok() {
-			return
-		}
-		<-time.After(15 * time.Millisecond)
+	if ok() {
+		return
 	}
-	t.Fatal("有界等待超时")
+	var sub chan Event
+	if len(gw) > 0 && gw[0] != nil {
+		sub = gw[0].subscribe()
+		defer gw[0].unsubscribe(sub)
+	}
+	deadline := time.After(d)
+	if sub == nil {
+		for {
+			select {
+			case <-deadline:
+				t.Fatal("有界等待超时")
+			case <-time.After(15 * time.Millisecond):
+				if ok() {
+					return
+				}
+			}
+		}
+	}
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("有界等待超时")
+		case <-sub:
+			if ok() {
+				return
+			}
+		}
+	}
 }
