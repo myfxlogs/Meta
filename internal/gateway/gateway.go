@@ -493,6 +493,11 @@ func (g *Gateway) cancelAlarm(ticketID string) {
 // 部署中先查收口（四步已齐落 deploy_done，不冤杀已成部署）。
 func (g *Gateway) onStall(ticketID string) {
 	ctx := context.Background()
+	// T50③：blocked 人工态票不触停滞径——否则每轮闹钟空派裁决席烧
+	// 额度（0050/0051 每数分钟一循环实证：裁决「簿记假阳性」死循环）。
+	if p, err := g.database.PhaseOf(ctx, ticketID); err == nil && p == db.PhaseBlocked {
+		return
+	}
 	note := "进度帧超时未至"
 	var run *db.Run
 	if r, _ := g.database.ActiveRunForTicket(ctx, ticketID); r != nil {
