@@ -294,16 +294,35 @@ func TestT44_ReconcileDrainFailed(t *testing.T) {
 		writeSentinel(t, dir, rid, tc.sentinel)
 	}
 	g.reconcile(ctx)
-	for _, tc := range []struct {
-		tid       string
-		wantPhase db.Phase
-	}{
-		{"tr45", db.PhaseBlocked}, {"tr46", db.PhaseBlocked},
-	} {
-		waitPhase(t, g, tc.tid, tc.wantPhase, 5*time.Second)
-		if ok, _ := deployEdgeSeen(t, g, tc.tid, "deploy_failed"); !ok {
-			t.Fatalf("%s 对账死席未记 deploy_failed 账", tc.tid)
+	// tr45 哨兵在盘负→deploy_failed＋blocked 照旧（T48 不动此支）。
+	waitPhase(t, g, "tr45", db.PhaseBlocked, 5*time.Second)
+	if ok, _ := deployEdgeSeen(t, g, "tr45", "deploy_failed"); !ok {
+		t.Fatal("tr45 对账死席未记 deploy_failed 账")
+	}
+	// T48：tr46「席死无据」电平→边沿化——期窗恰一条账（不再每轮重放
+	// 凑 cap），票走 rollback 重派径非 blocked；二轮调和零追加。
+	waitFor2(t, 5*time.Second, func() bool {
+		evs, _ := g.DB().Events(ctx, "tr46")
+		for _, e := range evs {
+			if e.Kind == "deploy_failed" {
+				return true
+			}
 		}
+		return false
+	})
+	g.reconcile(ctx) // 第二轮——边沿化零追加
+	n := 0
+	evs, _ := g.DB().Events(ctx, "tr46")
+	for _, e := range evs {
+		if e.Kind == "deploy_failed" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("tr46 期窗应恰 1 条 deploy_failed（边沿化）: %d", n)
+	}
+	if p, _ := g.DB().PhaseOf(ctx, "tr46"); p == db.PhaseBlocked {
+		t.Fatal("tr46 单账不得凑 cap 进 blocked——rollback 重派是钦定径")
 	}
 }
 
