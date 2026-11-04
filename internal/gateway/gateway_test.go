@@ -79,6 +79,7 @@ func TestAnchorC_MidDeath(t *testing.T) {
 // 于 设计中/施工中/审计中/部署中/待审（另补 已派/待部署）杀网关一次→
 // 重启按 §5.3 表逐相收养/回队/补 spawn。
 func TestAnchorD_AllPhaseReconcile(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	cases := []struct {
 		name      string
 		phase     db.Phase
@@ -213,6 +214,7 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 // TestAnchorE_AlarmRecompute 闹钟重算（验收锚 e）：
 // 重启后 deadline 取自 ticket_event；已过期→立即发事件；未过期→设到原 deadline。
 func TestAnchorE_AlarmRecompute(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	newCfg := func(dir string) Config {
 		return Config{
 			DBPath:           filepath.Join(dir, "meta.db"),
@@ -377,6 +379,7 @@ func TestAnchorG_AdoptMutualAuth(t *testing.T) {
 
 // TestAnchorE_SecretRPC Secret(name) 最小径：ACL 放行给对角色，拒错角色。
 func TestSecretRPC(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	g, dir := newTestGateway(t, nil)
 	t.Cleanup(func() { // T18 只读凭据件清理前回权限位（unlinkat 闸）
 		_ = filepath.Walk(filepath.Join(dir, "run"), func(p string, _ os.FileInfo, e error) error {

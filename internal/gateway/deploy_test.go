@@ -583,6 +583,7 @@ func execUnit(tid string) *runState {
 // TestExec_SameUserNoSudo 锚1：run_as＝网关用户→env 直跑——SudoBin 零调用且
 // 步真实执行出 stdout。（对抗锚：删 sameUser 短路→走 sudo 径→log 有行→红。）
 func TestExec_SameUserNoSudo(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	dir := t.TempDir()
 	cfg := dispatchCfg(dir)
 	cfg.SudoBin = sudoStub(t, dir, 0)
@@ -619,6 +620,7 @@ func TestExec_SameUserNoSudo(t *testing.T) {
 // ＋gomod ro＋-e META_* 注入＋镜像名＋bash -lc；且该步零 sudo。
 // （对抗锚：删笼分支→走 sudo 径→docker log 空→红。）
 func TestExec_ContainerArgv(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	dir := t.TempDir()
 	dockerStub(t, dir, 0)
 	cfg := dispatchCfg(dir)
@@ -682,6 +684,7 @@ step_container_image { key: "check" value: "golang:test-img" }`
 // TestExec_ContainerOrphanSweep 锚3：超时杀进程组后 docker rm -f 必扫——
 // run 睡 60s ＋ sb 超时 1s→退码-1＋rm 行落 log。（对抗锚：删 defer 扫→rm 无→红。）
 func TestExec_ContainerOrphanSweep(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	dir := t.TempDir()
 	dockerStub(t, dir, 60)
 	cfg := dispatchCfg(dir)
@@ -718,6 +721,7 @@ step_container_image { key: "check" value: "golang:test-img" }`
 // sudo 零调用；异 uid 步仍落 legacy deny。（对抗锚：删 sameUser 数字直比→
 // 同 uid 案落 deny 红；删 deny 分支→异 uid 案放行红。）
 func TestExec_NumericRunAs(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	selfUid := os.Getuid()
 	for _, tc := range []struct {
 		name     string
