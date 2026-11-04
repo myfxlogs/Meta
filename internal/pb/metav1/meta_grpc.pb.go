@@ -358,6 +358,8 @@ const (
 	AdminGateway_Reconcile_FullMethodName        = "/meta.v1.AdminGateway/Reconcile"
 	AdminGateway_Resume_FullMethodName           = "/meta.v1.AdminGateway/Resume"
 	AdminGateway_Tickets_FullMethodName          = "/meta.v1.AdminGateway/Tickets"
+	AdminGateway_Status_FullMethodName           = "/meta.v1.AdminGateway/Status"
+	AdminGateway_Blocked_FullMethodName          = "/meta.v1.AdminGateway/Blocked"
 	AdminGateway_PostMsg_FullMethodName          = "/meta.v1.AdminGateway/PostMsg"
 	AdminGateway_InjectEvent_FullMethodName      = "/meta.v1.AdminGateway/InjectEvent"
 )
@@ -385,6 +387,8 @@ type AdminGatewayClient interface {
 	Reconcile(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Ack, error)
 	Resume(ctx context.Context, in *TicketRef, opts ...grpc.CallOption) (*Ack, error)
 	Tickets(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TicketList, error)
+	Status(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatusMsg, error)
+	Blocked(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BlockedList, error)
 	PostMsg(ctx context.Context, in *MsgReq, opts ...grpc.CallOption) (*Ack, error)
 	InjectEvent(ctx context.Context, in *EventReq, opts ...grpc.CallOption) (*Ack, error)
 }
@@ -566,6 +570,26 @@ func (c *adminGatewayClient) Tickets(ctx context.Context, in *Empty, opts ...grp
 	return out, nil
 }
 
+func (c *adminGatewayClient) Status(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatusMsg, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StatusMsg)
+	err := c.cc.Invoke(ctx, AdminGateway_Status_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminGatewayClient) Blocked(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BlockedList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BlockedList)
+	err := c.cc.Invoke(ctx, AdminGateway_Blocked_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminGatewayClient) PostMsg(ctx context.Context, in *MsgReq, opts ...grpc.CallOption) (*Ack, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Ack)
@@ -609,6 +633,8 @@ type AdminGatewayServer interface {
 	Reconcile(context.Context, *Empty) (*Ack, error)
 	Resume(context.Context, *TicketRef) (*Ack, error)
 	Tickets(context.Context, *Empty) (*TicketList, error)
+	Status(context.Context, *Empty) (*StatusMsg, error)
+	Blocked(context.Context, *Empty) (*BlockedList, error)
 	PostMsg(context.Context, *MsgReq) (*Ack, error)
 	InjectEvent(context.Context, *EventReq) (*Ack, error)
 	mustEmbedUnimplementedAdminGatewayServer()
@@ -668,6 +694,12 @@ func (UnimplementedAdminGatewayServer) Resume(context.Context, *TicketRef) (*Ack
 }
 func (UnimplementedAdminGatewayServer) Tickets(context.Context, *Empty) (*TicketList, error) {
 	return nil, status.Error(codes.Unimplemented, "method Tickets not implemented")
+}
+func (UnimplementedAdminGatewayServer) Status(context.Context, *Empty) (*StatusMsg, error) {
+	return nil, status.Error(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedAdminGatewayServer) Blocked(context.Context, *Empty) (*BlockedList, error) {
+	return nil, status.Error(codes.Unimplemented, "method Blocked not implemented")
 }
 func (UnimplementedAdminGatewayServer) PostMsg(context.Context, *MsgReq) (*Ack, error) {
 	return nil, status.Error(codes.Unimplemented, "method PostMsg not implemented")
@@ -977,6 +1009,42 @@ func _AdminGateway_Tickets_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminGateway_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Status(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Status_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Status(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminGateway_Blocked_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminGatewayServer).Blocked(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminGateway_Blocked_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminGatewayServer).Blocked(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminGateway_PostMsg_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MsgReq)
 	if err := dec(in); err != nil {
@@ -1079,6 +1147,14 @@ var AdminGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Tickets",
 			Handler:    _AdminGateway_Tickets_Handler,
+		},
+		{
+			MethodName: "Status",
+			Handler:    _AdminGateway_Status_Handler,
+		},
+		{
+			MethodName: "Blocked",
+			Handler:    _AdminGateway_Blocked_Handler,
 		},
 		{
 			MethodName: "PostMsg",

@@ -1602,61 +1602,41 @@ func seatDriveCmd() error {
 // （§3.3-B 人工态单列）＋活席数（seat_run dead=0）。库路径由 --socket
 // 推导（*.sock→*.db 同位约定，同 0050/同 serve 双旗布局），--db 覆盖；
 // 库缺失报错不建空库。纯读零写（db.Open 既有只读用法同 catchrate）。
+// statusCmd T52：socket RPC 一致径——直读库被属权拒（metaseat:600，
+// 非 metaseat 用户打不开实证）；socket 不可达报人话不裸 sqlite 错。
 func statusCmd(args []string, w io.Writer) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
-	sock := fs.String("socket", "run/meta.sock", "网关 socket（Ping 拨验＋库径推导源）")
-	dbPath := fs.String("db", "", "缺省由 --socket 推导（*.sock→*.db）")
+	sock := fs.String("socket", "run/meta.sock", "网关 socket")
 	timeout := fs.Duration("timeout", 3*time.Second, "svc 拨验上限")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	c, conn, err := admin(*sock)
 	svc := "down"
-	if c, conn, err := admin(*sock); err == nil {
+	if err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 		ack, perr := c.Ping(ctx, &pbv1.Empty{})
 		cancel()
-		conn.Close()
 		if perr == nil && ack.Ok {
 			svc = "up"
 		}
+	} else {
+		return fmt.Errorf("status: 需 socket %s 可达（网关未起或路径错）: %w", *sock, err)
 	}
-	p := *dbPath
-	if p == "" {
-		p = strings.TrimSuffix(absOr(sock, "run/meta.sock"), ".sock") + ".db"
-	}
-	if _, err := os.Stat(p); err != nil {
-		return fmt.Errorf("status: 库不可读 %s: %w", p, err)
-	}
-	d, err := db.Open(p)
+	defer conn.Close()
+	ctx2, cancel2 := context.WithTimeout(context.Background(), *timeout)
+	st, err := c.Status(ctx2, &pbv1.Empty{})
+	cancel2()
 	if err != nil {
-		return err
-	}
-	defer d.Close()
-	ctx := context.Background()
-	ts, err := d.NonTerminalTickets(ctx)
-	if err != nil {
-		return err
-	}
-	counts := map[db.Phase]int{}
-	blocked := 0
-	for _, t := range ts {
-		if t.Phase == db.PhaseBlocked {
-			blocked++
-			continue
-		}
-		counts[t.Phase]++
-	}
-	runs, err := d.ActiveRuns(ctx)
-	if err != nil {
-		return err
+		return fmt.Errorf("status: 需 socket %s 可达（网关未起或路径错）: %w", *sock, err)
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "meta %s svc=%s 在途=%d",
-		buildinfo.Version(buildStamp, buildinfo.Short()), svc, len(ts)-blocked)
+		buildinfo.Version(buildStamp, buildinfo.Short()), svc, st.InFlight)
 	for _, ph := range db.NonTerminal {
-		fmt.Fprintf(&sb, " %s=%d", ph, counts[ph])
+		fmt.Fprintf(&sb, " %s=%d", ph, st.Phases[string(ph)])
 	}
-	fmt.Fprintf(&sb, " blocked=%d 活席=%d", blocked, len(runs))
+	fmt.Fprintf(&sb, " blocked=%d 活席=%d", st.Blocked, st.ActiveRuns)
 	fmt.Fprintln(w, sb.String())
 	return nil
 }
@@ -1666,44 +1646,39 @@ func statusCmd(args []string, w io.Writer) error {
 // 原文）/动作提示；空表显式「无 blocked 票」。DB 直读零写：库路径由
 // --socket 推导（meta.sock→meta.db 同位约定，同 serve 双旗布局），
 // --db 可显式覆盖；库文件不存在即报错而不建空库（防路径笔误静默吃空）。
+// blockedCmd T52：socket RPC 一致径（同 status——直库属权拒根修）。
+// 列全部 blocked 相位票——票号/标题/末步机器原因（最近 blocked 边事件
+// note 原文）/动作提示；空表显式「无 blocked 票」。
 func blockedCmd(args []string, w io.Writer) error {
 	fs := flag.NewFlagSet("blocked", flag.ContinueOnError)
-	sock := fs.String("socket", "run/meta.sock", "网关 socket（库路径推导源）")
-	dbPath := fs.String("db", "", "缺省由 --socket 推导（*.sock→*.db）")
+	sock := fs.String("socket", "run/meta.sock", "网关 socket")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	p := *dbPath
-	if p == "" {
-		p = strings.TrimSuffix(absOr(sock, "run/meta.sock"), ".sock") + ".db"
+	c, conn, err := admin(*sock)
+	if err != nil {
+		return fmt.Errorf("blocked: 需 socket %s 可达（网关未起或路径错）: %w", *sock, err)
 	}
-	if _, err := os.Stat(p); err != nil {
-		return fmt.Errorf("blocked: 库不可读 %s: %w", p, err)
-	}
-	d, err := db.Open(p)
+	defer conn.Close()
+	lst, err := c.Blocked(context.Background(), &pbv1.Empty{})
 	if err != nil {
 		return err
 	}
-	defer d.Close()
-	rows, err := d.BlockedRows(context.Background())
-	if err != nil {
-		return err
-	}
-	if len(rows) == 0 {
+	if len(lst.Rows) == 0 {
 		fmt.Fprintln(w, "无 blocked 票")
 		return nil
 	}
-	for _, r := range rows {
+	for _, r := range lst.Rows {
 		reason := r.Reason
 		if reason == "" {
 			reason = "（无 blocked 边事件记——相位系手术直改）"
 		}
-		head := r.ID + "\t" + r.Title
+		head := r.Id + "\t" + r.Title
 		if r.FromPhase != "" {
 			head += "\t" + r.FromPhase + "→blocked"
 		}
 		fmt.Fprintf(w, "%s\n\t末因: %s\n\t动作: 放行/重试 meta rule --action redirect --ticket %s｜作废 meta rule --action void --ticket %s\n",
-			head, reason, r.ID, r.ID)
+			head, reason, r.Id, r.Id)
 	}
 	return nil
 }

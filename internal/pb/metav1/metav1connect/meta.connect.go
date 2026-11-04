@@ -71,6 +71,10 @@ const (
 	AdminGatewayResumeProcedure = "/meta.v1.AdminGateway/Resume"
 	// AdminGatewayTicketsProcedure is the procedure name of the AdminGateway's Tickets RPC.
 	AdminGatewayTicketsProcedure = "/meta.v1.AdminGateway/Tickets"
+	// AdminGatewayStatusProcedure is the procedure name of the AdminGateway's Status RPC.
+	AdminGatewayStatusProcedure = "/meta.v1.AdminGateway/Status"
+	// AdminGatewayBlockedProcedure is the procedure name of the AdminGateway's Blocked RPC.
+	AdminGatewayBlockedProcedure = "/meta.v1.AdminGateway/Blocked"
 	// AdminGatewayPostMsgProcedure is the procedure name of the AdminGateway's PostMsg RPC.
 	AdminGatewayPostMsgProcedure = "/meta.v1.AdminGateway/PostMsg"
 	// AdminGatewayInjectEventProcedure is the procedure name of the AdminGateway's InjectEvent RPC.
@@ -485,6 +489,20 @@ var (
 			Procedure:  AdminGatewayTicketsProcedure,
 		}
 	})
+	adminGatewayStatusSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     metav1.File_meta_v1_meta_proto.Services().ByName("AdminGateway").Methods().ByName("Status"),
+			Procedure:  AdminGatewayStatusProcedure,
+		}
+	})
+	adminGatewayBlockedSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     metav1.File_meta_v1_meta_proto.Services().ByName("AdminGateway").Methods().ByName("Blocked"),
+			Procedure:  AdminGatewayBlockedProcedure,
+		}
+	})
 	adminGatewayPostMsgSpec = sync.OnceValue(func() connect.Spec {
 		return connect.Spec{
 			StreamType: connect.StreamTypeUnary,
@@ -519,6 +537,8 @@ type AdminGatewayClient interface {
 	Reconcile(context.Context, *metav1.Empty) (*metav1.Ack, error)
 	Resume(context.Context, *metav1.TicketRef) (*metav1.Ack, error)
 	Tickets(context.Context, *metav1.Empty) (*metav1.TicketList, error)
+	Status(context.Context, *metav1.Empty) (*metav1.StatusMsg, error)
+	Blocked(context.Context, *metav1.Empty) (*metav1.BlockedList, error)
 	PostMsg(context.Context, *metav1.MsgReq) (*metav1.Ack, error)
 	InjectEvent(context.Context, *metav1.EventReq) (*metav1.Ack, error)
 }
@@ -567,6 +587,8 @@ type AdminGatewayHandler interface {
 	Reconcile(context.Context, *metav1.Empty) (*metav1.Ack, error)
 	Resume(context.Context, *metav1.TicketRef) (*metav1.Ack, error)
 	Tickets(context.Context, *metav1.Empty) (*metav1.TicketList, error)
+	Status(context.Context, *metav1.Empty) (*metav1.StatusMsg, error)
+	Blocked(context.Context, *metav1.Empty) (*metav1.BlockedList, error)
 	PostMsg(context.Context, *metav1.MsgReq) (*metav1.Ack, error)
 	InjectEvent(context.Context, *metav1.EventReq) (*metav1.Ack, error)
 }
@@ -591,6 +613,8 @@ func RegisterAdminGatewayHandler(server *connect.Server, svc AdminGatewayHandler
 		connect.Method{Spec: adminGatewayReconcileSpec(), Handler: adapter.reconcile},
 		connect.Method{Spec: adminGatewayResumeSpec(), Handler: adapter.resume},
 		connect.Method{Spec: adminGatewayTicketsSpec(), Handler: adapter.tickets},
+		connect.Method{Spec: adminGatewayStatusSpec(), Handler: adapter.status},
+		connect.Method{Spec: adminGatewayBlockedSpec(), Handler: adapter.blocked},
 		connect.Method{Spec: adminGatewayPostMsgSpec(), Handler: adapter.postMsg},
 		connect.Method{Spec: adminGatewayInjectEventSpec(), Handler: adapter.injectEvent},
 	)
@@ -676,6 +700,14 @@ func (UnimplementedAdminGatewayHandler) Resume(context.Context, *metav1.TicketRe
 
 func (UnimplementedAdminGatewayHandler) Tickets(context.Context, *metav1.Empty) (*metav1.TicketList, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "meta.v1.AdminGateway.Tickets is not implemented")
+}
+
+func (UnimplementedAdminGatewayHandler) Status(context.Context, *metav1.Empty) (*metav1.StatusMsg, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "meta.v1.AdminGateway.Status is not implemented")
+}
+
+func (UnimplementedAdminGatewayHandler) Blocked(context.Context, *metav1.Empty) (*metav1.BlockedList, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "meta.v1.AdminGateway.Blocked is not implemented")
 }
 
 func (UnimplementedAdminGatewayHandler) PostMsg(context.Context, *metav1.MsgReq) (*metav1.Ack, error) {
@@ -813,6 +845,22 @@ func (c *adminGatewayClient) Resume(ctx context.Context, req *metav1.TicketRef) 
 func (c *adminGatewayClient) Tickets(ctx context.Context, req *metav1.Empty) (*metav1.TicketList, error) {
 	var res metav1.TicketList
 	if err := c.client.CallUnary(ctx, adminGatewayTicketsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminGatewayClient) Status(ctx context.Context, req *metav1.Empty) (*metav1.StatusMsg, error) {
+	var res metav1.StatusMsg
+	if err := c.client.CallUnary(ctx, adminGatewayStatusSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminGatewayClient) Blocked(ctx context.Context, req *metav1.Empty) (*metav1.BlockedList, error) {
+	var res metav1.BlockedList
+	if err := c.client.CallUnary(ctx, adminGatewayBlockedSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -1018,6 +1066,30 @@ func (h adminGatewayHandler) tickets(ctx context.Context, _ connect.Spec, stream
 		return err
 	}
 	res, err := h.svc.Tickets(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminGatewayHandler) status(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req metav1.Empty
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Status(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminGatewayHandler) blocked(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req metav1.Empty
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Blocked(ctx, &req)
 	if err != nil {
 		return err
 	}

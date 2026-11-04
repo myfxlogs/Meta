@@ -168,6 +168,43 @@ func (g *Gateway) Tickets(ctx context.Context, _ *pbv1.Empty) (*pbv1.TicketList,
 	return out, nil
 }
 
+// Status T52：运维面总况径——相位计数＋活席数＋blocked 数，纯读。
+func (g *Gateway) Status(ctx context.Context, _ *pbv1.Empty) (*pbv1.StatusMsg, error) {
+	ts, err := g.database.NonTerminalTickets(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &pbv1.StatusMsg{Phases: map[string]int32{}}
+	for _, t := range ts {
+		if t.Phase == db.PhaseBlocked {
+			out.Blocked++
+			continue
+		}
+		out.Phases[string(t.Phase)]++
+	}
+	out.InFlight = int32(len(ts)) - out.Blocked
+	runs, err := g.database.ActiveRuns(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out.ActiveRuns = int32(len(runs))
+	return out, nil
+}
+
+// Blocked T52：blocked 人工态清单径——票号/标题/末因/fromPhase 纯读。
+func (g *Gateway) Blocked(ctx context.Context, _ *pbv1.Empty) (*pbv1.BlockedList, error) {
+	rows, err := g.database.BlockedRows(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &pbv1.BlockedList{}
+	for _, r := range rows {
+		out.Rows = append(out.Rows, &pbv1.BlockedRow{
+			Id: r.ID, Title: r.Title, FromPhase: r.FromPhase, Reason: r.Reason})
+	}
+	return out, nil
+}
+
 // RetroVerdict 回翻件（决策40 §15.4）：滞留 待审 票一次性机械补录——
 // 两跳皆走钦定边经 transition() 包装（事件行＋门铃照出，路由通知自动跟发）：
 // 待审→审计中(audit_start)→待部署(audit_pass) 或 →已派(reject)。
