@@ -329,6 +329,17 @@ func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 	if tweak != nil {
 		tweak(&cfg)
 	}
+	// T51②：凡 cfg 带真子进程起点（helper SeatArgv 自 re-exec / SelfPath
+	// cli-drive 真命令）的测＝集成片——-short 闸口径整片摘帽。豁免点上
+	// 提到建闸面而非逐函数：调和器/DispatchSeat/手工三径起席全在罩内
+	// （0054 笼内实测漏网根＝豁免只标派发直调径）。
+	if testing.Short() {
+		realProc := cfg.SelfPath != "" ||
+			strings.Contains(strings.Join(cfg.SeatArgv, " "), "TestHelperProcess")
+		if realProc {
+			t.Skip("真子进程集成片——-short 闸口径豁免（开发全量片仍跑）")
+		}
+	}
 	g, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
