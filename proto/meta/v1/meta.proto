@@ -45,6 +45,8 @@ service AdminGateway {
   rpc Reconcile(Empty) returns (Ack);        // 手动对账径（同幂等调和器，立即跑一轮）
   rpc Resume(TicketRef) returns (Ack);       // blocked 人工放行：回 blocked 边事件记的原相位
   rpc Tickets(Empty) returns (TicketList);   // 在途票清单径（T47：meta tickets 改 socket 一致径）
+  rpc Status(Empty) returns (StatusMsg);     // 运维面总况径（T52：相位计数+活席数，直库径全拒根修）
+  rpc Blocked(Empty) returns (BlockedList);  // blocked 人工态清单径（T52：含末因/fromPhase）
   rpc PostMsg(MsgReq) returns (Ack);         // 票内留言入站（票0030 续传）：落 ticket_msg＋活席直投 feed
   rpc InjectEvent(EventReq) returns (Ack);   // 外部事件注入径（票0030 巡检心跳等：systemd timer→meta inject）
 }
@@ -322,6 +324,24 @@ message TicketProjectReq {
 
 message TicketList {
   repeated TicketRow tickets = 1;
+}
+
+message StatusMsg {
+  int32 in_flight = 1;        // 非终态总数（含 blocked 单列）
+  map<string, int32> phases = 2; // 相位→计数
+  int32 blocked = 3;
+  int32 active_runs = 4;
+}
+
+message BlockedRow {
+  string id = 1;
+  string title = 2;
+  string from_phase = 3; // blocked 边事件记的原相位
+  string reason = 4;     // 最近 blocked 边事件 note 原文
+}
+
+message BlockedList {
+  repeated BlockedRow rows = 1;
 }
 
 message EventList {

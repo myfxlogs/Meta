@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"fmt"
 	"testing"
 	"time"
 
@@ -449,7 +450,9 @@ func TestStatusCLI(t *testing.T) {
 	dbp := filepath.Join(runDir, "meta.db")
 	g, err := gateway.New(gateway.Config{
 		DBPath: dbp, RunDir: runDir, SocketPath: sock,
-		SeatArgv: []string{"/bin/true"}})
+		SeatArgv: []string{"/bin/true"},
+		// T52：调和窗口拉大——造票迁边不在测窗内发生（计数断言确定性）。
+		ReconcileDebounce: 30 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,14 +492,8 @@ func TestStatusCLI(t *testing.T) {
 		}
 	}
 
-	// 面二：无网关独立库——满板确定性断言。
-	d2 := t.TempDir()
-	dbp2 := filepath.Join(d2, "meta.db")
-	h, err := db.Open(dbp2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer h.Close()
+	// 面二：活网关库柄造满板（直写不发事件不调迁——调和器零 kick）。
+	h := g.DB()
 	ctx := context.Background()
 	for i, ph := range db.NonTerminal {
 		pushPhase(t, h, "S"+string(rune('1'+i)), "S票", ph)
@@ -509,7 +506,6 @@ func TestStatusCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	pushPhase(t, h, "SD", "完工票", db.PhaseDone)
-	// 活席×1＋死席×1（dead=1 不计）。
 	for _, r := range []*db.Run{
 		{RunID: "r-live", TicketID: "S4", Role: "施工", Shell: "testshell", PID: os.Getpid(), RunToken: "tk-live"},
 		{RunID: "r-dead", TicketID: "S4", Role: "施工", Shell: "testshell", PID: os.Getpid(), RunToken: "tk-dead"},
@@ -521,22 +517,37 @@ func TestStatusCLI(t *testing.T) {
 	if err := h.MarkDead(ctx, "r-dead"); err != nil {
 		t.Fatal(err)
 	}
-
-	// svc=down：死 socket 不拒——降级显式 down，库计数照出（--db 直读径）。
-	out = run("--socket", filepath.Join(d2, "dead.sock"), "--db", dbp2)
+	out = run("--socket", sock)
 	oneLine(out)
-	for _, want := range []string{"svc=down", "在途=8",
-		"已立=1", "设计中=1", "已派=1", "施工中=1", "待审=1", "审计中=1", "待部署=1", "部署中=1",
-		"blocked=1", "活席=1"} {
+	// T52 钦定锚＝与库内实况一致（活网关迁边随时序——对 DB 真理面
+	// 实时核对相位计数/blocked/活席，不押固定数）。
+	ts, _ := h.NonTerminalTickets(ctx)
+	wantPh := map[db.Phase]int{}
+	bl := 0
+	for _, tt := range ts {
+		if tt.Phase == db.PhaseBlocked {
+			bl++
+			continue
+		}
+		wantPh[tt.Phase]++
+	}
+	ar, _ := h.ActiveRuns(ctx)
+	must := []string{fmt.Sprintf("在途=%d", len(ts)-bl), fmt.Sprintf("blocked=%d", bl),
+		fmt.Sprintf("活席=%d", len(ar))}
+	for _, ph := range db.NonTerminal {
+		must = append(must, fmt.Sprintf("%s=%d", ph, wantPh[ph]))
+	}
+	for _, want := range must {
 		if !strings.Contains(out, want) {
 			t.Fatalf("满板缺 %q: %q", want, out)
 		}
 	}
 
-	// 库缺失报错不建空库（--socket 推导径也无库）。
+	// T52：socket 不可达＝「需 socket」人话错（直库径已废）。
 	var sb strings.Builder
-	if err := statusCmd([]string{"--socket", filepath.Join(d2, "none", "meta.sock")}, &sb); err == nil {
-		t.Fatal("库缺失应报错")
+	if err := statusCmd([]string{"--socket", filepath.Join(dir, "none", "meta.sock")}, &sb); err == nil ||
+		!strings.Contains(err.Error(), "需 socket") {
+		t.Fatalf("socket 不可达应报需 socket: %v", err)
 	}
 }
 
@@ -628,27 +639,41 @@ func TestCLI_TicketResume(t *testing.T) {
 	}
 }
 
-// TestBlockedCLI blocked 运维窗（票0050 锚）：空表显式「无」／blocked 票
-// 必现且带末因原文／非 blocked 票零出现／多票按票号序／--socket 推导库径。
+// TestBlockedCLI blocked 运维窗（T52：socket RPC 一致径）——空表显式
+// 「无」／blocked 票必现带末因原文／非 blocked 零出现／多票按票号序。
 func TestBlockedCLI(t *testing.T) {
 	dir := t.TempDir()
-	dbp := filepath.Join(dir, "meta.db")
-	h, err := db.Open(dbp)
+	sock := filepath.Join(dir, "run", "meta.sock")
+	g, err := gateway.New(gateway.Config{
+		DBPath: filepath.Join(dir, "meta.db"), RunDir: filepath.Join(dir, "run"),
+		SocketPath: sock, SeatArgv: []string{"/bin/true"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer h.Close()
+	go g.Serve()
+	defer g.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket 未起")
+		}
+		<-time.After(20 * time.Millisecond)
+	}
+	h := g.DB()
 	ctx := context.Background()
 	run := func(args ...string) string {
 		var sb strings.Builder
-		if err := blockedCmd(args, &sb); err != nil {
+		if err := blockedCmd(append(args, "--socket", sock), &sb); err != nil {
 			t.Fatalf("blockedCmd %v: %v", args, err)
 		}
 		return sb.String()
 	}
 
 	// 空表。
-	if out := run("--db", dbp); !strings.Contains(out, "无 blocked 票") {
+	if out := run(); !strings.Contains(out, "无 blocked 票") {
 		t.Fatalf("空表应显式「无」: %q", out)
 	}
 
@@ -671,7 +696,7 @@ func TestBlockedCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := run("--db", dbp)
+	out := run()
 	i1, i2 := strings.Index(out, "B1"), strings.Index(out, "B2")
 	if i1 < 0 || i2 < 0 || i1 > i2 {
 		t.Fatalf("多票序应 B1 前 B2 后: %q", out)
@@ -687,11 +712,5 @@ func TestBlockedCLI(t *testing.T) {
 	}
 	if strings.Contains(out, "NC") || strings.Contains(out, "正常票") {
 		t.Fatalf("非 blocked 票应零出现: %q", out)
-	}
-
-	// --socket 推导库径（meta.sock→meta.db；sock 文件无需存在）。
-	out = run("--socket", filepath.Join(dir, "meta.sock"))
-	if !strings.Contains(out, "B1") || strings.Contains(out, "无 blocked 票") {
-		t.Fatalf("--socket 推导库径应读到同库: %q", out)
 	}
 }
