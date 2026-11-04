@@ -201,6 +201,10 @@ func (g *Gateway) blockTicket(ctx context.Context, ticketID, reason string) {
 
 // reconcile 幂等调和谐：全相位扫描，desired↔actual 对齐。
 func (g *Gateway) reconcile(ctx context.Context) {
+	g.reconMu.Lock()
+	defer g.reconMu.Unlock()
+	// T48 返修：直调径（admin/测试）与 kick 环（ticker/事件）并发同跑
+	// 会重复执行同票对齐——双轮凑 cap 边沿化破功；入口互斥罩整轮。
 	tickets, err := g.database.NonTerminalTickets(ctx)
 	if err != nil {
 		return
