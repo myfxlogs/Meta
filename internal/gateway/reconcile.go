@@ -385,6 +385,18 @@ func (g *Gateway) reconcileTicket(ctx context.Context, t *db.Ticket, role string
 	}
 }
 
+// epochHasKind 期窗内是否已有 kind 账——attach/reconcile 两径
+// deploy_failed 记点共用去重判（T49：同窗双计凑 cap 的活锁根）。
+func (g *Gateway) epochHasKind(ctx context.Context, ticketID, kind string) bool {
+	evs, _ := g.database.Events(ctx, ticketID)
+	for _, e := range epochEvents(evs) {
+		if e.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 // deployDyingTicketClose 部署中死席收口判（0044 排干语义并入调和器）：
 // 哨兵 done／四步账齐／态判绿→deploy_done；failed 哨兵在盘→失败表 deploy
 // 路径照走。返回 true＝票已收口不再走派径。
@@ -412,11 +424,9 @@ func (g *Gateway) deployDyingTicketClose(ctx context.Context, t *db.Ticket, run 
 		// T48 电平→边沿化：席死无据是常驻态，账只记一期窗一条——
 		// 每期窗重放则 resume 后毫秒级第二轮必超 cap 回 blocked（0050
 		// 四放行全灭实证）。新死席照样记（期窗重置后旧账不抑制）。
-		evs, _ := g.database.Events(ctx, t.ID)
-		for _, e := range epochEvents(evs) {
-			if e.Kind == "deploy_failed" {
-				return false // 期窗已有账——零追加
-			}
+		// T49：attach/reconcile 同闸共用 epochHasKind。
+		if g.epochHasKind(ctx, t.ID, "deploy_failed") {
+			return false // 期窗已有账——零追加
 		}
 		_ = g.database.AppendEvent(ctx, t.ID, "deploy_failed", db.Event{
 			Actor: "gateway", Note: "席死无终哨兵无据——先核回滚态"})
