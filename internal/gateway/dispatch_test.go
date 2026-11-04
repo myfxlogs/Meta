@@ -45,6 +45,7 @@ func dispatchSpec(t *testing.T) SeatSpec {
 // TestDispatch_SeatLifecycle 调度一镜到底：DispatchSeat 走相位→路由 spawn→
 // attach+claim→施工中；杀席→failSet 换壳→下一壳顶上（①级换壳的机器径）。
 func TestDispatch_SeatLifecycle(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "worker")
 	g, _ := newTestGateway(t, func(c *Config) {
@@ -94,6 +95,7 @@ func TestDispatch_SeatLifecycle(t *testing.T) {
 
 // TestDispatch_FrozenRefuses 冻票拒派＋排队 spawn 判弃（§5.5 D8）。
 func TestDispatch_FrozenRefuses(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, _ := newTestGateway(t, func(c *Config) {
 		dir := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(dir)
@@ -277,6 +279,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 // 票级 used_total 跨尝试单调不清零。（驳回1 R1 回归锚——删 ResetAttemptUsage
 // 接线或删 warned 复位，本表必红。）
 func TestBudget_AttemptReset(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "worker")
 	g, dir := newTestGateway(t, func(c *Config) {

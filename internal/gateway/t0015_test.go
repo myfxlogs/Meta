@@ -112,6 +112,7 @@ func TestAttach_CreateTicket(t *testing.T) {
 // ticket.project==P＋project_set 事件（actor/prov 断言）；挂接在取锁闸之前——
 // 派 待部署 CTO 票后 projectLocks[P] 占用而非 "" 键。
 func TestAttach_Dispatch(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)

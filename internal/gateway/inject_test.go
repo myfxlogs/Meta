@@ -52,6 +52,7 @@ func testSpec(t *testing.T) []byte {
 // TestDispatch_Inject 注入机径：无 --prompt-file 时组装前缀落 inject/<票>.md，
 // 内容含角色卡行/栏值/索引；席位经该文件起（attach 证明派发走到 spawn）。
 func TestDispatch_Inject(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	root := injectFixture(t)
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
@@ -86,6 +87,7 @@ func TestDispatch_Inject(t *testing.T) {
 
 // TestDispatch_Inject缺一不派 票面无 spec＋注入机开 → inject_failed，不耗壳尝试。
 func TestDispatch_Inject缺一不派(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	root := injectFixture(t)
 	g, _ := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
@@ -109,6 +111,7 @@ func TestDispatch_Inject缺一不派(t *testing.T) {
 
 // TestDispatch_PromptFile覆盖 --prompt-file 保留为覆盖径：注入机开也不组装。
 func TestDispatch_PromptFile覆盖(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	root := injectFixture(t)
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)

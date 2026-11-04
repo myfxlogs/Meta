@@ -561,3 +561,13 @@ func dialSeatGateway(t *testing.T, sockPath string) (*grpc.ClientConn, pbv1.Seat
 	t.Cleanup(func() { conn.Close() })
 	return conn, pbv1.NewSeatGatewayClient(conn)
 }
+
+// shortSkipInteg T51①：凡真起子进程（spawnSeat 直调＋DispatchSeat/helper
+// argv 内起 re-exec 两径）的集成片在 -short 闸口径统一摘帽——豁免点提
+// 到公共面防逐文件漏标（0054 三轮实证：调和器内起席族是漏网径）。
+func shortSkipInteg(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("真子进程集成片——-short 闸口径豁免（开发全量片仍跑）")
+	}
+}

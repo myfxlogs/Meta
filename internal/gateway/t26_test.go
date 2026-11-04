@@ -17,6 +17,7 @@ import (
 // 另一席 spawn_blocked 拒（旧径闸间缝隙两骑并跑＝0045/0046 实证）。
 // 对抗锚提名行：dispatchMu 临界区——删则并发双派可同过锁闸。
 func TestT26_B1ConcurrentDispatch(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 	})
@@ -245,6 +246,7 @@ func TestT26_CliDriveSpawnBound(t *testing.T) {
 //
 // 对抗锚提名行：onSeatAlive armAlarm 行——删则 a 红；onStall 处决支——删则 b 红。
 func TestT26_StallKillDeploySeat(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 		c.ProgressTimeout = 200 * time.Millisecond

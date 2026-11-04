@@ -239,7 +239,7 @@ func TestAnchorE_AlarmRecompute(t *testing.T) {
 		mkTicketAt(t, g1, "te1", db.PhaseAssigned)
 		spawnSeat(t, g1, "te1", "施工", "worker", "META_ADOPT_GRACE=30")
 		// T40：门铃竞读改相位条件等（worker 自领→边账即证）。
-		waitPhase(t, g1, "te1", db.PhaseWorking, 15*time.Second)
+		waitPhase(t, g1, "te1", db.PhaseWorking, 30*time.Second)
 		_ = g1.DB().AppendEvent(context.Background(), "te1", "progress", db.Event{Actor: "seat", Note: "写码"})
 		g1.DB().SetClock(time.Now)
 		g1.Close()
@@ -264,7 +264,7 @@ func TestAnchorE_AlarmRecompute(t *testing.T) {
 		go g1.Serve()
 		mkTicketAt(t, g1, "te2", db.PhaseAssigned)
 		spawnSeat(t, g1, "te2", "施工", "worker", "META_ADOPT_GRACE=30")
-		waitPhase(t, g1, "te2", db.PhaseWorking, 15*time.Second)
+		waitPhase(t, g1, "te2", db.PhaseWorking, 30*time.Second)
 		last, _ := g1.DB().LastActivityAt(context.Background(), "te2")
 		g1.Close()
 

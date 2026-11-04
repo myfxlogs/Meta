@@ -251,6 +251,7 @@ func TestThreeRejects(t *testing.T) {
 // TestConfigSeeds 锚 7：fixture 配置→shell 表按行落种＋EnsureBudgetDefaults
 // 写角色帽＋opencode 行 attempt_cap 覆盖生效。
 func TestConfigSeeds(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 		c.DefaultAttemptCap = 20_000_000
@@ -294,6 +295,7 @@ func TestConfigSeeds(t *testing.T) {
 // TestAuditGate 锚 11：待审票派审计→claim→audit_start＋相位审计中；他相位
 // 拒；同角色活席再派拒；usage 双计。
 func TestAuditGate(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, dir := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 	})
@@ -347,6 +349,7 @@ func TestAuditGate(t *testing.T) {
 // 新 run；pass→待部署；非法 verdict→InvalidArgument 不落相位；杀审计席→
 // 待审（audit_dead，不计驳回）＋重派审计。
 func TestVerdictFlow(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, dir := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 		c.InjectRoot = injectFixture(t)
@@ -553,6 +556,7 @@ func TestRetroVerdict(t *testing.T) {
 
 // TestInject_PerRole 锚 8：注入落盘 <tid>-<role>.md；同票另一角色两文件并存。
 func TestInject_PerRole(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	root := injectFixture(t)
 	if err := os.WriteFile(filepath.Join(root, "roles", "审计.md"),
 		[]byte("# 角色卡：审计\n\nfixture 审计关键行。\n"), 0o644); err != nil {

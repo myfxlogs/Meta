@@ -149,6 +149,7 @@ func TestAuditShellBias_Threshold(t *testing.T) {
 // TestAuditShellBias_RoleIsolation A3：连败行 role=施工 →审计派发不计；
 // 审计连败行在 →施工派发不生效（D-46 钦定面＝审计重派）。
 func TestAuditShellBias_RoleIsolation(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g := auditBiasGateway(t)
 	ctx := context.Background()
 

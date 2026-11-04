@@ -194,6 +194,7 @@ func TestCeoSpawn_LastResort(t *testing.T) {
 // TestCeoProvenance 锚3：spawnCEO(prov=feishu:x)→SubmitRequirement→需求票
 // created/requirement 行 prov=feishu:x；自报字段被盖；Dispatch(role=CEO) 硬拒。
 func TestCeoProvenance(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
 	ctx := context.Background()
 	c := ceoClient(t, dir)
@@ -817,6 +818,7 @@ func TestD34_Order(t *testing.T) {
 // TestAudit_RedispatchReject 债 D-38 缺口一（审计中再派拒断言）：
 // 审计中票派审计/施工皆拒——审计途中双席并存洞由相位闸焊死。
 func TestAudit_RedispatchReject(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, _ := newTestGateway(t, func(c *Config) { *c = dispatchCfg(filepath.Dir(c.DBPath)) })
 	ctx := context.Background()
 	mkTicketAt(t, g, "ta", db.PhaseAuditing)
