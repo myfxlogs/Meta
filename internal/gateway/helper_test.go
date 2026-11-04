@@ -401,8 +401,13 @@ func reapHelperChildren(ppid int) {
 }
 
 // spawnSeat 经网关 spawn 一个 helper 席位；测试结束自动补杀。
+// T51 闸集分离：helper 席是集成片（真子进程＝对执行环境时敏，0054 笼
+// 内六连实证）——-short 口径下全族摘帽，闸集只跑非集成片。
 func spawnSeat(t *testing.T, g *Gateway, ticketID, role, mode string, extraEnv ...string) *db.Run {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("helper 席集成片——-short 闸口径豁免（开发全量片仍跑）")
+	}
 	env := append(os.Environ(),
 		"GO_HELPER_SEAT=1",
 		"SEAT_MODE="+mode,

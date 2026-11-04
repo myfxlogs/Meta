@@ -388,6 +388,9 @@ func mustSpec(t *testing.T, fill func(*pbv1.TicketSpec)) []byte {
 // TestDesignLock B1 设计锁做实锚：同项目二票并发起设计——A 持锁（派发即取、
 // 持到离开施工中）期间 B 派发拒；A 交付放锁→spawn_needed 解排队＋B 可派。
 func TestDesignLock(t *testing.T) {
+	if testing.Short() {
+		t.Skip("DispatchSeat 集成片——-short 闸口径豁免（决111名单族）")
+	}
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "hold")
 	t.Setenv("GO_HELPER_SEAT", "1")

@@ -34,7 +34,7 @@ project {
   repo_url: "/opt/meta"
   default_branch: "master"
   integrate_cmd: "git -C /opt/meta rev-parse --verify \"$META_EXEC_REF\" || exit 92; git -C /opt/meta merge-base --is-ancestor \"$META_EXEC_REF\" HEAD && exit 0; git -C /opt/meta -c user.name=meta -c user.email=meta@meta.local merge --no-ff \"$META_EXEC_REF\""
-  check_cmd: "export PATH=/usr/local/go/bin:$PATH && go build ./... && go vet ./... && go test -count=1 ./..."
+  check_cmd: "export PATH=/usr/local/go/bin:$PATH && go build ./... && go vet ./... && go test -count=1 -short ./..."
   deploy_cmd: "bash /opt/meta/scripts/meta-deploy.sh"
   probe_cmd: "bash /opt/meta/scripts/meta-probe.sh"
   # T34 §7.4：真回滚或 exit 1——MERGE_HEAD 在＝半合并 abort；HEAD 是合并提交
