@@ -35,7 +35,9 @@ func (g *Gateway) StartFeishuCards(ctx context.Context) *feishu.Cards {
 		RecordErr:   g.recordCardErr,
 	})
 	evCh := g.subscribe() // 同步注册——对账期间到的事件不丢（256 缓冲排队）
+	g.wg.Add(1)
 	go func() {
+		defer g.wg.Done()
 		cards.Reconcile(ctx)
 		g.feishuCardsLoop(ctx, cards, evCh)
 	}()

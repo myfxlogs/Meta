@@ -349,8 +349,10 @@ func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 	// idle 席不 attach 无流可断，网关关不通知＝孤儿永生烧机（非确定性族
 	// 根因实证：机台残留 5k+ gateway.test 进程）。注册序在 g.Close 前＝
 	// LIFO 执行序在 Close 后：网关死透再收尸，防存活径补席再漏。
-	t.Cleanup(func() { reapHelperChildren(os.Getpid()) })
+	// LIFO：reaper 先杀子（Wait 环即退→Close 排空秒过）再 Close——
+	// 反序则 Close 在排空屏障里等活子 15s×数百测＝套件挂（T51③ 实证）。
 	t.Cleanup(g.Close)
+	t.Cleanup(func() { reapHelperChildren(os.Getpid()) })
 	return g, dir
 }
 

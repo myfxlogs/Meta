@@ -129,7 +129,9 @@ func (g *Gateway) StartFeishu(ctx context.Context) *feishu.Channel {
 		return nil
 	}
 	go ch.Run(ctx)
-	go g.feishuOutbound(ctx, ch, g.subscribe())
+	g.wg.Add(1)
+	sub := g.subscribe()
+	go func() { defer g.wg.Done(); g.feishuOutbound(ctx, ch, sub) }()
 	return ch
 }
 
