@@ -46,6 +46,7 @@ func assertNoShellBlame(t *testing.T, g *Gateway, tid string) {
 // 注入产物空→spawn_blocked＋seat_run 零新行＋failSet 空＋壳健康零迁移。
 // 对抗性锚 b：删 dispatchOnce 的 promptFileEmpty 闸本表全红。
 func TestDispatch_空提示拒起(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	ctx := context.Background()
 
 	blocked := func(t *testing.T, g *Gateway, tid string) {
@@ -140,6 +141,7 @@ func TestDispatch_空提示拒起(t *testing.T) {
 // ExitAbort/ExitInputErr→seat_err 事件留痕，failSet 不含该壳＋ShellHealth
 // 行未动。对抗性锚 c：删 reportShell 的 ExitWrapper 早退分支本表全红。
 func TestDispatch_席位级死因禁标壳(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	for _, code := range []int{
 		seat.ExitSeatErr, seat.ExitOrphan, seat.ExitAbort, seat.ExitInputErr,
 	} {
@@ -176,6 +178,7 @@ func TestDispatch_席位级死因禁标壳(t *testing.T) {
 // TestDispatch_壳级回归 锚 5：②a→limited＋failSet；②b→dead＋failSet；
 // ①机器级进 failSet 不迁健康——本票只剥「席位级」，壳级语义一字不改。
 func TestDispatch_壳级回归(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	ctx := context.Background()
 	cases := []struct {
 		name       string

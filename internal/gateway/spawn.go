@@ -111,7 +111,9 @@ func (g *Gateway) startRun(ctx context.Context, run *db.Run, argv []string, env 
 	g.runs[run.RunID] = st
 	g.mu.Unlock()
 
+	g.wg.Add(1)
 	go func() { // SIGCHLD 源：父进程 Wait 返回＝子死
+		defer g.wg.Done()
 		err := cmd.Wait()
 		code := -1
 		if ee, ok := err.(*exec.ExitError); ok {

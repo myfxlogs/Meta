@@ -162,6 +162,7 @@ func mkToDeploy(t *testing.T, g *Gateway, id, project string) {
 // TestDeploy_Gates 锚2：部署支步行＋三重闸——非待部署派 CTO 拒；非部署中/adjunct
 // exec 拒；claim→deploy_start→部署中。（对抗锚 d：相位判等翻＝本表红。）
 func TestDeploy_Gates(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
@@ -232,6 +233,7 @@ func TestDeploy_Gates(t *testing.T) {
 // TestDeploy_FourGreen 锚3：伪配方四步全绿→exec 按序→deploy_done→完成；
 // cmd_run 四行序断言＋退码/输出路径/tail/diff 清单。
 func TestDeploy_FourGreen(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
@@ -285,6 +287,7 @@ func TestDeploy_FourGreen(t *testing.T) {
 // TestDeploy_RedRollback 锚4＋对抗锚 a/b：check 红→rollback 执行痕→
 // deploy_failed→待部署（非完成）。
 func TestDeploy_RedRollback(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
@@ -346,6 +349,7 @@ func TestDeploy_RedRollback(t *testing.T) {
 // TestDeploy_ProjectLocks 锚5＋对抗锚 c：同项目二部署→锁拒（spawn_blocked
 // 留痕）；首票终态→锁释→补发 spawn_needed；启动按相位重建。
 func TestDeploy_ProjectLocks(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
@@ -389,6 +393,7 @@ func TestDeploy_ProjectLocks(t *testing.T) {
 // TestDeploy_LockRebuildDB 锚5 后半：库内 部署中 票（带活 run 行）→
 // 重启收养后锁重建——同项目二部署拒。
 func TestDeploy_LockRebuildDB(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	dir := t.TempDir()
 	cfg := dispatchCfg(dir)
 	cfg.SudoBin = sudoStub(t, dir, 0)
@@ -438,6 +443,7 @@ func TestDeploy_LockRebuildDB(t *testing.T) {
 // 且无笼形制的步一律 deny——exec_resp 退码 -1＋deny note 入账；sudoStub
 // 零调用（sudo-argv.log 不出生）。删 deny 分支→legacy sudo 复活→本锚红。
 func TestDeploy_LegacyDenied(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	dir := t.TempDir()
 	g, gdir := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(dir)
@@ -577,6 +583,7 @@ func execUnit(tid string) *runState {
 // TestExec_SameUserNoSudo 锚1：run_as＝网关用户→env 直跑——SudoBin 零调用且
 // 步真实执行出 stdout。（对抗锚：删 sameUser 短路→走 sudo 径→log 有行→红。）
 func TestExec_SameUserNoSudo(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	dir := t.TempDir()
 	cfg := dispatchCfg(dir)
 	cfg.SudoBin = sudoStub(t, dir, 0)
@@ -613,6 +620,7 @@ func TestExec_SameUserNoSudo(t *testing.T) {
 // ＋gomod ro＋-e META_* 注入＋镜像名＋bash -lc；且该步零 sudo。
 // （对抗锚：删笼分支→走 sudo 径→docker log 空→红。）
 func TestExec_ContainerArgv(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	dir := t.TempDir()
 	dockerStub(t, dir, 0)
 	cfg := dispatchCfg(dir)
@@ -676,6 +684,7 @@ step_container_image { key: "check" value: "golang:test-img" }`
 // TestExec_ContainerOrphanSweep 锚3：超时杀进程组后 docker rm -f 必扫——
 // run 睡 60s ＋ sb 超时 1s→退码-1＋rm 行落 log。（对抗锚：删 defer 扫→rm 无→红。）
 func TestExec_ContainerOrphanSweep(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	dir := t.TempDir()
 	dockerStub(t, dir, 60)
 	cfg := dispatchCfg(dir)
@@ -712,6 +721,7 @@ step_container_image { key: "check" value: "golang:test-img" }`
 // sudo 零调用；异 uid 步仍落 legacy deny。（对抗锚：删 sameUser 数字直比→
 // 同 uid 案落 deny 红；删 deny 分支→异 uid 案放行红。）
 func TestExec_NumericRunAs(t *testing.T) {
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	selfUid := os.Getuid()
 	for _, tc := range []struct {
 		name     string

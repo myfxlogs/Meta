@@ -11,6 +11,7 @@ import (
 // TestT15_LockLeak 锁泄锚：待部署 CTO 取双锁→席 claim 前死→锁必释
 // （spawn_blocked 死循环实证根修）。
 func TestT15_LockLeak(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 	})

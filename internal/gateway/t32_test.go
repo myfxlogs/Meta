@@ -83,6 +83,7 @@ func TestT32_ShellSeedReseed(t *testing.T) {
 
 // 件② ruling 门角：待部署票 redirect 受理→CliDrive 重派（ruling 落行）。
 func TestT32_RedirectToDeployGate(t *testing.T) {
+	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 		c.SelfPath = "/bin/false"

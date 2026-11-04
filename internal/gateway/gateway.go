@@ -212,6 +212,7 @@ type Gateway struct {
 	// 串行跑 reconcile（同一 goroutine 天然去抖——缓冲 1 多踢自并）。
 	reconKick    chan struct{}
 	reconMu      sync.Mutex // T48 返修：直调径与 kick 环并发互斥——整轮串行
+	wg           sync.WaitGroup // T51③：内部 goroutine 账——Close 排空屏障
 	reconcileNow func(ctx context.Context) // 测试注入缝；缺省 g.reconcile
 }
 
@@ -332,12 +333,15 @@ func New(cfg Config) (*Gateway, error) {
 
 	g.reconcile(context.Background())           // 启动一轮对齐（V4：kill -9 后 60s 内收敛）
 	g.rebuildProjectLocks(context.Background()) // 项目锁按票相位重建（B1）
-	go g.dispatcher()                           // spawn 调度器：事件驱动，非周期
-	go g.ceoPump(g.subscribe())                 // CEO 事件泵：先订阅后起泵，不丢首事件
+	g.wg.Add(2)
+	go func() { defer g.wg.Done(); g.dispatcher() }()   // spawn 调度器：事件驱动，非周期
+	ceoSub := g.subscribe() // 先同步注册（丢首事件即破）——wg 包装不得搬订阅进协程
+	go func() { defer g.wg.Done(); g.ceoPump(ceoSub) }() // CEO 事件泵
 	// T35：幂等调和器——事件钩 kick＋周期 ticker 双源驱动。
 	g.reconcileNow = g.reconcile
 	d.SetEventHook(g.kickRecon)
-	go g.reconcileLoop()
+	g.wg.Add(1)
+	go func() { defer g.wg.Done(); g.reconcileLoop() }()
 	return g, nil
 }
 
@@ -363,6 +367,15 @@ func (g *Gateway) Close() {
 	close(g.done)
 	for _, a := range alarms {
 		a.Stop()
+	}
+	// T51③ 排空屏障：关库前等内部 goroutine 退净（reconcile/泵/排干环
+	// 的末笔 DB 写在 TempDir 拆除中程落地＝笼内慢必现 unlinkat 红；
+	// 生产关停同病）。有界等——挂死环不挡关库（排空是优化非死锁）。
+	done := make(chan struct{})
+	go func() { g.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
 	}
 	_ = g.database.Close()
 }

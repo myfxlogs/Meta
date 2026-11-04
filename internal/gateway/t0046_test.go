@@ -70,6 +70,7 @@ func presetProject(t *testing.T, dbPath string, p db.Project) {
 
 func newSeedGateway(t *testing.T, cfg Config) *Gateway {
 	t.Helper()
+	shortSkipInteg(t) // T51④：直建 New(cfg) 径——闸口径豁免
 	g, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -329,6 +329,17 @@ func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 	if tweak != nil {
 		tweak(&cfg)
 	}
+	// T51②：凡 cfg 带真子进程起点（helper SeatArgv 自 re-exec / SelfPath
+	// cli-drive 真命令）的测＝集成片——-short 闸口径整片摘帽。豁免点上
+	// 提到建闸面而非逐函数：调和器/DispatchSeat/手工三径起席全在罩内
+	// （0054 笼内实测漏网根＝豁免只标派发直调径）。
+	if testing.Short() {
+		realProc := cfg.SelfPath != "" ||
+			strings.Contains(strings.Join(cfg.SeatArgv, " "), "TestHelperProcess")
+		if realProc {
+			t.Skip("真子进程集成片——-short 闸口径豁免（开发全量片仍跑）")
+		}
+	}
 	g, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -338,8 +349,10 @@ func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 	// idle 席不 attach 无流可断，网关关不通知＝孤儿永生烧机（非确定性族
 	// 根因实证：机台残留 5k+ gateway.test 进程）。注册序在 g.Close 前＝
 	// LIFO 执行序在 Close 后：网关死透再收尸，防存活径补席再漏。
-	t.Cleanup(func() { reapHelperChildren(os.Getpid()) })
+	// LIFO：reaper 先杀子（Wait 环即退→Close 排空秒过）再 Close——
+	// 反序则 Close 在排空屏障里等活子 15s×数百测＝套件挂（T51③ 实证）。
 	t.Cleanup(g.Close)
+	t.Cleanup(func() { reapHelperChildren(os.Getpid()) })
 	return g, dir
 }
 
@@ -560,4 +573,14 @@ func dialSeatGateway(t *testing.T, sockPath string) (*grpc.ClientConn, pbv1.Seat
 	}
 	t.Cleanup(func() { conn.Close() })
 	return conn, pbv1.NewSeatGatewayClient(conn)
+}
+
+// shortSkipInteg T51①：凡真起子进程（spawnSeat 直调＋DispatchSeat/helper
+// argv 内起 re-exec 两径）的集成片在 -short 闸口径统一摘帽——豁免点提
+// 到公共面防逐文件漏标（0054 三轮实证：调和器内起席族是漏网径）。
+func shortSkipInteg(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("真子进程集成片——-short 闸口径豁免（开发全量片仍跑）")
+	}
 }
