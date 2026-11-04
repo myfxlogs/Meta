@@ -436,8 +436,10 @@ func (g *Gateway) deriveSpec(ctx context.Context, t *db.Ticket, role string,
 			spec.WorkDir = p.RepoURL
 		}
 	}
-	if role == "CTO" && t.Phase == db.PhaseToDeploy {
-		spec.CliDrive = true // T26：部署支钦定机械四步径
+	if role == "CTO" && (t.Phase == db.PhaseToDeploy || t.Phase == db.PhaseDeploying) {
+		// T50①：部署支（待部署＋部署中）统一机械四步径——blocked 部署票
+		// resume 回部署中亦走 CliDrive，不再补 AI 席烧 429（0050/0051 实证）。
+		spec.CliDrive = true
 	}
 	switch rule.Action {
 	case "same_shell", "retry_same":

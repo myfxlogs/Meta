@@ -108,7 +108,7 @@ func New(shell string) (Adapter, error) {
 // ---------- 退码分级共享件 ----------
 
 var (
-	reTransient = regexp.MustCompile(`(?i)rate.?limit|429|throttl|too many requests|overloaded|temporarily|try again|timeout|timed out|connection (reset|refused)|econnreset`)
+	reTransient = regexp.MustCompile(`(?i)rate.?limit|429|throttl|too many requests|overloaded|temporarily|try again|timeout|timed out|connection (reset|refused)|econnreset|使用上限|达到.*限额|每周.*重置|每月.*重置`)
 	reFatal     = regexp.MustCompile(`(?i)unauthorized|401|invalid (api.?)?key|permission denied|forbidden|quota|insufficient|billing|payment|credit balance|expired|not logged in|login required`)
 	reSpawn     = regexp.MustCompile(`(?i)not installed|untrusted workspace|command not found|no such file|sandbox initialization failed`)
 )
