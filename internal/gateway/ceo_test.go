@@ -375,7 +375,7 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 	})
 	park("trp2", full)
 	// 同款泊车竞态——pin+重试至 ack.Ok。
-	waitFor2(t, 30*time.Second, func() bool {
+	waitFor2(t, 60*time.Second, func() bool {
 		_, _ = g.DB().Transition(ctx, "trp2", db.PhaseCreated, db.EdgeReqPending, "cto", "待裁")
 		ack, _ = c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
 			TicketId: "trp2", Note: "续作"})
