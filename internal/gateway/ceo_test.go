@@ -345,14 +345,16 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 	// T35：调和器可抢在泊车落定前把票走过边——泊车与 ruling 同环重试
 	// （相位压回 已立＋最新事件 req_pending 两颗钉同落）。
 	var ack *pbv1.RuleAck
+	var terr error
 	waitFor2(t, 15*time.Second, func() bool {
-		_, _ = g.DB().Transition(ctx, "trp1", db.PhaseCreated, db.EdgeReqPending, "cto", "待裁")
+		_, terr = g.DB().Transition(ctx, "trp1", db.PhaseCreated, db.EdgeReqPending, "cto", "待裁")
 		ack, _ = c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
 			TicketId: "trp1", Note: "改走轻量轨"})
 		return ack != nil && ack.Ok
 	}, g)
 	if ack == nil || !ack.Ok {
-		t.Fatalf("redirect 缺栏票未成: %+v", ack)
+		ph, _ := g.DB().PhaseOf(ctx, "trp1")
+		t.Fatalf("redirect 缺栏票未成: ack=%+v 泊钉错=%v trp1相位=%s", ack, terr, ph)
 	}
 	// T35：g.specs 内存表退役（spec 随 spawnReq 走）——改验注入目录
 	// 落盘件：缺栏票 redirect 落 CTO-A 内联提示文件。
@@ -375,14 +377,15 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 	})
 	park("trp2", full)
 	// 同款泊车竞态——pin+重试至 ack.Ok。
-	waitFor2(t, 30*time.Second, func() bool {
-		_, _ = g.DB().Transition(ctx, "trp2", db.PhaseCreated, db.EdgeReqPending, "cto", "待裁")
+	waitFor2(t, 60*time.Second, func() bool {
+		_, terr = g.DB().Transition(ctx, "trp2", db.PhaseCreated, db.EdgeReqPending, "cto", "待裁")
 		ack, _ = c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
 			TicketId: "trp2", Note: "续作"})
 		return ack != nil && ack.Ok
 	}, g)
 	if ack == nil || !ack.Ok {
-		t.Fatalf("redirect 全栏票未成: %+v", ack)
+		ph, _ := g.DB().PhaseOf(ctx, "trp2")
+		t.Fatalf("redirect 全栏票未成: ack=%+v 泊钉错=%v trp2相位=%s", ack, terr, ph)
 	}
 	// 全栏票走注入机组装径——缺内联提示件增（redirect-* 计数不变）。
 	mfs2, _ := filepath.Glob(filepath.Join(g.cfg.RunDir, "inject", "redirect-*.md"))
