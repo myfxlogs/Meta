@@ -457,15 +457,27 @@ func TestDesignLock(t *testing.T) {
 		send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{Ref: "r1"}}})
 	}
 	deliver()
-	// T35：放锁踢调和器——B 票（已立）由调和器派 CTO 起席。
-	// T35：放锁踢调和器——B 自持放行即锚（锁桶可能被 B 回填，判空竞态不取）。
+	// T53⑤：ta 席负载 env 死→代驾流绑死席→deliver 永不落锁持死
+	// （30s 偶超实证）。谓词逐轮取活席重投：换新席流＋新 token 重发
+	// deliver——锁放只认 deliver 帧落账与哪条流无关。
 	var lastErr error
 	waitFor2(t, 30*time.Second, func() bool {
+		if cur, _ := g.DB().ActiveRunForTicketRole(ctx, "ta", "CTO"); cur != nil &&
+			cur.RunID != arun.RunID {
+			arun = cur
+			st2, _ := sc.Attach(ctx)
+			if st2 != nil {
+				st = st2
+				_ = st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: arun.RunToken}}})
+				_ = st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "ta"}}})
+			}
+		}
 		deliver() // 帧丢失即重投直到锁放
 		lastErr = g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec(t))
 		return lastErr == nil
 	}, g)
 	if lastErr != nil {
+		t.Logf("DispatchSeat 终错: %v", lastErr)
 		g.mu.Lock()
 		h := g.designLocks["p1"]
 		g.mu.Unlock()
