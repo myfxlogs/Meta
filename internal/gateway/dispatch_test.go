@@ -285,6 +285,9 @@ func TestBudget_AttemptReset(t *testing.T) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
 		c.InjectRoot = injectFixture(t)
+		c.ShellRows = append(c.ShellRows,
+			ShellSeed{Name: "ts4", Role: "施工", Priority: 40},
+			ShellSeed{Name: "ts5", Role: "施工", Priority: 50})
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tr", db.PhaseAssigned)
