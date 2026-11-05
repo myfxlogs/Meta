@@ -340,6 +340,12 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 		}
 	}
 
+	// T53⑬：硬停摆根治——调和器 event-kick 抢泊（相位过边后 req_
+	// pending 仅 Working→已立合法，重钉恒拒=真停非竞）。施工包内直
+	// 持 reconMu 冻 reconcile 径：泊→裁窗口零抢票，谓词只留 Rule
+	// 单源重试（拒因若再浮即真 bug 非抖）。
+	g.reconMu.Lock()
+	defer g.reconMu.Unlock()
 	// 缺栏（需求票原始态：goal+why）→内联 CTO-A 再派提示。
 	park("trp1", mustSpec(t, func(ts *pbv1.TicketSpec) { ts.Goal, ts.Why = "做X", "定向" }))
 	// T35：调和器可抢在泊车落定前把票走过边——泊车与 ruling 同环重试
