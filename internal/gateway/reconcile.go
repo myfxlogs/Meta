@@ -41,6 +41,7 @@ var failureClasses = map[string]bool{
 	"shell_limited": true, "shell_dead": true, "stall_suspect": true,
 	"reject": true, "deploy_failed": true, "budget_frozen": true,
 	"clidrive_dead": true, "stall_kill": true, "seat_dead": true,
+	"spawn_env_fail": true, // T53③：环境即死计账走 retry_same 有界——壳不烧
 }
 
 // edgeKindSet 相位边 kind 集——期窗锚点（最近一条边之后才算本相位期窗）。
@@ -253,10 +254,18 @@ func (g *Gateway) reconcile(ctx context.Context) {
 			kind := "seat_dead"
 			if r.Adjunct {
 				kind = "adjunct_dead"
+			} else if seatLogSilent(r.LogPath) {
+				// T53④：env 判同构——attach 径 spawn_env_fail 与本径
+				// seat_dead 双写竞窗实证（锚测 env+dead 双账）；零输出
+				// 即死归 spawn_env_fail。
+				kind = "spawn_env_fail"
 			}
-			_ = g.database.AppendEvent(ctx, r.TicketID, kind, db.Event{
-				Actor: "gateway", Note: "对账收尸: pid 已死 " + r.RunID})
-			g.emit(Event{Kind: kind, TicketID: r.TicketID, RunID: r.RunID, Role: r.Role})
+			// 期窗去重：attach/Wait 径先落账则本径零追加（双径同窗）。
+			if !g.epochHasKind(ctx, r.TicketID, kind) {
+				_ = g.database.AppendEvent(ctx, r.TicketID, kind, db.Event{
+					Actor: "gateway", Note: "对账收尸: pid 已死 " + r.RunID})
+				g.emit(Event{Kind: kind, TicketID: r.TicketID, RunID: r.RunID, Role: r.Role})
+			}
 		}
 	}
 	// B1 设计锁重建（§1.8）：设计链在途票有活 CTO run→照相位恢复持锁。

@@ -38,7 +38,7 @@ func TestDesignDeadRespawn(t *testing.T) {
 	}
 	waitPhase(t, g, "td", db.PhaseDesigning, 10*time.Second)
 	waitFor2(t, 10*time.Second, func() bool {
-		return hasEvent(t, g, "td", "seat_dead") != nil
+		return (hasEvent(t, g, "td", "seat_dead") != nil || hasEvent(t, g, "td", "spawn_env_fail") != nil)
 	}, g)
 	// 调和器重派：新 CTO run 出现（死席标死后 desired=CTO 起席）。
 	waitFor2(t, 15*time.Second, func() bool {

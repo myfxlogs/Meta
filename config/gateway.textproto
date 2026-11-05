@@ -90,6 +90,8 @@ failure_rule { kind: "spawn_failed"    action: "next_shell"      cap: 0 }
 # T46：seat_dead 入表——缺行则落 "*"→blocked（0050/19:44 瞬回实证径）；
 # 与码内缺省同值，换壳重派期窗无帽。
 failure_rule { kind: "seat_dead"       action: "next_shell"      cap: 0 }
+# T53③：环境即死（spawn 起不来/排队超时）——retry_same 有界不烧壳。
+failure_rule { kind: "spawn_env_fail"   action: "retry_same"      cap: 3 }
 failure_rule { kind: "shell_limited"   action: "retry_same"      cap: 3 }  # 429/5xx/连接错退避同壳≤3→换壳
 failure_rule { kind: "shell_dead"      action: "shell_dead_next" cap: 0 }  # 配额尽/授权失效标死换壳
 failure_rule { kind: "stall_suspect"   action: "kill_respawn"    cap: 2 }  # 进度帧超时 30min 杀+换壳重派≤2
