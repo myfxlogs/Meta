@@ -16,7 +16,9 @@ func TestT18_凭据真只读(t *testing.T) {
 	g, _ := newTestGateway(t, nil)
 	t.Cleanup(func() { // 0555/0444 件清理前回权限位（TempDir unlinkat 闸）
 		_ = filepath.Walk(g.cfg.RunDir, func(p string, _ os.FileInfo, e error) error {
-			if e == nil { _ = os.Chmod(p, 0o700) }
+			if e == nil {
+				_ = os.Chmod(p, 0o700)
+			}
 			return nil
 		})
 	})
@@ -53,7 +55,9 @@ func TestT18_孤儿收尸secrets(t *testing.T) {
 	g, _ := newTestGateway(t, nil)
 	t.Cleanup(func() {
 		_ = filepath.Walk(g.cfg.RunDir, func(p string, _ os.FileInfo, e error) error {
-			if e == nil { _ = os.Chmod(p, 0o700) }
+			if e == nil {
+				_ = os.Chmod(p, 0o700)
+			}
 			return nil
 		})
 	})

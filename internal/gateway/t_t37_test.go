@@ -5,10 +5,10 @@ package gateway
 
 import (
 	"context"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
-	"path/filepath"
 
 	"meta/internal/db"
 	pbv1 "meta/internal/pb/metav1"

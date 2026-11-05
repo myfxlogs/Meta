@@ -4,9 +4,9 @@ package gateway
 // deploy_failed（0051 实证：seat_dead 与 deploy_failed 同秒×2 凑 cap）。
 
 import (
-	"path/filepath"
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )

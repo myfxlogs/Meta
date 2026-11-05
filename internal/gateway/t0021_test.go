@@ -25,6 +25,7 @@ func TestDesignDeadRespawn(t *testing.T) {
 	t.Setenv("SEAT_MODE", "hold")
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		deepenShellPool(c) // T53⑨：名单片普查补齐
 		c.InjectRoot = injectFixture(t)
 	})
 	mkTicketAt(t, g, "td", db.PhaseDesigning)

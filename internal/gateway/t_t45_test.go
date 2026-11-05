@@ -17,6 +17,7 @@ func TestT45_WorkingCtoLineageFallsBack(t *testing.T) {
 		c.ReconcileDebounce = 30 * time.Second
 		c.SeatArgv = []string{os.Args[0], "-test.run=TestHelperProcess", "-test.v=false"}
 		c.InjectRoot = injectFixture(t)
+		deepenShellPool(c) // T53⑨：名单片普查补齐
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tz45", db.PhaseWorking)

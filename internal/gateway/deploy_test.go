@@ -487,8 +487,9 @@ func TestDeploy_SeatDeadD2(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
+		deepenShellPool(c) // T53⑨：名单片普查补齐
 		c.SudoBin = sudoStub(t, d, 0)
-			c.SelfPath = "/bin/false" // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
+		c.SelfPath = "/bin/false" // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
 	})
 	ctx := context.Background()
 	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {
@@ -515,7 +516,7 @@ func TestDeploy_SeatDeadD2(t *testing.T) {
 		}
 		st2, _ := g.DB().RunByToken(ctx, run.RunToken)
 		return st2 != nil && st2.Dead // 死亡落账即证
-	
+
 	}, g)
 	if err := g.DispatchSeat(ctx, "tk2", "CTO", deploySpec(t)); err == nil {
 		t.Fatal("同项目二部署应仍锁拒（席死相位稳守不释锁）")

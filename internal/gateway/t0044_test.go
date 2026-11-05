@@ -100,8 +100,9 @@ func emitted(g *Gateway, kind, tid string, dur time.Duration) bool {
 func TestT44_AttachDrainDone(t *testing.T) {
 	g, dir := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		deepenShellPool(c) // T53⑨：名单片普查补齐
 		c.SudoBin = sudoStub(t, filepath.Dir(c.DBPath), 0)
-			c.SelfPath = "/bin/false" // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
+		c.SelfPath = "/bin/false" // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
 	})
 	stubDeploySeams(t, nil, "", fmt.Errorf("probe 结构性红"))
 	ctx := context.Background()

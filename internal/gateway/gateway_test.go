@@ -54,7 +54,7 @@ func TestAnchorC_MidDeath(t *testing.T) {
 	if err := syscall.Kill(run.PID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	waitEvent2(t, g, []string{"seat_dead","spawn_env_fail"}, "tc", 5*time.Second)
+	waitEvent2(t, g, []string{"seat_dead", "spawn_env_fail"}, "tc", 5*time.Second)
 	waitPhase(t, g, "tc", db.PhaseWorking, 2*time.Second)
 
 	// 双源互证必须都有记录：SIGCHLD(exited_at)＋EOF(stream_closed)。
@@ -107,6 +107,7 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 			t.Setenv("SEAT_MODE", "worker")
 			dir := t.TempDir()
 			cfg := dispatchCfg(dir)
+			deepenShellPool(&cfg) // T53⑨：名单片普查补齐
 			cfg.InjectRoot = injectFixture(t)
 
 			// ---- 网关1：布置相位与行动者，然后「杀网关」 ----
@@ -229,6 +230,7 @@ func TestAnchorE_AlarmRecompute(t *testing.T) {
 	t.Run("已过期立即发事件", func(t *testing.T) {
 		dir := t.TempDir()
 		cfg := newCfg(dir)
+		deepenShellPool(&cfg) // T53⑨：名单片普查补齐
 		g1, err := New(cfg)
 		if err != nil {
 			t.Fatal(err)
