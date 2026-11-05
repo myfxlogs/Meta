@@ -76,7 +76,7 @@ func TestDispatch_SeatLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	// T35：相位稳守 施工中＋seat_dead→调和器重派（不回队）。
-	waitEvent2(t, g, []string{"seat_dead","spawn_env_fail"}, "td", 8*time.Second)
+	waitEvent2(t, g, []string{"seat_dead", "spawn_env_fail"}, "td", 8*time.Second)
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		runs, _ = g.DB().RunsForTicket(ctx, "td")
@@ -128,7 +128,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 		// seat_dead→换壳→候壳尽→blocked→claim 永拒（-p2 负载放大实证）。
 		c.QuickExit = 5 * time.Minute
 		c.InjectRoot = injectFixture(t) // 调和重派须立得住——空提示拒起实证
-		deepenShellPool(c) // T53⑧：施工+CTO 双池——烧穿 claim 空转靶
+		deepenShellPool(c)              // T53⑧：施工+CTO 双池——烧穿 claim 空转靶
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tb1", db.PhaseAssigned)
