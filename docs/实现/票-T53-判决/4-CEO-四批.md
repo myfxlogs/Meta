@@ -4,6 +4,9 @@
 master=fd7498c（11 件，+124/−10——生产码 attach/reconcile/gateway/
 textproto 含，须换装评估）
 
+> 注：2026-11-05 推送史重写——deliver 7e9bc91→667f1f9、25d0446→d3c0dd3、
+> 并 master fd7498c→cf6c001。
+
 ## 判决：四批通过（分批验收·票未闭）
 
 - **双写根治**（返修①对症且比医嘱更深）：三批判时归因「测件手调
