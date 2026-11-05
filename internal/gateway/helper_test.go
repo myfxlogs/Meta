@@ -314,6 +314,16 @@ func testShellRows() []ShellSeed {
 	}
 }
 
+// deepenShellPool T53⑦：本测局部加深施工+CTO 两池——负载下真席死
+// 烧穿浅池→claim/deliver 空转族（六批只补施工，CTO 2 席池同烧实证）。
+func deepenShellPool(c *Config) {
+	c.ShellRows = append(c.ShellRows,
+		ShellSeed{Name: "ts4", Role: "施工", Priority: 40},
+		ShellSeed{Name: "ts5", Role: "施工", Priority: 50},
+		ShellSeed{Name: "ts6", Role: "CTO", Priority: 30},
+		ShellSeed{Name: "ts7", Role: "CTO", Priority: 40})
+}
+
 func newTestGateway(t *testing.T, tweak func(*Config)) (*Gateway, string) {
 	t.Helper()
 	dir := t.TempDir()

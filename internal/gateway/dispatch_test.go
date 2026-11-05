@@ -128,6 +128,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 		// seat_dead→换壳→候壳尽→blocked→claim 永拒（-p2 负载放大实证）。
 		c.QuickExit = 5 * time.Minute
 		c.InjectRoot = injectFixture(t) // 调和重派须立得住——空提示拒起实证
+		deepenShellPool(c) // T53⑧：施工+CTO 双池——烧穿 claim 空转靶
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tb1", db.PhaseAssigned)
@@ -285,6 +286,7 @@ func TestBudget_AttemptReset(t *testing.T) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
 		c.InjectRoot = injectFixture(t)
+		deepenShellPool(c)
 	})
 	ctx := context.Background()
 	mkTicketAt(t, g, "tr", db.PhaseAssigned)
