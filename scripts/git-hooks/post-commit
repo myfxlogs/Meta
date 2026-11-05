@@ -1,0 +1,7 @@
+#!/bin/sh
+# D-100：mluser 侧 git 写操作落的文件自动归 metaseat 组——
+# 部署席（metaseat）写径保活（logs/HEAD 写不进即半并连败实证）。
+# 只动我能动的件（属主非我即跳，2>/dev/null 吞拒）——幂等。
+find .git ! -group metaseat -exec chgrp metaseat {} + 2>/dev/null
+find .git -type f -user "$(id -un)" ! -perm -g+w -exec chmod g+w {} + 2>/dev/null
+exit 0
