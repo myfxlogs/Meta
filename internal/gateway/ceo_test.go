@@ -195,7 +195,10 @@ func TestCeoSpawn_LastResort(t *testing.T) {
 // created/requirement 行 prov=feishu:x；自报字段被盖；Dispatch(role=CEO) 硬拒。
 func TestCeoProvenance(t *testing.T) {
 	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
-	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	g, dir := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		deepenShellPool(c) // T53⑦：CTO+施工双池——泊车竞态负载烧穿族
+	})
 	ctx := context.Background()
 	c := ceoClient(t, dir)
 	run := mkCeoRun(t, g, "feishu:owner-1")
@@ -397,7 +400,10 @@ func TestDesignLock(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "idle")
 	t.Setenv("META_ADOPT_GRACE", "30")
-	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	g, dir := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		deepenShellPool(c) // T53⑦：CTO+施工双池——负载烧穿族
+	})
 	ctx := context.Background()
 	for _, id := range []string{"ta", "tb"} {
 		mkTicketAt(t, g, id, db.PhaseCreated)

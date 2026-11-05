@@ -57,6 +57,7 @@ func TestDispatch_Inject(t *testing.T) {
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
+		deepenShellPool(c) // T53⑦：CTO+施工双池——claim 空转族
 		c.InjectRoot = root
 		c.InjectRecipes = []string{"recipe.md"}
 	})
