@@ -54,7 +54,7 @@ func TestAnchorC_MidDeath(t *testing.T) {
 	if err := syscall.Kill(run.PID, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	waitEvent(t, g, "seat_dead", "tc", 5*time.Second)
+	waitEvent2(t, g, []string{"seat_dead","spawn_env_fail"}, "tc", 5*time.Second)
 	waitPhase(t, g, "tc", db.PhaseWorking, 2*time.Second)
 
 	// 双源互证必须都有记录：SIGCHLD(exited_at)＋EOF(stream_closed)。
@@ -66,7 +66,7 @@ func TestAnchorC_MidDeath(t *testing.T) {
 	evs, _ := g.DB().Events(context.Background(), "tc")
 	found := false
 	for _, e := range evs {
-		if e.Kind == "seat_dead" {
+		if e.Kind == "seat_dead" || e.Kind == "spawn_env_fail" {
 			found = true
 		}
 	}

@@ -41,6 +41,7 @@ var failureClasses = map[string]bool{
 	"shell_limited": true, "shell_dead": true, "stall_suspect": true,
 	"reject": true, "deploy_failed": true, "budget_frozen": true,
 	"clidrive_dead": true, "stall_kill": true, "seat_dead": true,
+	"spawn_env_fail": true, // T53③：环境即死计账走 retry_same 有界——壳不烧
 }
 
 // edgeKindSet 相位边 kind 集——期窗锚点（最近一条边之后才算本相位期窗）。

@@ -494,6 +494,28 @@ func waitEvent(t *testing.T, g *Gateway, kind, ticketID string, timeout time.Dur
 	}
 }
 
+// waitEvent2 多 kind 等一（seat_dead/spawn_env_fail 同族迁判用）。
+func waitEvent2(t *testing.T, g *Gateway, kinds []string, ticketID string, timeout time.Duration) Event {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		left := time.Until(deadline)
+		if left <= 0 {
+			t.Fatalf("等事件 %v[%s] 超时 %v", kinds, ticketID, timeout)
+		}
+		select {
+		case e := <-g.EventCh():
+			for _, k := range kinds {
+				if e.Kind == k && (ticketID == "" || e.TicketID == ticketID) {
+					return e
+				}
+			}
+		case <-time.After(left):
+			t.Fatalf("等事件 %v[%s] 超时 %v", kinds, ticketID, timeout)
+		}
+	}
+}
+
 // collectEvents 在窗口内收集全部事件（负向断言用）。
 func collectEvents(g *Gateway, dur time.Duration) []Event {
 	var out []Event

@@ -76,7 +76,7 @@ func TestDispatch_SeatLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	// T35：相位稳守 施工中＋seat_dead→调和器重派（不回队）。
-	waitEvent(t, g, "seat_dead", "td", 8*time.Second)
+	waitEvent2(t, g, []string{"seat_dead","spawn_env_fail"}, "td", 8*time.Second)
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		runs, _ = g.DB().RunsForTicket(ctx, "td")

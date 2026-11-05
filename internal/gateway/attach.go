@@ -552,9 +552,17 @@ func (g *Gateway) onRunDead(st *runState) {
 			Role: st.run.Role})
 		return
 	}
-	_ = g.database.AppendEvent(ctx, st.run.TicketID, "seat_dead", db.Event{
+	// T53③：环境死辨治——未 attach＋exit=-1＋日志零席输出＝spawn
+	// 环境即死（systemd scope 起不来/排队超时实证：壳一行未写），壳
+	// 无罪不记 seat_dead→spawn_env_fail 行（retry_same 有界）。席有
+	// 任何输出＝真席死照旧 seat_dead（收养拨通≠attach 实证坑）。
+	kind := "seat_dead"
+	if !st.attached && st.exitCode == -1 && !st.killByGW && seatLogSilent(st.run.LogPath) {
+		kind = "spawn_env_fail"
+	}
+	_ = g.database.AppendEvent(ctx, st.run.TicketID, kind, db.Event{
 		Actor: "gateway", Note: "席死 " + st.run.RunID + " role=" + st.run.Role + " cause=" + deadCauseOf(st)})
-	g.emit(Event{Kind: "seat_dead", TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
+	g.emit(Event{Kind: kind, TicketID: st.run.TicketID, RunID: st.run.RunID, Role: st.run.Role})
 
 	if st.run.Role == "CEO" {
 		// D-22 收口比对（判死点）：派发给它的事件数 vs ceo_memory 写数。
@@ -630,6 +638,23 @@ func (g *Gateway) onRunDead(st *runState) {
 
 // deadCauseOf T47 死因帧取值：killCause 戳在＝网关令杀（戳即凶名）；
 // 无戳＝自退/外因（exit=-1 猝死之谜的下一判据——非网关杀即外因）。
+// seatLogSilent 席日志零输出判（T53③）：spawn 头行外无一字＝壳没跑。
+func seatLogSilent(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return true // 读不到＝零输出同判
+	}
+	lines := 0
+	for _, l := range strings.Split(string(b), "\n") {
+		// 滤网关自写两帧（spawn argv 凭证＋seat exit 尾行）——只算席真输出。
+		if l != "" && !strings.HasPrefix(l, "seat spawn argv=") &&
+			!strings.HasPrefix(l, "seat exit code=") {
+			lines++
+		}
+	}
+	return lines == 0 // 席零输出
+}
+
 func deadCauseOf(st *runState) string {
 	if st == nil {
 		return "unknown"

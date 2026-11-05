@@ -465,7 +465,7 @@ func TestVerdictFlow(t *testing.T) {
 	syscall.Kill(-arun.PID, syscall.SIGKILL)
 	waitPhase(t, g, "tv3", db.PhaseAuditing, 10*time.Second)
 	waitFor2(t, 10*time.Second, func() bool {
-		return hasEvent(t, g, "tv3", "seat_dead") != nil
+		return (hasEvent(t, g, "tv3", "seat_dead") != nil || hasEvent(t, g, "tv3", "spawn_env_fail") != nil)
 	}, g)
 	tk3, _ := g.DB().GetTicket(ctx, "tv3")
 	if tk3.RejectCount != 0 {
