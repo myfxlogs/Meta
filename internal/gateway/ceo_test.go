@@ -320,7 +320,10 @@ func TestCeoRule(t *testing.T) {
 func TestCeoRule_RedirectPrompt(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "hold")
-	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	g, dir := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		deepenShellPool(c) // T53⑩：泊车竞态负载烧穿族补挂
+	})
 	ctx := context.Background()
 	c := ceoClient(t, dir)
 	run := mkCeoRun(t, g, "terminal")
