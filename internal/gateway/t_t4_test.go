@@ -17,7 +17,7 @@ func TestT4_BatchDeploy(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
 		c.ReconcileDebounce = 60 * time.Second // 关周期噪声只留事件径
-			c.SelfPath = "/bin/false" // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
+		c.SelfPath = "/bin/false"              // cli-drive 即死放锁（测径手工非 CliDrive 席证语义）
 	})
 	ctx := context.Background()
 	if err := g.DB().UpsertProject(ctx, stubProject("P")); err != nil {

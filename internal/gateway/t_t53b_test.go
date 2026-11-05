@@ -5,8 +5,8 @@ package gateway
 import (
 	"path/filepath"
 
-	"meta/internal/db"
 	"context"
+	"meta/internal/db"
 	"os"
 	"syscall"
 	"testing"

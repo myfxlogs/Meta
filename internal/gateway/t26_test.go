@@ -158,7 +158,7 @@ func TestT26_DegradedCliDriveFallback(t *testing.T) {
 	}
 	mkToDeploy(t, g, "td5", "P")
 	sp := deploySpec(t)
-	sp.CliDrive = false // 模拟 AI 席派发走到候壳尽的规格
+	sp.CliDrive = false                                         // 模拟 AI 席派发走到候壳尽的规格
 	sp.exclude = map[string]bool{"devin": true, "claude": true} // T35：期窗失败壳集
 	g.shellsExhausted(ctx, spawnReq{ticketID: "td5", role: "CTO", spec: sp})
 	waitEvent(t, g, "clidrive_fallback", "td5", 3*time.Second)
@@ -249,6 +249,7 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 	shortSkipInteg(t) // T51①：DispatchSeat 内起真子进程——闸口径豁免
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		deepenShellPool(c) // T53⑨：名单片普查补齐
 		c.ProgressTimeout = 200 * time.Millisecond
 	})
 	ctx := context.Background()
@@ -311,6 +312,7 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 func TestT30_CliDriveResetByRuling(t *testing.T) {
 	g, _ := newTestGateway(t, func(c *Config) {
 		*c = dispatchCfg(filepath.Dir(c.DBPath))
+		deepenShellPool(c) // T53⑨：名单片普查补齐
 		c.SelfPath = "/bin/false"
 	})
 	ctx := context.Background()

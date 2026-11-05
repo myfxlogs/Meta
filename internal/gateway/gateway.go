@@ -196,8 +196,8 @@ type Gateway struct {
 	closed       bool
 
 	// T26 派发/部署径收口件：
-	dispatchMu      sync.Mutex             // DispatchSeat 闸段互斥——去重判/相位读/锁取占同临界区（病1）
-	cloneLocks      map[string]*sync.Mutex // tid → 部署克隆互斥（病3 同票级）
+	dispatchMu sync.Mutex             // DispatchSeat 闸段互斥——去重判/相位读/锁取占同临界区（病1）
+	cloneLocks map[string]*sync.Mutex // tid → 部署克隆互斥（病3 同票级）
 
 	// CEO 面（票0011）：锁＝连接登记非 DB 旗（禁区#10/B8）。
 	ceoSub        chan Event                                                    // 活跃 Events 订阅的派发道；nil＝无订阅
@@ -211,8 +211,8 @@ type Gateway struct {
 	// T35 幂等调和器驱动：事件钩→非阻塞 kick；60s ticker＋kick 双源
 	// 串行跑 reconcile（同一 goroutine 天然去抖——缓冲 1 多踢自并）。
 	reconKick    chan struct{}
-	reconMu      sync.Mutex // T48 返修：直调径与 kick 环并发互斥——整轮串行
-	wg           sync.WaitGroup // T51③：内部 goroutine 账——Close 排空屏障
+	reconMu      sync.Mutex                // T48 返修：直调径与 kick 环并发互斥——整轮串行
+	wg           sync.WaitGroup            // T51③：内部 goroutine 账——Close 排空屏障
 	reconcileNow func(ctx context.Context) // 测试注入缝；缺省 g.reconcile
 }
 
@@ -238,8 +238,8 @@ func New(cfg Config) (*Gateway, error) {
 		spawnQ:       make(chan spawnReq, 64),
 		done:         make(chan struct{}),
 
-		cloneLocks:      map[string]*sync.Mutex{},
-		reconKick:       make(chan struct{}, 1),
+		cloneLocks: map[string]*sync.Mutex{},
+		reconKick:  make(chan struct{}, 1),
 
 		ceoDispatched: map[string]int{},
 		designLocks:   map[string]string{},
@@ -334,8 +334,8 @@ func New(cfg Config) (*Gateway, error) {
 	g.reconcile(context.Background())           // 启动一轮对齐（V4：kill -9 后 60s 内收敛）
 	g.rebuildProjectLocks(context.Background()) // 项目锁按票相位重建（B1）
 	g.wg.Add(2)
-	go func() { defer g.wg.Done(); g.dispatcher() }()   // spawn 调度器：事件驱动，非周期
-	ceoSub := g.subscribe() // 先同步注册（丢首事件即破）——wg 包装不得搬订阅进协程
+	go func() { defer g.wg.Done(); g.dispatcher() }()    // spawn 调度器：事件驱动，非周期
+	ceoSub := g.subscribe()                              // 先同步注册（丢首事件即破）——wg 包装不得搬订阅进协程
 	go func() { defer g.wg.Done(); g.ceoPump(ceoSub) }() // CEO 事件泵
 	// T35：幂等调和器——事件钩 kick＋周期 ticker 双源驱动。
 	g.reconcileNow = g.reconcile

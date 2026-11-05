@@ -117,6 +117,7 @@ func TestDispatch_PromptFile覆盖(t *testing.T) {
 	g, dir := newTestGateway(t, func(c *Config) {
 		d := filepath.Dir(c.DBPath)
 		*c = dispatchCfg(d)
+		deepenShellPool(c) // T53⑩：claim 空转族补挂
 		c.InjectRoot = root
 	})
 	ctx := context.Background()

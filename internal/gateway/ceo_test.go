@@ -103,7 +103,10 @@ func TestCeoSpawn(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "ceo")
 	t.Setenv("META_ADOPT_GRACE", "30")
-	g, _ := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	g, _ := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		deepenShellPool(c) // T53⑨：名单片普查补齐
+	})
 	ctx := context.Background()
 
 	g.emit(Event{Kind: "reject_limit", TicketID: "t-x"})
@@ -141,6 +144,8 @@ func TestCeoSpawn_DeployFailed(t *testing.T) {
 		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
 		c.CeoSpawnKinds["deploy_failed"] = true
 		c.CeoEvents["deploy_failed"] = true
+
+		deepenShellPool(c) // T53⑨：名单片普查补齐
 	})
 	ctx := context.Background()
 
@@ -173,6 +178,8 @@ func TestCeoSpawn_LastResort(t *testing.T) {
 	g, dir := newTestGateway(t, func(c *Config) {
 		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
 		c.SeatArgv = []string{"/nonexistent-bin"}
+
+		deepenShellPool(c) // T53⑨：名单片普查补齐
 	})
 	ctx := context.Background()
 	for i := 0; i < 3; i++ {
@@ -242,7 +249,10 @@ func TestCeoRule(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "worker") // redirect 重派 CTO→helper 席活起
 	t.Setenv("META_ADOPT_GRACE", "30")
-	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	g, dir := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		deepenShellPool(c) // T53⑦：CTO+施工双池——泊车竞态负载烧穿族
+	})
 	ctx := context.Background()
 	c := ceoClient(t, dir)
 	run := mkCeoRun(t, g, "terminal")
@@ -310,7 +320,10 @@ func TestCeoRule(t *testing.T) {
 func TestCeoRule_RedirectPrompt(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "hold")
-	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	g, dir := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		deepenShellPool(c) // T53⑩：泊车竞态负载烧穿族补挂
+	})
 	ctx := context.Background()
 	c := ceoClient(t, dir)
 	run := mkCeoRun(t, g, "terminal")
@@ -498,7 +511,10 @@ func TestCeoInquire(t *testing.T) {
 	t.Setenv("GO_HELPER_SEAT", "1")
 	t.Setenv("SEAT_MODE", "verdict") // adjunct 席自动 Attach+Claim+Deliver+退
 	t.Setenv("META_ADOPT_GRACE", "1")
-	g, dir := newTestGateway(t, func(c *Config) { *c = ceoTestCfg(filepath.Dir(c.DBPath), true) })
+	g, dir := newTestGateway(t, func(c *Config) {
+		*c = ceoTestCfg(filepath.Dir(c.DBPath), true)
+		deepenShellPool(c) // T53⑨：名单片普查补齐
+	})
 	ctx := context.Background()
 	c := ceoClient(t, dir)
 	run := mkCeoRun(t, g, "terminal")

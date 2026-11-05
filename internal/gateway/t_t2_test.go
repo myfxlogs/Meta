@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/metadata"
 	"meta/internal/db"
 	pbv1 "meta/internal/pb/metav1"
-	"google.golang.org/grpc/metadata"
 )
 
 // writePresence 造在岗锁件（自进程 pid——活凭据）。
@@ -61,14 +61,14 @@ func (f *fakeMemoryStream) Send(m *pbv1.MemoryOp) error {
 	f.sent = append(f.sent, m)
 	return nil
 }
-func (f *fakeMemoryStream) Context() context.Context { return f.ctx }
-func (f *fakeMemoryStream) SendMsg(any) error                 { return nil }
-func (f *fakeMemoryStream) RecvMsg(any) error                 { return nil }
-func (f *fakeMemoryStream) SetHeader(metadata.MD) error       { return nil }
-func (f *fakeMemoryStream) SendHeader(metadata.MD) error      { return nil }
-func (f *fakeMemoryStream) SetTrailer(metadata.MD)            {}
-func (f *fakeMemoryStream) Header() (metadata.MD, error)      { return nil, nil }
-func (f *fakeMemoryStream) Trailer() metadata.MD              { return nil }
+func (f *fakeMemoryStream) Context() context.Context     { return f.ctx }
+func (f *fakeMemoryStream) SendMsg(any) error            { return nil }
+func (f *fakeMemoryStream) RecvMsg(any) error            { return nil }
+func (f *fakeMemoryStream) SetHeader(metadata.MD) error  { return nil }
+func (f *fakeMemoryStream) SendHeader(metadata.MD) error { return nil }
+func (f *fakeMemoryStream) SetTrailer(metadata.MD)       {}
+func (f *fakeMemoryStream) Header() (metadata.MD, error) { return nil, nil }
+func (f *fakeMemoryStream) Trailer() metadata.MD         { return nil }
 
 // TestT2_在岗锁鉴权 三锚：锁活 pid→无 token 放行写；锁缺/ pid 死→拒。
 func TestT2_在岗锁鉴权(t *testing.T) {
