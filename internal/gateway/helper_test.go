@@ -475,6 +475,8 @@ func mkTicketAt(t *testing.T, g *Gateway, id string, target db.Phase) {
 // waitEvent 在观察口等一条匹配事件（有界等待，非轮询）。
 func waitEvent(t *testing.T, g *Gateway, kind, ticketID string, timeout time.Duration) Event {
 	t.Helper()
+	// 走 g.events 广播道（256 缓冲——调用前已 emit 的事件可回读；
+	// 订户道只见订阅后事件，AnchorE「先 adopted 后 waitEvent」序实证）。
 	deadline := time.Now().Add(timeout)
 	for {
 		left := time.Until(deadline)
@@ -550,7 +552,9 @@ func adoptOnce(ctx context.Context, sockPath, token string) (*pbv1.AdoptAck, err
 // socket 文件出现前 unix 拨号是 fast-fail，所以逐次尝试到 deadline。
 func waitSeatUp(t *testing.T, run *db.Run) *pbv1.AdoptAck {
 	t.Helper()
-	deadline := time.Now().Add(8 * time.Second)
+	// T53：真子进程收养口就绪是进程调度面——窗抬到 30s 条件链（负载
+	// 下 spawn 排队 15s+ 曾实测饿死；仍是轮询链非押窗语义）。
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		ack, err := adoptOnce(context.Background(), run.SocketPath, run.RunToken)
 		if err == nil {

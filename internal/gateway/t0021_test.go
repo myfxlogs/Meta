@@ -39,12 +39,12 @@ func TestDesignDeadRespawn(t *testing.T) {
 	waitPhase(t, g, "td", db.PhaseDesigning, 10*time.Second)
 	waitFor2(t, 10*time.Second, func() bool {
 		return hasEvent(t, g, "td", "seat_dead") != nil
-	})
+	}, g)
 	// 调和器重派：新 CTO run 出现（死席标死后 desired=CTO 起席）。
 	waitFor2(t, 15*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForTicketRole(context.Background(), "td", "CTO")
 		return r != nil && r.RunID != run.RunID
-	})
+	}, g)
 }
 
 // TestReconcileRPC 锚 A5（T35 改义）：AdminGateway.Reconcile 手动对账径——
@@ -91,7 +91,7 @@ func TestReconcileRPC(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 	// T35：desired==actual 对齐——票相位不被调和器乱动。
 	if p, _ := g.DB().PhaseOf(ctx, "tr2"); p != db.PhaseWorking {
 		t.Fatalf("调和器动了活席票相位: %s", p)

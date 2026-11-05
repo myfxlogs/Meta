@@ -52,7 +52,7 @@ func TestFeishuInbound(t *testing.T) {
 	waitFor2(t, 15*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForRole(ctx, "CEO")
 		return r != nil && r.Provenance == "feishu:ou_owner1"
-	})
+	}, g)
 	r, _ := g.DB().ActiveRunForRole(ctx, "CEO")
 	if r != nil {
 		g.killRun(g.bindRun(r))

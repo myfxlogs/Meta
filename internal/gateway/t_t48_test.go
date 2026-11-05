@@ -22,7 +22,7 @@ func TestT48_DeployFailedDedupe(t *testing.T) {
 	mkDeploying(t, g, "tr48", "P")
 	// 造死席（无哨兵证据形态）→第一轮调和记 1 条 deploy_failed。
 	run := spawnSeat(t, g, "tr48", "CTO", "exitcode")
-	waitFor2(t, 5*time.Second, func() bool { return !processAlive(run.PID) })
+	waitFor2(t, 5*time.Second, func() bool { return !processAlive(run.PID) }, g)
 	_ = g.DB().MarkDead(ctx, run.RunID)
 	g.reconcile(ctx)
 	cnt := func() int {

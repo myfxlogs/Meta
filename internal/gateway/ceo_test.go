@@ -74,7 +74,7 @@ func TestCeoLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor2(t, 3*time.Second, func() bool { return g.ceoActiveSub() != nil })
+	waitFor2(t, 3*time.Second, func() bool { return g.ceoActiveSub() != nil }, g)
 
 	sB, err := c.Events(context.Background(), &pbv1.Subscribe{RunToken: runB.RunToken, Follow: true})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestCeoLock(t *testing.T) {
 
 	// A 断（ctx 取消＝EOF 径）→B 得。
 	cancelA()
-	waitFor2(t, 3*time.Second, func() bool { return g.ceoActiveSub() == nil })
+	waitFor2(t, 3*time.Second, func() bool { return g.ceoActiveSub() == nil }, g)
 	sB2, err := c.Events(context.Background(), &pbv1.Subscribe{RunToken: runB.RunToken, Follow: false})
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestCeoSpawn(t *testing.T) {
 	waitFor2(t, 15*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForRole(ctx, "CEO")
 		return r != nil && r.Provenance == "system_event"
-	})
+	}, g)
 	g.emit(Event{Kind: "reject_limit", TicketID: "t-x"})
 	<-time.After(300 * time.Millisecond)
 	var n int
@@ -156,11 +156,11 @@ func TestCeoSpawn_DeployFailed(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 	waitFor2(t, 15*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForRole(ctx, "CEO")
 		return r != nil && r.Provenance == "system_event"
-	})
+	}, g)
 	// 杀掉化身→D-22 比对不炸（未派发事件零计数早退）。
 	r, _ := g.DB().ActiveRunForRole(ctx, "CEO")
 	if r != nil {
@@ -187,7 +187,7 @@ func TestCeoSpawn_LastResort(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 	_ = dir
 }
 
@@ -298,7 +298,7 @@ func TestCeoRule(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 }
 
 // TestCeoRule_RedirectPrompt redirect 重派的是 CTO-A——缺栏票落 CTO 再派
@@ -334,7 +334,7 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 		ack, _ = c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
 			TicketId: "trp1", Note: "改走轻量轨"})
 		return ack != nil && ack.Ok
-	})
+	}, g)
 	if ack == nil || !ack.Ok {
 		t.Fatalf("redirect 缺栏票未成: %+v", ack)
 	}
@@ -359,12 +359,12 @@ func TestCeoRule_RedirectPrompt(t *testing.T) {
 	})
 	park("trp2", full)
 	// 同款泊车竞态——pin+重试至 ack.Ok。
-	waitFor2(t, 15*time.Second, func() bool {
+	waitFor2(t, 30*time.Second, func() bool {
 		_, _ = g.DB().Transition(ctx, "trp2", db.PhaseCreated, db.EdgeReqPending, "cto", "待裁")
 		ack, _ = c.Rule(ctx, &pbv1.Ruling{RunToken: run.RunToken, Action: "redirect",
 			TicketId: "trp2", Note: "续作"})
 		return ack != nil && ack.Ok
-	})
+	}, g)
 	if ack == nil || !ack.Ok {
 		t.Fatalf("redirect 全栏票未成: %+v", ack)
 	}
@@ -431,25 +431,40 @@ func TestDesignLock(t *testing.T) {
 	_, sc := dialSeatGateway(t, filepath.Join(dir, "run", "meta.sock"))
 	st, _ := sc.Attach(ctx)
 	var arun *db.Run
-	waitFor2(t, 5*time.Second, func() bool {
+	waitFor2(t, 30*time.Second, func() bool {
 		arun, _ = g.DB().ActiveRunForTicketRole(ctx, "ta", "CTO")
 		return arun != nil
-	})
-	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: arun.RunToken}}})
-	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "ta"}}})
-	waitPhase(t, g, "ta", db.PhaseWorking, 5*time.Second)
+	}, g)
+	// T53：代驾流断线静默丢帧是 D-93 抖根——发送带错重领＋deliver
+	// 谓词内重发直到锁放（幂等重投，非押窗）。
+	send := func(m *pbv1.SeatMsg) {
+		if err := st.Send(m); err != nil {
+			st, _ = sc.Attach(ctx)
+			if st != nil {
+				_ = st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: arun.RunToken}}})
+				_ = st.Send(m)
+			}
+		}
+	}
+	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Auth{Auth: &pbv1.RunAuth{RunToken: arun.RunToken}}})
+	send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Claim{Claim: &pbv1.Claim{TicketId: "ta"}}})
+	waitPhase(t, g, "ta", db.PhaseWorking, 30*time.Second)
 	// 施工中仍持锁（交付前不放）。
 	if err := g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec(t)); err == nil {
 		t.Fatal("A 施工中 B 派发未被锁拒（锁提前释放）")
 	}
-	st.Send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{Ref: "r1"}}})
+	deliver := func() {
+		send(&pbv1.SeatMsg{Body: &pbv1.SeatMsg_Deliver{Deliver: &pbv1.Deliver{Ref: "r1"}}})
+	}
+	deliver()
 	// T35：放锁踢调和器——B 票（已立）由调和器派 CTO 起席。
 	// T35：放锁踢调和器——B 自持放行即锚（锁桶可能被 B 回填，判空竞态不取）。
 	var lastErr error
-	waitFor2(t, 20*time.Second, func() bool {
+	waitFor2(t, 30*time.Second, func() bool {
+		deliver() // 帧丢失即重投直到锁放
 		lastErr = g.DispatchSeat(ctx, "tb", "CTO", dispatchSpec(t))
 		return lastErr == nil
-	})
+	}, g)
 	if lastErr != nil {
 		g.mu.Lock()
 		h := g.designLocks["p1"]
@@ -580,7 +595,7 @@ func TestReqPending(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 }
 
 // TestImportLegacy 锚8：fixture md→行（幂等二跑零增）。
@@ -623,7 +638,7 @@ func TestCeoGap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor2(t, 3*time.Second, func() bool { return g.ceoActiveSub() != nil })
+	waitFor2(t, 3*time.Second, func() bool { return g.ceoActiveSub() != nil }, g)
 	g.emit(Event{Kind: "reject_limit", TicketID: "tg"})
 	if _, err := es.Recv(); err != nil {
 		t.Fatal(err)
@@ -640,7 +655,7 @@ func TestCeoGap(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 }
 
 // TestAdminGate 锚9+对抗锚④：施工席发 admin→断流；adjunct CTO→拒；

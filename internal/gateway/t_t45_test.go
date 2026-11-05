@@ -22,7 +22,7 @@ func TestT45_WorkingCtoLineageFallsBack(t *testing.T) {
 	mkTicketAt(t, g, "tz45", db.PhaseWorking)
 	// 造一具 CTO 血统死席（施工中唯一席=CTO 血统=0052 实证形态）。
 	run := spawnSeat(t, g, "tz45", "CTO", "exitcode")
-	waitFor2(t, 5*time.Second, func() bool { return !processAlive(run.PID) })
+	waitFor2(t, 5*time.Second, func() bool { return !processAlive(run.PID) }, g)
 	_ = g.DB().MarkDead(ctx, run.RunID)
 	_ = g.DB().UpdateSpec(ctx, "tz45", testSpec(t))
 	// 调和器接手：血统=CTO 不可派→须退化成「施工」起新席（非静默吞）。
@@ -35,5 +35,5 @@ func TestT45_WorkingCtoLineageFallsBack(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 }

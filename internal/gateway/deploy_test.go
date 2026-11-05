@@ -367,7 +367,7 @@ func TestDeploy_ProjectLocks(t *testing.T) {
 			return true
 		}
 		return g.DispatchSeat(ctx, "ta", "CTO", deploySpec(t)) == nil
-	})
+	}, g)
 	if err := g.DispatchSeat(ctx, "tb2", "CTO", deploySpec(t)); err == nil {
 		t.Fatal("同项目二部署应锁拒（对抗锚 c）")
 	}
@@ -516,7 +516,7 @@ func TestDeploy_SeatDeadD2(t *testing.T) {
 		st2, _ := g.DB().RunByToken(ctx, run.RunToken)
 		return st2 != nil && st2.Dead // 死亡落账即证
 	
-	})
+	}, g)
 	if err := g.DispatchSeat(ctx, "tk2", "CTO", deploySpec(t)); err == nil {
 		t.Fatal("同项目二部署应仍锁拒（席死相位稳守不释锁）")
 	}
