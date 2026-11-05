@@ -39,7 +39,7 @@ func TestT11_点火洞(t *testing.T) {
 	waitFor2(t, 10*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tA", "CTO")
 		return r != nil
-	})
+	}, g)
 
 	// ②忙期多踢自并：向 kick 道连灌，计数只 +少量（chan cap 1）。
 	base := atomic.LoadInt32(&calls)
@@ -82,7 +82,7 @@ func TestT11_幂等锚(t *testing.T) {
 	waitFor2(t, 10*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForTicketRole(ctx, "tI", "CTO")
 		return r != nil
-	})
+	}, g)
 	rs1, _ := g.DB().RunsForTicket(ctx, "tI")
 	g.reconcile(ctx)
 	g.reconcile(ctx)

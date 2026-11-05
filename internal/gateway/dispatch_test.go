@@ -171,7 +171,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 	waitFor2(t, 5*time.Second, func() bool {
 		st, _ := g.DB().RunByToken(ctx, run.RunToken)
 		return st != nil && st.Dead
-	})
+	}, g)
 
 	// 票级硬顶：tb2 硬帽 150；两次用量过顶→先杀后冻。
 	mkTicketAt(t, g, "tb2", db.PhaseAssigned)
@@ -247,8 +247,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 			sx.CloseSend()
 		}
 		return false
-	})
-
+	}, g)
 
 	tk, _ := g.DB().GetTicket(ctx, "tb2")
 	if tk == nil || !tk.BudgetFrozen {
@@ -258,7 +257,7 @@ func TestBudget_ThreeGates(t *testing.T) {
 	waitFor2(t, 5*time.Second, func() bool {
 		_, ok := g.AlarmDeadline("tb2")
 		return !ok
-	})
+	}, g)
 	st2, _ := g.DB().RunByToken(ctx, run2.RunToken)
 	deadline := time.Now().Add(3 * time.Second)
 	for st2 != nil && !st2.Dead && time.Now().Before(deadline) {
@@ -341,7 +340,7 @@ func TestBudget_AttemptReset(t *testing.T) {
 	waitFor2(t, 10*time.Second, func() bool {
 		rs, _ := g.DB().RunsForTicket(ctx, "tr")
 		return len(rs) >= 2
-	})
+	}, g)
 	waitPhase(t, g, "tr", db.PhaseWorking, 5*time.Second)
 }
 

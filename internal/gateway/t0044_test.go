@@ -133,7 +133,7 @@ func TestT44_AttachDrainDone(t *testing.T) {
 	waitFor2(t, 15*time.Second, func() bool {
 		rs, _ := g.DB().RunsForTicket(ctx, "tk44b")
 		return len(rs) > 0
-	})
+	}, g)
 }
 
 // TestT44_AttachDrainFailed 锚2 failed 支：sentinel.log 含
@@ -309,7 +309,7 @@ func TestT44_ReconcileDrainFailed(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 	g.reconcile(ctx) // 第二轮——边沿化零追加
 	n := 0
 	evs, _ := g.DB().Events(ctx, "tr46")

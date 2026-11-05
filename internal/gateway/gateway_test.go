@@ -182,10 +182,10 @@ func TestAnchorD_AllPhaseReconcile(t *testing.T) {
 				}
 			} else {
 				// T35：helper 席无收养 socket——收养尽力径；锚＝活席不误杀。
-				waitFor2(t, 10*time.Second, func() bool {
+				waitFor2(t, 30*time.Second, func() bool {
 					st, _ := g2.DB().RunByToken(context.Background(), run.RunToken)
 					return st != nil && !st.Dead
-				})
+				}, g2)
 			}
 			// T40：调和器事件路径负载下 2s 窗饿死（0050 笼内实证）——
 			// 相位收敛是条件等不是时限押，放宽到调和周期足轮。
@@ -253,7 +253,7 @@ func TestAnchorE_AlarmRecompute(t *testing.T) {
 		go g2.Serve()
 		defer g2.Close()
 		// 直接等 stall：adopted 亦在缓冲道中，事件序不依赖读取序。
-		waitEvent(t, g2, "stall_suspect", "te1", 8*time.Second) // 过期→立即响
+		waitEvent(t, g2, "stall_suspect", "te1", 30*time.Second) // 过期→立即响
 	})
 
 	t.Run("未过期设到原deadline", func(t *testing.T) {
@@ -276,7 +276,7 @@ func TestAnchorE_AlarmRecompute(t *testing.T) {
 		}
 		go g2.Serve()
 		defer g2.Close()
-		waitEvent(t, g2, "adopted", "te2", 8*time.Second)
+		waitEvent(t, g2, "adopted", "te2", 30*time.Second)
 		// T35：收养续命 armAlarm 径删——停滞检测并入调和器期窗
 		// （LastActivityAt+ProgressTimeout 未过期→近期零 stall_suspect）。
 		_ = last

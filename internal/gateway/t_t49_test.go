@@ -20,7 +20,7 @@ func TestT49_AttachReconcileSingleDeployFailed(t *testing.T) {
 	ctx := context.Background()
 	mkDeploying(t, g, "tr49", "P")
 	run := spawnSeat(t, g, "tr49", "CTO", "exitcode")
-	waitFor2(t, 5*time.Second, func() bool { return !processAlive(run.PID) })
+	waitFor2(t, 5*time.Second, func() bool { return !processAlive(run.PID) }, g)
 	// 双径同窗：attach 席死径（MarkDead+哨兵判）＋调和径——两径都过
 	// 「席死无据」支，期窗恰 1 条 deploy_failed（T49 钦定锚）。
 	_ = g.DB().MarkDead(ctx, run.RunID)

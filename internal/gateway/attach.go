@@ -593,12 +593,13 @@ func (g *Gateway) onRunDead(st *runState) {
 			// 的活锁根（0051 实证同秒双账），已有账则不再追加/再拦截。
 			note := fmt.Sprintf("部署中席死：哨兵在盘 META_DEPLOY:failed——回滚已在四步径执行 run=%s",
 				st.run.RunID)
-			if g.epochHasKind(ctx, st.run.TicketID, "deploy_failed") {
+			deployFailMu.Lock()
+			had := g.epochHasKind(ctx, st.run.TicketID, "deploy_failed")
+			deployFailMu.Unlock()
+			if had {
 				return
 			}
-			_ = g.database.AppendEvent(ctx, st.run.TicketID, "deploy_failed", db.Event{
-				Actor: "gateway", Note: note})
-			g.emit(Event{Kind: "deploy_failed", TicketID: st.run.TicketID})
+			g.appendDeployFailedOnce(ctx, st.run.TicketID, note)
 			g.blockTicket(ctx, st.run.TicketID, note)
 			return
 		default:
@@ -620,11 +621,8 @@ func (g *Gateway) onRunDead(st *runState) {
 			} else {
 				// 非机械部署席死无收口据→deploy_failed 账（失败表 rollback
 				// ≤1：调和器重派一轮，再败→blocked）。T49：期窗去重同 T48。
-				if !g.epochHasKind(ctx, st.run.TicketID, "deploy_failed") {
-					_ = g.database.AppendEvent(ctx, st.run.TicketID, "deploy_failed", db.Event{
-						Actor: "gateway", Note: fmt.Sprintf("部署中席死无据——先核回滚态 run=%s", st.run.RunID)})
-					g.emit(Event{Kind: "deploy_failed", TicketID: st.run.TicketID})
-				}
+				g.appendDeployFailedOnce(ctx, st.run.TicketID,
+					fmt.Sprintf("部署中席死无据——先核回滚态 run=%s", st.run.RunID))
 			}
 		}
 	}

@@ -60,7 +60,7 @@ func TestT4_BatchDeploy(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 }
 
 // TestT4_PipelineClear 流水线清空（无 施工中/设计中）→<5 张待部署也开闸。
@@ -80,5 +80,5 @@ func TestT4_PipelineClear(t *testing.T) {
 	waitFor2(t, 15*time.Second, func() bool {
 		rs, _ := g.DB().RunsForTicket(ctx, "pb0")
 		return len(rs) > 0
-	})
+	}, g)
 }

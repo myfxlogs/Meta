@@ -86,7 +86,7 @@ func TestAdjunct_KillRequeue(t *testing.T) {
 	waitFor2(t, 10*time.Second, func() bool {
 		st, _ := g.DB().RunByToken(ctx, worker.RunToken)
 		return st != nil && st.Dead
-	})
+	}, g)
 	if hasEvent(t, g, "ta1", "ruling") == nil {
 		t.Fatal("ruling 行未落账")
 	}
@@ -112,10 +112,10 @@ func TestAdjunct_Defer(t *testing.T) {
 	waitFor2(t, 10*time.Second, func() bool {
 		tk, _ := g.DB().GetTicket(ctx, "ta2")
 		return tk.DeferCount >= 2
-	})
+	}, g)
 	waitFor2(t, 5*time.Second, func() bool {
 		return hasEvent(t, g, "ta2", "defer_limit") != nil
-	})
+	}, g)
 	tk, _ := g.DB().GetTicket(ctx, "ta2")
 	if tk.DeferCount != 2 {
 		t.Fatalf("defer_count=%d 预期 2（帽尽不再增）", tk.DeferCount)
@@ -341,7 +341,7 @@ func TestAuditGate(t *testing.T) {
 	waitFor2(t, 3*time.Second, func() bool {
 		b, _ := g.DB().GetBudget(ctx, "tg1")
 		return b.Used == 10 && b.UsedTotal == 10
-	})
+	}, g)
 	stream.CloseSend()
 }
 
@@ -381,7 +381,7 @@ func TestVerdictFlow(t *testing.T) {
 	waitFor2(t, 10*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForTicket(ctx, "tv1")
 		return r == nil
-	})
+	}, g)
 	if err := g.DispatchSeat(ctx, "tv1", "审计", specA); err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestVerdictFlow(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 
 	// —— pass 径：另一票 →待部署 ——
 	mkTicketAt(t, g, "tv2", db.PhaseReview)
@@ -418,7 +418,7 @@ func TestVerdictFlow(t *testing.T) {
 	waitFor2(t, 15*time.Second, func() bool {
 		p, _ := g.DB().PhaseOf(ctx, "tv2")
 		return p == db.PhaseToDeploy || p == db.PhaseBlocked
-	})
+	}, g)
 	// T35：audit_pass 边＝相位越过 待审 之证——相位断言已覆，边行不重复核。
 
 	// —— 非法 verdict＋杀审计席 ——
@@ -444,7 +444,7 @@ func TestVerdictFlow(t *testing.T) {
 		}
 		_ = g.DispatchSeat(ctx, "tv3", "审计", specA3)
 		return false
-	})
+	}, g)
 	if arun == nil {
 		t.Fatal("审计席未 claim 进审计中")
 	}
@@ -466,7 +466,7 @@ func TestVerdictFlow(t *testing.T) {
 	waitPhase(t, g, "tv3", db.PhaseAuditing, 10*time.Second)
 	waitFor2(t, 10*time.Second, func() bool {
 		return hasEvent(t, g, "tv3", "seat_dead") != nil
-	})
+	}, g)
 	tk3, _ := g.DB().GetTicket(ctx, "tv3")
 	if tk3.RejectCount != 0 {
 		t.Fatalf("审计席死计了驳回: %d", tk3.RejectCount)
@@ -488,7 +488,7 @@ func TestVerdictFlow(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 }
 
 // TestRetroVerdict 锚 13：待审票回翻——audit_start＋audit_pass 两行
@@ -578,7 +578,7 @@ func TestInject_PerRole(t *testing.T) {
 	waitFor2(t, 15*time.Second, func() bool {
 		p, _ := g.DB().PhaseOf(ctx, "tdr")
 		return p == db.PhaseWorking || p == db.PhaseAssigned
-	})
+	}, g)
 	waitFile(t, filepath.Join(dir, "run", "inject", "tdr-施工.md"), 3*time.Second)
 	// 另一角色注入（直调组装径——审计派发闸限 待审，注入文件径独立）。
 	tk, _ := g.DB().GetTicket(ctx, "tdr")
@@ -622,11 +622,20 @@ func waitFor2(t *testing.T, d time.Duration, ok func() bool, gw ...*Gateway) {
 			}
 		}
 	}
+	// 订阅＋轮询双醒：事件到即醒（快），轮询捕「非事件变真」条件
+	// （DB 直写/计时器/外部进程——无 emit 则订阅道永远静，纯订阅必
+	// 饿死到截止线）。
+	tick := time.NewTicker(15 * time.Millisecond)
+	defer tick.Stop()
 	for {
 		select {
 		case <-deadline:
 			t.Fatal("有界等待超时")
 		case <-sub:
+			if ok() {
+				return
+			}
+		case <-tick.C:
 			if ok() {
 				return
 			}

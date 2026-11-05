@@ -287,7 +287,7 @@ func TestT26_StallKillDeploySeat(t *testing.T) {
 			}
 		}
 		return false
-	})
+	}, g)
 	// T35：Spawn 直建径无 Wait 协程——SIGKILL 后僵行 kill(pid,0) 恒活；
 	// 处决证以 seat_dead/stall_kill 账（上环已证）为准，进程表不参证。
 	// 处决 2 次后止杀：再响只报不杀（防循环）。
@@ -338,7 +338,7 @@ func TestT30_CliDriveResetByRuling(t *testing.T) {
 		}
 	}
 	// 截断判以 run 总数为凭（死账注册有滞后窗——死数对表会误报）。
-	waitFor2(t, 5*time.Second, func() bool { return deadCount() >= 3 })
+	waitFor2(t, 5*time.Second, func() bool { return deadCount() >= 3 }, g)
 	runs0, _ := g.DB().RunsForTicket(ctx, "tr30")
 	g.cliDriveSpawn(ctx, req, spec) // 截断
 	runs1, _ := g.DB().RunsForTicket(ctx, "tr30")

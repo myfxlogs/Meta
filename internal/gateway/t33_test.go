@@ -90,7 +90,7 @@ func TestT33_DeployFailedWakesCEO(t *testing.T) {
 	waitFor2(t, 15*time.Second, func() bool {
 		r, _ := g.DB().ActiveRunForRole(ctx, "CEO")
 		return r != nil && r.Provenance == "system_event"
-	})
+	}, g)
 	// 杀掉化身→D-22 比对不炸（未派发事件零计数早退）。
 	if r, _ := g.DB().ActiveRunForRole(ctx, "CEO"); r != nil {
 		g.killRun(g.bindRun(r))

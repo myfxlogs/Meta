@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -397,6 +398,22 @@ func (g *Gateway) epochHasKind(ctx context.Context, ticketID, kind string) bool 
 	return false
 }
 
+// deployFailMu：check-then-append 原子化——两径并发同窗双写是 T49 竞窗
+// 实证（隔离单测 2/3 红），互斥串行后第二径必见第一径账。
+var deployFailMu sync.Mutex
+
+// appendDeployFailedOnce 期窗恰一条 deploy_failed（查+写同临界）。
+func (g *Gateway) appendDeployFailedOnce(ctx context.Context, ticketID, note string) {
+	deployFailMu.Lock()
+	defer deployFailMu.Unlock()
+	if g.epochHasKind(ctx, ticketID, "deploy_failed") {
+		return
+	}
+	_ = g.database.AppendEvent(ctx, ticketID, "deploy_failed", db.Event{
+		Actor: "gateway", Note: note})
+	g.emit(Event{Kind: "deploy_failed", TicketID: ticketID})
+}
+
 // deployDyingTicketClose 部署中死席收口判（0044 排干语义并入调和器）：
 // 哨兵 done／四步账齐／态判绿→deploy_done；failed 哨兵在盘→失败表 deploy
 // 路径照走。返回 true＝票已收口不再走派径。
@@ -425,11 +442,13 @@ func (g *Gateway) deployDyingTicketClose(ctx context.Context, t *db.Ticket, run 
 		// 每期窗重放则 resume 后毫秒级第二轮必超 cap 回 blocked（0050
 		// 四放行全灭实证）。新死席照样记（期窗重置后旧账不抑制）。
 		// T49：attach/reconcile 同闸共用 epochHasKind。
-		if g.epochHasKind(ctx, t.ID, "deploy_failed") {
+		deployFailMu.Lock()
+		had := g.epochHasKind(ctx, t.ID, "deploy_failed")
+		deployFailMu.Unlock()
+		if had {
 			return false // 期窗已有账——零追加
 		}
-		_ = g.database.AppendEvent(ctx, t.ID, "deploy_failed", db.Event{
-			Actor: "gateway", Note: "席死无终哨兵无据——先核回滚态"})
+		g.appendDeployFailedOnce(ctx, t.ID, "席死无终哨兵无据——先核回滚态")
 	}
 	return false
 }

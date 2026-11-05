@@ -28,7 +28,7 @@ func TestT46_ResumeNoInstantReblock(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	g.DB().SetClock(func() time.Time { return past })
 	run := spawnSeat(t, g, "tr46", "施工", "exitcode")
-	waitFor2(t, 5*time.Second, func() bool { return !processAlive(run.PID) })
+	waitFor2(t, 5*time.Second, func() bool { return !processAlive(run.PID) }, g)
 	_ = g.DB().MarkDead(ctx, run.RunID)
 	_ = g.DB().AppendEvent(ctx, "tr46", "seat_dead", db.Event{Actor: "gateway"})
 	_ = g.DB().AppendEvent(ctx, "tr46", "seat_dead", db.Event{Actor: "gateway"})
